@@ -13,9 +13,9 @@ Repeat these ReShade steps for each game you want to enable in ReShade.
 
 1. Extract the complete ReShade VR UI Add-on ZIP.
 2. Close games and VR runtime software, including SteamVR.
-3. Double-click `Install.cmd`.
+3. Right-click `Install.cmd` and select **Run as administrator**.
 
-The package is installed once for your Windows account. It supports compatible 64-bit D3D11 and D3D12 games through native OpenXR or SteamVR/OpenVR. Vulkan and OpenGL are not currently supported.
+The runtime files and OpenXR registration are installed machine-wide so SteamVR can enable or disable the layer through its elevated API-layer control. The loader startup entry, preferences, and logs remain specific to your Windows account. Compatible 64-bit D3D11 and D3D12 games are supported through native OpenXR or SteamVR/OpenVR. Vulkan and OpenGL are not currently supported.
 
 ## SteamVR And OpenVR Games
 
@@ -45,10 +45,10 @@ Do not add a game-local ReShade proxy. The loader injects the exact DLL referenc
 
 ## Update
 
-Extract the new release and double-click `Install.cmd` again.
+Extract the new release, then right-click `Install.cmd` and select **Run as administrator** again. The installer preserves the layer's existing On or Off state.
 
 ## Uninstall
 
-Double-click `Uninstall.cmd`. This stops the central loader, removes its per-user startup entry, removes the add-on's OpenXR registration and installed runtime files, and keeps preferences and logs. It does not change official ReShade, games, effects, presets, or game configuration.
+Right-click `Uninstall.cmd` and select **Run as administrator**. This stops the central loader, removes its per-user startup entry, removes the add-on's OpenXR registration and installed runtime files, and keeps preferences and logs. It does not change official ReShade, games, effects, presets, or game configuration.
 
 Run `Uninstall.cmd` when you no longer use the add-on, including when uninstalling ReShade. If ReShade is removed first, the add-on remains registered but stays inactive; running `Uninstall.cmd` removes that remaining registration completely.

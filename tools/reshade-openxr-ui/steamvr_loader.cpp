@@ -41,9 +41,24 @@ namespace
 		return length > 0 && length < std::size(path) ? std::filesystem::path(path, path + length) : std::filesystem::path();
 	}
 
+	std::filesystem::path user_data_directory()
+	{
+		wchar_t path[4096] = {};
+		const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", path, static_cast<DWORD>(std::size(path)));
+		if (length == 0 || length >= std::size(path))
+			return {};
+		const std::filesystem::path directory = std::filesystem::path(path, path + length) / L"ReShade VR UI Add-on";
+		std::error_code error;
+		std::filesystem::create_directories(directory, error);
+		return error ? std::filesystem::path() : directory;
+	}
+
 	void log_message(const std::wstring &message)
 	{
-		std::wofstream stream(module_directory() / L"ReShade-VR-Loader.log", std::ios::app);
+		const std::filesystem::path directory = user_data_directory();
+		if (directory.empty())
+			return;
+		std::wofstream stream(directory / L"ReShade-VR-Loader.log", std::ios::app);
 		if (!stream)
 			return;
 		SYSTEMTIME time = {};

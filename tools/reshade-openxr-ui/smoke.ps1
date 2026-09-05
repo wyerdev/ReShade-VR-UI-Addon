@@ -76,8 +76,8 @@ try {
 	New-Item -ItemType Directory -Path $centralLayerDirectory | Out-Null
 	Copy-Item -LiteralPath $sourceDll -Destination $testDll
 	$localOpenXRUILayer = Get-Content -LiteralPath $sourceManifest -Raw | ConvertFrom-Json
-	$localOpenXRUILayer.api_layer.name = 'ReShade VR UI Add-on smoke'
-	$localOpenXRUILayer.api_layer.disable_environment = 'DISABLE_ReShade_VR_UI_Addon_smoke'
+	$localOpenXRUILayer.api_layer.name = 'XR_APILAYER_reshade_vr_ui_smoke'
+	$localOpenXRUILayer.api_layer.disable_environment = 'DISABLE_XR_APILAYER_reshade_vr_ui_smoke'
 	$localOpenXRUILayer | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $testManifest -Encoding UTF8
 	$localReshadeLayer = Get-Content -LiteralPath $existingReshadeManifest -Raw | ConvertFrom-Json
 	$localReshadeLayer.api_layer.name = 'XR_APILAYER_reshade_local_ui_smoke'
@@ -86,7 +86,7 @@ try {
 	$env:XR_RUNTIME_JSON = $runtimeManifest
 	$env:LOCALAPPDATA = $testLocalAppData
 	$env:XR_API_LAYER_PATH = $centralLayerDirectory + ';' + $layerDirectory
-	$env:XR_ENABLE_API_LAYERS = 'ReShade VR UI Add-on smoke;XR_APILAYER_reshade_local_ui_smoke'
+	$env:XR_ENABLE_API_LAYERS = 'XR_APILAYER_reshade_vr_ui_smoke;XR_APILAYER_reshade_local_ui_smoke'
 	$env:DISABLE_XR_APILAYER_reshade_1 = '1'
 	$env:DISABLE_ReShade_VR_UI_Addon = '1'
 	$env:XR_PROBE_FRAMES = $Frames.ToString()
@@ -161,14 +161,14 @@ try {
 	Copy-Item -LiteralPath $sourceDll -Destination $negativeDll
 	Copy-Item -LiteralPath $probe, $loader, $runtimeDll -Destination $plainProbeDirectory
 	$negativeOpenXRUILayer = Get-Content -LiteralPath $sourceManifest -Raw | ConvertFrom-Json
-	$negativeOpenXRUILayer.api_layer.name = 'ReShade VR UI Add-on negative smoke'
-	$negativeOpenXRUILayer.api_layer.disable_environment = 'DISABLE_ReShade_VR_UI_Addon_negative_smoke'
+	$negativeOpenXRUILayer.api_layer.name = 'XR_APILAYER_reshade_vr_ui_negative_smoke'
+	$negativeOpenXRUILayer.api_layer.disable_environment = 'DISABLE_XR_APILAYER_reshade_vr_ui_negative_smoke'
 	$negativeOpenXRUILayer | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $negativeManifest -Encoding UTF8
 
 	$env:LOCALAPPDATA = $negativeLocalAppData
 	$env:XR_RUNTIME_JSON = $runtimeManifest
 	$env:XR_API_LAYER_PATH = $negativeLayerDirectory
-	$env:XR_ENABLE_API_LAYERS = 'ReShade VR UI Add-on negative smoke'
+	$env:XR_ENABLE_API_LAYERS = 'XR_APILAYER_reshade_vr_ui_negative_smoke'
 	$env:DISABLE_XR_APILAYER_reshade_1 = '1'
 	$env:DISABLE_ReShade_VR_UI_Addon = '1'
 	$env:XR_PROBE_FRAMES = $Frames.ToString()

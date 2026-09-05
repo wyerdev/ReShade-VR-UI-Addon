@@ -52,9 +52,10 @@ uninstall.bat
 `build.bat` sets up the local ReShade dependency when needed, builds the
 add-ons, and creates the installable package. `clean.bat` removes the generated
 build output, then rebuilds and recreates the package; it assumes the ReShade
-dependency checkout has already been set up. `install.bat` runs the generated
-package installer. `uninstall.bat` removes the installed current-user
-registration and add-on files while preserving preferences and logs.
+dependency checkout has already been set up. Run `install.bat` and
+`uninstall.bat` as administrator. They manage the protected machine-wide
+OpenXR registration and runtime files while preserving per-user preferences
+and logs.
 
 Build and package the plugin from the repository root:
 

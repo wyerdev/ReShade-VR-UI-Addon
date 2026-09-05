@@ -6,10 +6,10 @@ This README is for developers. See [INSTALL.md](INSTALL.md) to install a prebuil
 
 ## Install And Load Model
 
-The add-on is installed once for the current Windows user under:
+The protected runtime files are installed machine-wide under:
 
 ```text
-%LOCALAPPDATA%\ReShade VR UI Add-on\
+%ProgramFiles%\ReShade VR UI Add-on\
 ├── ReShade-OpenXR-UI.addon64
 ├── ReShade-SteamVR-UI.addon64
 ├── ReShade-VR-Loader.exe
@@ -17,7 +17,7 @@ The add-on is installed once for the current Windows user under:
 	└── ReShade-OpenXR-UI-Layer.json
 ```
 
-Preferences are stored alongside the runtime files and are preserved by the uninstaller:
+Preferences and logs remain per-user and are preserved by the uninstaller:
 
 ```text
 %LOCALAPPDATA%\ReShade VR UI Add-on\settings.ini
@@ -26,14 +26,14 @@ Preferences are stored alongside the runtime files and are preserved by the unin
 %LOCALAPPDATA%\ReShade VR UI Add-on\ReShade-VR-Loader.log
 ```
 
-`Install.cmd` creates this enabled current-user OpenXR API-layer registration:
+`Install.cmd` creates this enabled machine-wide OpenXR API-layer registration:
 
 ```text
 Key:
-HKEY_CURRENT_USER\Software\Khronos\OpenXR\1\ApiLayers\Implicit
+HKEY_LOCAL_MACHINE\Software\Khronos\OpenXR\1\ApiLayers\Implicit
 
 Value name:
-%LOCALAPPDATA%\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer.json
+%ProgramFiles%\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer.json
 
 Type:
 REG_DWORD
@@ -42,9 +42,11 @@ Data:
 0
 ```
 
+The manifest's internal `api_layer.name`, `XR_APILAYER_reshade_vr_ui`, is a stable SteamVR-facing identifier and must not be renamed. SteamVR displays `api_layer.description` but passes `api_layer.name` to its enable/disable helper; changing the identifier can leave the visible toggle unable to update the layer state. The normal build rejects a renamed identifier.
+
 Data `0` means the layer is enabled. When a 64-bit OpenXR application starts:
 
-1. The Windows OpenXR loader reads the current-user implicit API-layer registration.
+1. The Windows OpenXR loader reads the machine-wide implicit API-layer registration.
 2. The loader reads `ReShade-OpenXR-UI-Layer.json`.
 3. The manifest resolves `..\ReShade-OpenXR-UI.addon64` relative to its `openxr-layers` directory.
 4. The loader loads the DLL as an OpenXR API layer.
@@ -59,12 +61,12 @@ The DLL has two simultaneous roles:
 - **OpenXR API layer:** creates and submits the headset-visible UI.
 - **ReShade add-on:** reads and changes techniques, parameters, ordering, and presets through ReShade's public API.
 
-Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. The loader deliberately reuses official ReShade's central application allowlist rather than maintaining another list. Install this package once and it becomes available to compatible 64-bit D3D11 and D3D12 OpenXR or OpenVR games enabled through official ReShade.
+Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. The loader deliberately reuses official ReShade's central application allowlist rather than maintaining another list. Install this package once as administrator and it becomes available to compatible 64-bit D3D11 and D3D12 OpenXR or OpenVR games enabled through official ReShade.
 
-Run the packaged installer from the repository root after closing running OpenXR applications:
+Run the packaged installer as administrator from the repository root after closing running OpenXR applications:
 
 ```powershell
-.\build\reshade-openxr-ui-release\ReShade-OpenXR-UI\Install.cmd
+.\build\reshade-openxr-ui-release\ReShade-VR-UI-Addon\Install.cmd
 ```
 
 ## Compatibility
@@ -96,8 +98,6 @@ For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingV
 - Temporary disable and restore for all techniques
 - Persistent UI preferences under `%LOCALAPPDATA%\ReShade VR UI Add-on`
 
-%LOCALAPPDATA%\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer.json
-
 The project has four main implementation boundaries:
 
 - `openxr_ui_layer.cpp` owns OpenXR negotiation, sessions, controller actions, D3D11/D3D12 swapchain resources, and quad submission.
@@ -111,7 +111,7 @@ ReShade is the source of truth for live technique order, enabled state, paramete
 
 The renderer also receives whether the add-on has observed a windowless ReShade VR effect runtime. It reports that state separately from an initialized runtime with an empty technique inventory. The former is a ReShade graphics-initialization failure; only the latter points toward shader search paths or effect installation.
 
-The OpenXR manifest and DLL are installed once for the current Windows user. The layer attempts to register the same DLL through ReShade's full add-on API after the OpenXR layer chain is created. Controller actions, the swapchain, and the headset UI are initialized only when that registration succeeds. Compatible ReShade OpenXR games therefore activate automatically, while unrelated OpenXR applications remain unaffected. No per-game add-on allowlist is maintained.
+The OpenXR manifest and DLL are installed once in a protected machine-wide location. The layer attempts to register the same DLL through ReShade's full add-on API after the OpenXR layer chain is created. Controller actions, the swapchain, and the headset UI are initialized only when that registration succeeds. Compatible ReShade OpenXR games therefore activate automatically, while unrelated OpenXR applications remain unaffected. No per-game add-on allowlist is maintained.
 
 ## Requirements
 
@@ -226,9 +226,10 @@ The package script copies `Install.cmd`, `Uninstall.cmd`, and `INSTALL.md` from
 this directory, plus `LICENSE` and `THIRD-PARTY-NOTICES.txt` from the
 repository root, into the release root. The readable command scripts install
 or remove both add-ons, the loader, and the manifest under
-`%LOCALAPPDATA%\ReShade VR UI Add-on`; they add or remove the current-user OpenXR
-registration and loader startup entry. They do not require administrator
-access and preserve preferences and logs during uninstall.
+`%ProgramFiles%\ReShade VR UI Add-on`; they add or remove the machine-wide
+OpenXR registration and current-user loader startup entry. They require
+administrator access and preserve preferences and logs under
+`%LOCALAPPDATA%\ReShade VR UI Add-on` during uninstall.
 
 Do not ship the renderer test, PDB files, import libraries, object files, simulator captures, or ReShade itself.
 

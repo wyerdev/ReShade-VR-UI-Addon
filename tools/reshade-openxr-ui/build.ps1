@@ -5,6 +5,23 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Start-IsolatedLoader {
+	param(
+		[string]$FilePath,
+		[string[]]$ArgumentList,
+		[string]$LocalAppData
+	)
+
+	$savedLocalAppData = $env:LOCALAPPDATA
+	try {
+		$env:LOCALAPPDATA = $LocalAppData
+		Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -PassThru
+	}
+	finally {
+		$env:LOCALAPPDATA = $savedLocalAppData
+	}
+}
+
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 if ([System.IO.Path]::IsPathRooted($ReShadePath)) {
 	$reshadeRoot = [System.IO.Path]::GetFullPath($ReShadePath)
@@ -53,6 +70,11 @@ $loaderSource = Join-Path $PSScriptRoot 'steamvr_loader.cpp'
 $loaderTestTargetSource = Join-Path $PSScriptRoot 'steamvr_loader_test_target.cpp'
 $openvrOverlayProbeSource = Join-Path $PSScriptRoot 'openvr_overlay_probe.cpp'
 $manifestSource = Join-Path $PSScriptRoot 'ReShade-OpenXR-UI-Layer.json'
+$expectedLayerName = 'XR_APILAYER_reshade_vr_ui'
+$manifestDefinition = Get-Content -LiteralPath $manifestSource -Raw | ConvertFrom-Json
+if ($manifestDefinition.api_layer.name -cne $expectedLayerName) {
+	throw "OpenXR API-layer name '$expectedLayerName' is a stable SteamVR identifier and must not be renamed."
+}
 $include = Join-Path $reshadeRoot 'include'
 $openxrInclude = Join-Path $reshadeRoot 'deps\openxr\include'
 $imgui = Join-Path $reshadeRoot 'deps\imgui'
@@ -131,7 +153,7 @@ New-Item -ItemType Directory -Path $loaderTestDirectory -Force | Out-Null
 Set-Content -LiteralPath $loaderTestAllowlist -Value "Apps=$loaderTestTarget" -Encoding UTF8
 Copy-Item -LiteralPath $loaderTestMarker -Destination $loaderTestOpenVRMarker
 Copy-Item -LiteralPath $loaderTestMarker -Destination $loaderTestOpenXRMarker
-$loaderProcess = Start-Process -FilePath $loader -ArgumentList @('--test', "`"$loaderTestAllowlist`"", "`"$output`"", "`"$openvrOutput`"", '--once') -PassThru
+$loaderProcess = Start-IsolatedLoader -FilePath $loader -ArgumentList @('--test', "`"$loaderTestAllowlist`"", "`"$output`"", "`"$openvrOutput`"", '--once') -LocalAppData $loaderTestDirectory
 $loaderTestStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $targetProcess = Start-Process -FilePath $loaderTestTarget -ArgumentList @('ReShade-OpenXR-UI.addon64', 'ReShade-SteamVR-UI.addon64', "`"$loaderTestOpenVRMarker`"") -PassThru
 if (-not $targetProcess.WaitForExit(10000) -or $targetProcess.ExitCode -ne 0) {
@@ -145,7 +167,7 @@ if (-not $loaderProcess.WaitForExit(10000) -or $loaderProcess.ExitCode -ne 0) {
 }
 Write-Host "Central allowlist loader injected both modules after the synthetic target selected OpenVR ($($loaderTestStopwatch.ElapsedMilliseconds) ms observed)."
 
-$loaderProcess = Start-Process -FilePath $loader -ArgumentList @('--test', "`"$loaderTestAllowlist`"", "`"$output`"", "`"$openvrOutput`"", '--once') -PassThru
+$loaderProcess = Start-IsolatedLoader -FilePath $loader -ArgumentList @('--test', "`"$loaderTestAllowlist`"", "`"$output`"", "`"$openvrOutput`"", '--once') -LocalAppData $loaderTestDirectory
 $targetProcess = Start-Process -FilePath $loaderTestTarget -ArgumentList @('ReShade-OpenXR-UI.addon64', 'ReShade-SteamVR-UI.addon64', "`"$loaderTestOpenXRMarker`"", '--expect-absent') -PassThru
 if (-not $targetProcess.WaitForExit(10000) -or $targetProcess.ExitCode -ne 0) {
 	if (-not $targetProcess.HasExited) { $targetProcess.Kill() }
@@ -173,7 +195,7 @@ if (Test-Path -LiteralPath $centralReShade -PathType Leaf) {
 	Copy-Item -LiteralPath $loaderTestMarker -Destination $centralTestOpenVRMarker
 	Set-Content -LiteralPath $centralTestAllowlist -Value "Apps=$centralTestTarget" -Encoding UTF8
 	Set-Content -LiteralPath $centralTestConfig -Value "[GENERAL]`r`nPerformanceMode=0" -Encoding ASCII
-	$centralLoaderProcess = Start-Process -FilePath $loader -ArgumentList @('--test', "`"$centralTestAllowlist`"", "`"$centralReShade`"", "`"$openvrOutput`"", '--once') -PassThru
+	$centralLoaderProcess = Start-IsolatedLoader -FilePath $loader -ArgumentList @('--test', "`"$centralTestAllowlist`"", "`"$centralReShade`"", "`"$openvrOutput`"", '--once') -LocalAppData $centralTestDirectory
 	$centralTargetProcess = Start-Process -FilePath $centralTestTarget -ArgumentList @('ReShade64.dll', 'ReShade-SteamVR-UI.addon64', "`"$centralTestOpenVRMarker`"") -PassThru
 	if (-not $centralTargetProcess.WaitForExit(10000) -or $centralTargetProcess.ExitCode -ne 0) {
 		if (-not $centralTargetProcess.HasExited) { $centralTargetProcess.Kill() }

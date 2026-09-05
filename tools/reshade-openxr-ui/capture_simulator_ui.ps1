@@ -218,8 +218,8 @@ try {
 	Copy-Item -LiteralPath $sourceDll -Destination $testDll
 
 	$openXRUILayer = Get-Content -LiteralPath $sourceManifest -Raw | ConvertFrom-Json
-	$openXRUILayer.api_layer.name = 'ReShade VR UI Add-on capture'
-	$openXRUILayer.api_layer.disable_environment = 'DISABLE_ReShade_VR_UI_Addon_capture'
+	$openXRUILayer.api_layer.name = 'XR_APILAYER_reshade_vr_ui_capture'
+	$openXRUILayer.api_layer.disable_environment = 'DISABLE_XR_APILAYER_reshade_vr_ui_capture'
 	$openXRUILayer | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $testManifest -Encoding UTF8
 	$reshadeLayer = Get-Content -LiteralPath $existingReshadeManifest -Raw | ConvertFrom-Json
 	$reshadeLayer.api_layer.name = 'XR_APILAYER_reshade_local_ui_capture'
@@ -238,7 +238,7 @@ try {
 	$env:LOCALAPPDATA = $testLocalAppData
 	$env:XR_RUNTIME_JSON = $runtimeManifest
 	$env:XR_API_LAYER_PATH = $layerDirectory
-	$env:XR_ENABLE_API_LAYERS = 'ReShade VR UI Add-on capture;XR_APILAYER_reshade_local_ui_capture'
+	$env:XR_ENABLE_API_LAYERS = 'XR_APILAYER_reshade_vr_ui_capture;XR_APILAYER_reshade_local_ui_capture'
 	$env:DISABLE_XR_APILAYER_reshade_1 = '1'
 	$env:DISABLE_ReShade_VR_UI_Addon = '1'
 	$env:XR_PROBE_FRAMES = $probeFrames.ToString()
