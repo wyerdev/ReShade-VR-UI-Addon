@@ -164,7 +164,7 @@ If those conditions are met, stop and document the evidence before editing `sour
 Before Vulkan edits, run:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-openxr-ui.ps1
+build.bat
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\smoke.ps1 -Frames 30
 ```
 

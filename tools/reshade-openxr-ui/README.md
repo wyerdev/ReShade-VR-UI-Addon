@@ -146,19 +146,31 @@ Updating ReShade may change `RESHADE_API_VERSION`. Treat that as a compatibility
 
 ## Build
 
-Run from this repository root:
+Run the standard build and package flow from the repository root:
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-openxr-ui.ps1
+```bat
+build.bat
 ```
 
-To use a separately cloned ReShade checkout:
+For a clean rebuild and package:
+
+```bat
+clean.bat
+```
+
+`build.bat` sets up the local ReShade dependency when needed. `clean.bat`
+assumes the dependency checkout already exists and removes the generated build
+output before rebuilding. Both commands package the validated build.
+
+For direct PowerShell control or a separately cloned ReShade checkout:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-openxr-ui.ps1 -ReShadePath C:\path\to\reshade
 ```
 
-The build compiles the add-on and runs the D3D11 WARP interaction suite. Outputs are written to:
+The PowerShell wrapper builds the add-ons but does not package them; run
+`tools\reshade-openxr-ui\package.ps1` separately when needed. The build runs
+the D3D11 WARP interaction suite. Outputs are written to:
 
 ```text
 build\reshade-openxr-ui\ReShade-OpenXR-UI.addon64
@@ -174,7 +186,7 @@ Run these checks from the standalone repository root, in order. Replace the
 simulator path with the location of your external OpenXR-Simulator bundle:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-openxr-ui.ps1
+build.bat
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\verify.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\smoke.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test -Frames 30
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test -Frames 1600

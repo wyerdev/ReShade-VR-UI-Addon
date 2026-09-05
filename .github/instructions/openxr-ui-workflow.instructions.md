@@ -17,13 +17,14 @@ Run checked-in scripts from the standalone repository root in a clean Windows Po
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup-reshade.ps1 -Action Update
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-openxr-ui.ps1
+build.bat
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\verify.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\smoke.ps1 -TestRoot <path-to-OpenXR-Simulator-test> -Frames 30
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot <path-to-OpenXR-Simulator-test> -Frames 1600
 ```
 
-- `clean-build.ps1` removes only the standalone repository's generated `build\` directory before rebuilding.
+- `build.bat` sets up the local ReShade dependency when needed, builds the add-ons, and creates the release package.
+- `clean.bat` removes only the standalone repository's generated `build\` directory before rebuilding and packaging; it assumes the dependency checkout already exists.
 - If a reused terminal no longer resolves PowerShell commands or changes parsing, start a fresh shell and invoke the checked-in `.ps1` directly.
 - In a VS Code task, pass `-NoProfile`, `-ExecutionPolicy`, `Bypass`, `-File`, the script path, and script arguments as separate arguments.
 - Use a unique task label when command or arguments differ from an existing task.
@@ -46,7 +47,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-u
 
 ## Required Validation Order
 
-1. Run `build-openxr-ui.ps1`; require the private renderer and central-loader tests to pass.
+1. Run `build.bat`; require the private renderer and central-loader tests to pass.
 2. Run `smoke.ps1 -Frames 30`; require D3D11 and D3D12 to complete 30/30 frames with zero failures and zero graphics-validation errors.
 3. For layout, text, sizing, or visibility changes, run `capture_simulator_ui.ps1 -Frames 1600` and inspect every screenshot for both APIs.
 4. Run editor diagnostics and `git diff --check`.

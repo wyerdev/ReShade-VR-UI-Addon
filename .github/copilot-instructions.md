@@ -24,7 +24,7 @@
 
 - Use `setup-reshade.ps1 -Action Setup` to clone the latest ReShade source and initialize submodules.
 - Use `setup-reshade.ps1 -Action Update` to fetch and fast-forward the checkout's upstream default branch.
-- Use `build-openxr-ui.ps1` from the repository root for the normal build.
+- Use `build.bat` from the repository root for the normal build and package flow.
 - Use `-ReShadePath` when building against an external ReShade checkout.
 - Do not modify the external ReShade checkout to implement plugin behavior.
 

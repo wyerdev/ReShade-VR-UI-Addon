@@ -74,19 +74,27 @@ The original `C:\ProgramData\ReShade\ReShade64.dll` version 6.8.0.2158 was the l
 
 ## Build
 
-From the standalone repository root:
+From the standalone repository root, the standard build command is:
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-openxr-ui.ps1
+```bat
+build.bat
 ```
 
-For a clean rebuild:
+For a clean rebuild and package:
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\clean-build.ps1
+```bat
+clean.bat
 ```
 
-The clean-build script removes only `build\reshade-openxr-ui`, including simulator captures stored there, then runs the normal build and enforced D3D11 WARP interaction test.
+`build.bat` sets up the local ReShade dependency when needed, builds the
+add-ons, and creates the release package. `clean.bat` removes only
+`build\reshade-openxr-ui`, including simulator captures stored there, then runs
+the normal build, package step, and enforced D3D11 WARP interaction test. The
+clean command assumes the ReShade dependency checkout already exists.
+
+For direct PowerShell control, use `build-openxr-ui.ps1` or
+`clean-build.ps1`; those wrappers build the add-ons but leave packaging to
+`package.ps1`.
 
 Output:
 
@@ -129,11 +137,12 @@ Captures are written under `build\reshade-openxr-ui\simulator-captures\d3d11` an
 
 "Global" means one central installation for the current Windows user. It is not a machine-wide installation and does not require administrator access. It does not replace, uninstall, or modify the official ReShade files under `C:\ProgramData\ReShade`, and it does not copy files into individual game directories.
 
-The supported developer flow starts from a validated build and creates the same layout shipped to users:
+The supported developer flow starts from the repository root and creates the
+same layout shipped to users:
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\package.ps1
-.\build\reshade-openxr-ui-release\ReShade-VR-UI-Addon\Install.cmd
+```bat
+build.bat
+install.bat
 ```
 
 `package.ps1` creates both `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon.zip` and an unpacked `ReShade-VR-UI-Addon` directory. `Install.cmd` must run from that complete release layout because it expects the DLL beside the script and the manifest under `openxr-layers`.
@@ -172,7 +181,13 @@ reg.exe query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "ReShade V
 
 The registry query must report `REG_DWORD    0x0`. This registration is independent of official ReShade's machine-wide OpenXR registration; both are required for the add-on to activate in a ReShade-enabled game.
 
-To remove only this add-on, run `Uninstall.cmd` from the extracted release or source directory. It stops the loader, removes and verifies both HKCU registrations, and removes both frontend DLLs, the loader, and the manifest. It does not change official ReShade, game files, effects, presets, ReShade configuration, or logs. It intentionally preserves preferences and `ReShade-VR-Loader.log`.
+To remove only this add-on from the repository installation, run
+`uninstall.bat`. For an extracted release, run `Uninstall.cmd` from the
+release directory. Both paths stop the loader, remove and verify both HKCU
+registrations, and remove both frontend DLLs, the loader, and the manifest.
+They do not change official ReShade, game files, effects, presets, ReShade
+configuration, or logs. They intentionally preserve preferences and
+`ReShade-VR-Loader.log`.
 
 ## Headset Test
 

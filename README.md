@@ -44,31 +44,46 @@ The root batch files are the standard build and installation entry points:
 
 ```bat
 build.bat
+clean.bat
 install.bat
+uninstall.bat
 ```
 
 `build.bat` sets up the local ReShade dependency when needed, builds the
-add-ons, and creates the installable package. `clean.bat` performs a clean
-rebuild and recreates the package. `uninstall.bat` removes the installed
-current-user registration and add-on files while preserving preferences and
-logs.
+add-ons, and creates the installable package. `clean.bat` removes the generated
+build output, then rebuilds and recreates the package; it assumes the ReShade
+dependency checkout has already been set up. `install.bat` runs the generated
+package installer. `uninstall.bat` removes the installed current-user
+registration and add-on files while preserving preferences and logs.
 
-Build the plugin from the repository root:
+Build and package the plugin from the repository root:
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-openxr-ui.ps1
+```bat
+build.bat
 ```
 
-The wrapper builds against `.deps\reshade` and writes generated files under
-`build\reshade-openxr-ui`. The build runs the private renderer interaction
-test and the central loader test. To build ReShade itself, use the build
-instructions and scripts inside the separate `.deps\reshade` checkout first.
+The wrapper builds against `.deps\reshade`, packages the release, and writes
+generated files under `build\reshade-openxr-ui`. The build runs the private
+renderer interaction test and the central loader test. To build ReShade itself,
+use the build instructions and scripts inside the separate `.deps\reshade`
+checkout first.
 
-The direct plugin command is also available:
+For a clean rebuild and package:
+
+```bat
+clean.bat
+```
+
+The direct PowerShell build wrapper is also available for advanced use and
+custom output paths:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\build.ps1 -ReShadePath .\.deps\reshade
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-openxr-ui.ps1 -ReShadePath C:\path\to\reshade
 ```
+
+That PowerShell wrapper builds the add-ons but does not create the release
+package. Use `tools\reshade-openxr-ui\package.ps1` afterward when packaging is
+needed.
 
 See [tools/reshade-openxr-ui/README.md](tools/reshade-openxr-ui/README.md) for
 plugin architecture, release packaging, and simulator validation details.
