@@ -1,0 +1,28 @@
+# ReShade build dependency
+/.deps/reshade/
+/.deps/openxr-simulator-test/
+
+# Generated build and release output
+/build/
+*.obj
+*.pdb
+*.lib
+*.exp
+*.ilk
+
+# Generated simulator and integration state
+/tools/reshade-openxr-ui/simulator-captures/
+/tools/reshade-openxr-ui/loader-test/
+/tools/reshade-openxr-ui/central-reshade-loader-test/
+/tools/reshade-openxr-ui-release/
+/tools/openxr-hubris/
+
+# Local dependency snapshot is intentionally reviewable when updated
+# Keep RESHADE-dependency.md tracked; it records the source used for a build.
+
+# Visual Studio and local editor state
+.vs/
+.vscode/
+*.suo
+*.user
+*.VC.db

@@ -1,0 +1,205 @@
+#define ImTextureID ImU64
+#include <imgui.h>
+#include <openvr.h>
+#include <reshade.hpp>
+
+#include "vr_ui_state.hpp"
+
+#include <Windows.h>
+
+#include <cmath>
+#include <cstdio>
+
+namespace
+{
+	bool s_show_hidden = false;
+	bool s_favourites_only = false;
+	bool s_open_logged = false;
+	char s_save_as_name[128] = {};
+
+	void draw_parameter_controls(const openxr_ui::technique_snapshot &snapshot, const openxr_ui::technique &technique)
+	{
+		for (const openxr_ui::parameter &parameter : snapshot.parameters)
+		{
+			if (parameter.effect_name != technique.effect_name)
+				continue;
+
+			ImGui::PushID(reinterpret_cast<const void *>(static_cast<uintptr_t>(parameter.id)));
+			for (uint32_t component = 0; component < parameter.values.size(); ++component)
+			{
+				ImGui::PushID(static_cast<int>(component));
+				char label[256];
+				if (parameter.values.size() == 1)
+					std::snprintf(label, sizeof(label), "%s", parameter.name.c_str());
+				else
+					std::snprintf(label, sizeof(label), "%s [%u]", parameter.name.c_str(), component + 1);
+
+				double value = parameter.values[component];
+				bool changed = false;
+				if (parameter.type == openxr_ui::parameter_type::boolean)
+				{
+					bool enabled = value != 0.0;
+					if (ImGui::Checkbox(label, &enabled))
+					{
+						value = enabled ? 1.0 : 0.0;
+						changed = true;
+					}
+				}
+				else if (std::isfinite(parameter.minimum) && std::isfinite(parameter.maximum) && parameter.minimum < parameter.maximum)
+				{
+					const char *const format = parameter.type == openxr_ui::parameter_type::floating_point ? "%.4g" : "%.0f";
+					changed = ImGui::SliderScalar(label, ImGuiDataType_Double, &value, &parameter.minimum, &parameter.maximum, format);
+				}
+				else
+				{
+					changed = ImGui::InputDouble(label, &value, parameter.step, parameter.step * 10.0,
+						parameter.type == openxr_ui::parameter_type::floating_point ? "%.4g" : "%.0f");
+				}
+
+				if (changed)
+				{
+					if (parameter.type != openxr_ui::parameter_type::floating_point)
+						value = std::round(value);
+					openxr_ui_set_parameter(parameter.id, component, value);
+				}
+				if (parameter.resettable)
+				{
+					ImGui::SameLine();
+					if (ImGui::SmallButton("Reset"))
+						openxr_ui_reset_parameter(parameter.id);
+				}
+				ImGui::PopID();
+			}
+			ImGui::PopID();
+		}
+	}
+
+	void draw_openvr_overlay(reshade::api::effect_runtime *runtime)
+	{
+		if (!s_open_logged)
+		{
+			openxr_ui_log_message("SteamVR VR Effects dashboard page opened.");
+			s_open_logged = true;
+		}
+		ImGui::TextUnformatted("ReShade VR Effects");
+		ImGui::Separator();
+		if (GetModuleHandleW(L"openvr_api.dll") == nullptr)
+		{
+			ImGui::TextWrapped("This page becomes active in a SteamVR/OpenVR session.");
+			return;
+		}
+		if (!openxr_ui_uses_effect_runtime(runtime))
+		{
+			ImGui::TextWrapped("Waiting for ReShade's windowless OpenVR effect runtime.");
+			return;
+		}
+
+		const std::shared_ptr<const openxr_ui::technique_snapshot> snapshot = openxr_ui_get_techniques();
+		ImGui::Text("Current preset: %s", openxr_ui_get_preset_name().c_str());
+		if (ImGui::Button("< Previous"))
+			openxr_ui_switch_preset(true);
+		ImGui::SameLine();
+		if (ImGui::Button("Next >"))
+			openxr_ui_switch_preset(false);
+		ImGui::SameLine();
+		if (ImGui::Button(openxr_ui_is_preset_dirty() ? "Save *" : "Save"))
+			openxr_ui_save_preset();
+		ImGui::SameLine();
+		if (ImGui::Button("Delete"))
+			openxr_ui_delete_preset();
+
+		ImGui::SetNextItemWidth(220.0f);
+		ImGui::InputTextWithHint("##save_as", "New preset name", s_save_as_name, sizeof(s_save_as_name));
+		ImGui::SameLine();
+		if (ImGui::Button("Save As") && s_save_as_name[0] != '\0' && openxr_ui_save_preset_as(s_save_as_name))
+			s_save_as_name[0] = '\0';
+
+		if (ImGui::Button("Active first"))
+			openxr_ui_move_active_to_top();
+		ImGui::SameLine();
+		if (ImGui::Button(openxr_ui_are_shaders_temporarily_disabled() ? "Restore shaders" : "Disable all"))
+			openxr_ui_toggle_all_techniques();
+		ImGui::SameLine();
+		ImGui::Checkbox("Show hidden", &s_show_hidden);
+		ImGui::SameLine();
+		ImGui::Checkbox("Starred only", &s_favourites_only);
+
+		bool performance_mode = openxr_ui_get_performance_mode();
+		if (ImGui::Checkbox("Performance mode next start", &performance_mode))
+			openxr_ui_set_performance_mode(performance_mode);
+
+		ImGui::Separator();
+		if (snapshot->techniques.empty())
+		{
+			ImGui::TextWrapped("No ReShade techniques found. Check EffectSearchPaths in ReShadeVR.ini or ReShade.ini.");
+			return;
+		}
+
+		ImGui::BeginChild("##vr_effects", { 0.0f, 0.0f }, ImGuiChildFlags_None, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+		for (const openxr_ui::technique &technique : snapshot->techniques)
+		{
+			if ((!s_show_hidden && technique.hidden) || (s_favourites_only && !technique.favourite))
+				continue;
+
+			ImGui::PushID(reinterpret_cast<const void *>(static_cast<uintptr_t>(technique.id)));
+			bool enabled = technique.enabled;
+			if (ImGui::Checkbox("##enabled", &enabled))
+				openxr_ui_toggle_technique(technique.id);
+			ImGui::SameLine();
+			char label[320];
+			std::snprintf(label, sizeof(label), "%s  [%s]", technique.name.c_str(), technique.effect_name.c_str());
+			if (ImGui::CollapsingHeader(label))
+			{
+				if (!technique.tooltip.empty())
+					ImGui::TextWrapped("%s", technique.tooltip.c_str());
+				if (ImGui::SmallButton("Up"))
+					openxr_ui_move_technique(technique.id, true);
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Down"))
+					openxr_ui_move_technique(technique.id, false);
+				ImGui::SameLine();
+				if (ImGui::SmallButton(technique.favourite ? "Unstar" : "Star"))
+					openxr_ui_set_technique_favourite(technique.id, !technique.favourite);
+				ImGui::SameLine();
+				if (ImGui::SmallButton(technique.hidden ? "Unhide" : "Hide"))
+					openxr_ui_set_technique_hidden(technique.id, !technique.hidden);
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Reset all parameters"))
+					openxr_ui_reset_all_parameters(technique.id);
+				draw_parameter_controls(*snapshot, technique);
+			}
+			ImGui::PopID();
+		}
+		ImGui::EndChild();
+	}
+}
+
+bool openvr_ui_register_addon(void *module)
+{
+	if (!reshade::register_addon(module))
+		return false;
+	reshade::register_overlay(nullptr, draw_openvr_overlay);
+	return true;
+}
+
+void openvr_ui_unregister_overlay()
+{
+	reshade::unregister_overlay(nullptr, draw_openvr_overlay);
+}
+
+bool openvr_ui_show_dashboard()
+{
+	const HMODULE openvr_module = GetModuleHandleW(L"openvr_api.dll");
+	if (openvr_module == nullptr)
+		return false;
+	const auto get_interface = reinterpret_cast<void *(VR_CALLTYPE *)(const char *, vr::EVRInitError *)>(
+		GetProcAddress(openvr_module, "VR_GetGenericInterface"));
+	if (get_interface == nullptr)
+		return false;
+	vr::EVRInitError error = vr::VRInitError_None;
+	auto *const overlay = static_cast<vr::IVROverlay *>(get_interface(vr::IVROverlay_Version, &error));
+	if (overlay == nullptr || error != vr::VRInitError_None)
+		return false;
+	overlay->ShowDashboard("reshade");
+	return true;
+}
