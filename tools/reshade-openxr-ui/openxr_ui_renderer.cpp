@@ -18,7 +18,7 @@ namespace
 	std::mutex s_imgui_mutex;
 
 	constexpr size_t compact_techniques_per_page = 10;
-	constexpr size_t compact_parameters_per_page = 5;
+	constexpr size_t compact_visible_parameters = 5;
 	constexpr float outer_padding = 24.0f;
 	constexpr float main_footer_height = 149.0f;
 	constexpr float detail_footer_height = 83.0f;
@@ -54,26 +54,6 @@ namespace
 		draw_list->AddLine({ position.x - 9.0f, position.y }, { position.x + 9.0f, position.y }, foreground, 3.0f);
 		draw_list->AddLine({ position.x, position.y - 9.0f }, { position.x, position.y + 9.0f }, foreground, 3.0f);
 		draw_list->AddCircleFilled(position, 3.0f, accent);
-	}
-
-	bool draw_page_button(const char *id, const ImVec2 size, bool previous, bool enabled)
-	{
-		ImGui::BeginDisabled(!enabled);
-		ImGui::InvisibleButton(id, size);
-		const bool hovered = enabled && ImGui::IsItemHovered();
-		const ImVec2 minimum = ImGui::GetItemRectMin();
-		const ImVec2 maximum = ImGui::GetItemRectMax();
-		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-		draw_list->AddRectFilled(minimum, maximum, hovered ? IM_COL32(28, 65, 72, 255) : IM_COL32(18, 42, 48, 255), 3.0f);
-		const ImVec2 center = { (minimum.x + maximum.x) * 0.5f, (minimum.y + maximum.y) * 0.5f };
-		const float direction = previous ? 1.0f : -1.0f;
-		draw_list->AddTriangleFilled(
-			{ center.x + direction * 7.0f, center.y - 9.0f },
-			{ center.x + direction * 7.0f, center.y + 9.0f },
-			{ center.x - direction * 6.0f, center.y },
-			enabled ? IM_COL32(210, 240, 244, 255) : IM_COL32(78, 90, 92, 255));
-		ImGui::EndDisabled();
-		return hovered;
 	}
 
 	bool draw_text_button(const char *id, const char *label, const ImVec2 size, bool enabled = true, ImU32 background = 0)
@@ -237,7 +217,7 @@ namespace openxr_ui
 			none,
 			technique_scroll,
 			value_slider,
-			parameter_page,
+			parameter_scroll,
 		};
 
 		ImGuiContext *context = nullptr;
@@ -249,7 +229,7 @@ namespace openxr_ui
 		uint32_t width = 0;
 		uint32_t height = 0;
 		size_t technique_scroll = 0;
-		size_t parameter_page = 0;
+		size_t parameter_scroll = 0;
 		uint64_t selected_technique = 0;
 		bool show_hidden = false;
 		bool show_favourites_only = false;
@@ -714,7 +694,7 @@ namespace openxr_ui
 					if (input.select_clicked && open_hovered && _implementation->dragging == implementation::drag_target::none)
 					{
 						_implementation->selected_technique = entry.id;
-						_implementation->parameter_page = 0;
+						_implementation->parameter_scroll = 0;
 					}
 					else if (input.select_clicked && hide_hovered && _implementation->dragging == implementation::drag_target::none)
 					{
@@ -816,7 +796,7 @@ namespace openxr_ui
 			ImGui::SameLine();
 			char selected_label[320];
 			std::snprintf(selected_label, sizeof(selected_label), "%s  [%s]", selected.name.c_str(), selected.effect_name.c_str());
-			const float controls_x = ImGui::GetWindowWidth() - outer_padding - 524.0f;
+			const float controls_x = ImGui::GetWindowWidth() - outer_padding - 430.0f;
 			const float selected_text_width = controls_x - ImGui::GetCursorScreenPos().x - 8.0f;
 			const std::string fitted_selected_label = fit_text(selected_label, selected_text_width);
 			ImGui::TextUnformatted(fitted_selected_label.c_str());
@@ -826,9 +806,8 @@ namespace openxr_ui
 			ImGui::SameLine();
 			const bool reset_all_hovered = draw_text_button("reset_all", "Reset All", { 110.0f, 30.0f });
 			ImGui::SameLine();
-			const bool revert_hovered = draw_text_button("revert", "Revert", { 86.0f, 30.0f }, !input.shaders_temporarily_disabled);
-			ImGui::SameLine();
-			const bool restore_hovered = draw_text_button("restore", "Restore", { 90.0f, 30.0f }, selected.has_restore_state && !input.shaders_temporarily_disabled);
+			const bool revert_restore_hovered = draw_text_button("revert_restore", selected.has_restore_state ? "Restore" : "Revert", { 90.0f, 30.0f },
+				(selected.has_restore_state || selected.differs_from_saved) && !input.shaders_temporarily_disabled);
 			ImGui::SameLine();
 			const char *const save_label = input.preset_dirty ? "Save" : _implementation->save_feedback > 0 ? "Saved" : _implementation->save_feedback < 0 ? "Failed" : "Save";
 			const ImU32 save_color = input.preset_dirty ? IM_COL32(184, 138, 20, 255) :
@@ -839,7 +818,7 @@ namespace openxr_ui
 			if (input.select_clicked && back_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				_implementation->selected_technique = 0;
-				_implementation->parameter_page = 0;
+				_implementation->parameter_scroll = 0;
 			}
 			else if (input.select_clicked && toggle_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
@@ -851,14 +830,9 @@ namespace openxr_ui
 				result.action = render_result::command::reset_all_parameters;
 				result.target_id = selected.id;
 			}
-			else if (input.select_clicked && revert_hovered && _implementation->dragging == implementation::drag_target::none)
+			else if (input.select_clicked && revert_restore_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
-				result.action = render_result::command::revert_technique;
-				result.target_id = selected.id;
-			}
-			else if (input.select_clicked && restore_hovered && _implementation->dragging == implementation::drag_target::none)
-			{
-				result.action = render_result::command::restore_technique;
+				result.action = selected.has_restore_state ? render_result::command::restore_technique : render_result::command::revert_technique;
 				result.target_id = selected.id;
 			}
 			else if (input.select_clicked && save_hovered && _implementation->dragging == implementation::drag_target::none)
@@ -885,17 +859,46 @@ namespace openxr_ui
 					for (uint32_t component = 0; component < entry.values.size(); ++component)
 						components.push_back({ &entry, component });
 
-			const size_t parameters_per_page = input.expanded ? compact_parameters_per_page * 2 : compact_parameters_per_page;
-			const size_t page_count = (std::max<size_t>)(1, (components.size() + parameters_per_page - 1) / parameters_per_page);
-			_implementation->parameter_page = (std::min)(_implementation->parameter_page, page_count - 1);
-			const float row_height = (ImGui::GetContentRegionAvail().y - detail_footer_height - row_spacing * (parameters_per_page - 1)) / parameters_per_page;
-			const size_t first = _implementation->parameter_page * parameters_per_page;
-			const size_t last = (std::min)(first + parameters_per_page, components.size());
-			for (size_t index = first; index < first + parameters_per_page; ++index)
+			const size_t visible_parameters = input.expanded ? compact_visible_parameters * 2 : compact_visible_parameters;
+			const size_t maximum_scroll = components.size() > visible_parameters ? components.size() - visible_parameters : 0;
+			_implementation->parameter_scroll = (std::min)(_implementation->parameter_scroll, maximum_scroll);
+			if (_implementation->dragging == implementation::drag_target::none)
+			{
+				const int scroll_direction = input.scroll_y > joystick_scroll_dead_zone ? -1 :
+					input.scroll_y < -joystick_scroll_dead_zone ? 1 : 0;
+				bool advance_scroll = false;
+				if (scroll_direction != _implementation->joystick_scroll_direction)
+				{
+					_implementation->joystick_scroll_direction = scroll_direction;
+					_implementation->joystick_scroll_frame_count = 0;
+					advance_scroll = scroll_direction != 0;
+				}
+				else if (scroll_direction != 0 && ++_implementation->joystick_scroll_frame_count >= joystick_scroll_repeat_frames)
+				{
+					_implementation->joystick_scroll_frame_count = 0;
+					advance_scroll = true;
+				}
+				if (advance_scroll && scroll_direction < 0 && _implementation->parameter_scroll > 0)
+					--_implementation->parameter_scroll;
+				else if (advance_scroll && scroll_direction > 0 && _implementation->parameter_scroll < maximum_scroll)
+					++_implementation->parameter_scroll;
+			}
+			else
+			{
+				_implementation->joystick_scroll_direction = 0;
+				_implementation->joystick_scroll_frame_count = 0;
+			}
+			const float list_height = ImGui::GetContentRegionAvail().y - detail_footer_height;
+			const float row_height = (list_height - row_spacing * (visible_parameters - 1)) / visible_parameters;
+			const ImVec2 list_min = ImGui::GetCursorScreenPos();
+			const float row_width = ImGui::GetContentRegionAvail().x - 42.0f;
+			const size_t first = _implementation->parameter_scroll;
+			const size_t last = (std::min)(first + visible_parameters, components.size());
+			for (size_t index = first; index < first + visible_parameters; ++index)
 			{
 				ImGui::PushID(static_cast<int>(index));
 				const ImVec2 row_min = ImGui::GetCursorScreenPos();
-				const ImVec2 row_max = { row_min.x + ImGui::GetContentRegionAvail().x, row_min.y + row_height };
+				const ImVec2 row_max = { row_min.x + row_width, row_min.y + row_height };
 				ImGui::GetWindowDrawList()->AddRectFilled(row_min, row_max, IM_COL32(13, 29, 38, 255), 3.0f);
 				if (index < last)
 				{
@@ -1005,32 +1008,29 @@ namespace openxr_ui
 				ImGui::PopID();
 			}
 
-			const bool previous_hovered = draw_page_button("parameter_previous", { 54.0f, 34.0f }, true, _implementation->parameter_page > 0);
-			ImGui::SameLine();
-			const bool next_hovered = draw_page_button("parameter_next", { 54.0f, 34.0f }, false, _implementation->parameter_page + 1 < page_count);
-			ImGui::SameLine();
-			const float page_fraction = page_count > 1 ? static_cast<float>(_implementation->parameter_page) / static_cast<float>(page_count - 1) : 0.0f;
-			const slider_interaction page_slider = draw_slider("parameter_page_slider", { 300.0f, 34.0f }, page_fraction, page_count > 1);
-			if (input.select_clicked && page_slider.hovered && _implementation->dragging == implementation::drag_target::none)
+			const ImVec2 footer_min = ImGui::GetCursorScreenPos();
+			ImGui::SetCursorScreenPos({ list_min.x + row_width + 8.0f, list_min.y });
+			const float scroll_fraction = maximum_scroll > 0 ? static_cast<float>(_implementation->parameter_scroll) / static_cast<float>(maximum_scroll) : 0.0f;
+			const slider_interaction scroll_slider = draw_vertical_slider("parameter_scroll", { 34.0f, list_height }, scroll_fraction, maximum_scroll > 0);
+			if (input.select_clicked && scroll_slider.hovered && _implementation->dragging == implementation::drag_target::none)
 			{
-				_implementation->dragging = implementation::drag_target::parameter_page;
+				_implementation->dragging = implementation::drag_target::parameter_scroll;
 				_implementation->release_frame_count = 0;
+				_implementation->drag_start_pointer = io.MousePos.y;
+				_implementation->drag_start_fraction = scroll_fraction;
 			}
-			ImGui::SameLine();
-			ImGui::TextDisabled("%zu values  |  %zu/%zu  |  API: %s",
-				components.size(), _implementation->parameter_page + 1, page_count, graphics_api_label);
+			if (_implementation->dragging == implementation::drag_target::parameter_scroll && (input.select_clicked || input.select_down))
+			{
+				const float drag_fraction = std::clamp(_implementation->drag_start_fraction +
+					(io.MousePos.y - _implementation->drag_start_pointer) / list_height * 0.9f, 0.0f, 1.0f);
+				_implementation->parameter_scroll = static_cast<size_t>(std::round(drag_fraction * static_cast<float>(maximum_scroll)));
+			}
+
+			ImGui::SetCursorScreenPos(footer_min);
+			ImGui::TextDisabled("%zu values  |  API: %s", components.size(), graphics_api_label);
 			ImGui::SameLine(ImGui::GetWindowWidth() - outer_padding - 104.0f);
 			const bool expand_hovered = draw_text_button("expand", input.expanded ? "Collapse" : "Expand", { 104.0f, 34.0f });
-			if (result.action == render_result::command::none && input.select_clicked && previous_hovered &&
-				_implementation->dragging == implementation::drag_target::none)
-				--_implementation->parameter_page;
-			else if (result.action == render_result::command::none && input.select_clicked && next_hovered &&
-				_implementation->dragging == implementation::drag_target::none)
-				++_implementation->parameter_page;
-			else if (result.action == render_result::command::none &&
-				_implementation->dragging == implementation::drag_target::parameter_page && (input.select_clicked || input.select_down))
-				_implementation->parameter_page = static_cast<size_t>(std::round(page_slider.fraction * static_cast<float>(page_count - 1)));
-			else if (result.action == render_result::command::none && input.select_clicked && expand_hovered &&
+			if (result.action == render_result::command::none && input.select_clicked && expand_hovered &&
 				_implementation->dragging == implementation::drag_target::none)
 				result.action = render_result::command::toggle_panel_size;
 		}

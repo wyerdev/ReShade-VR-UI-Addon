@@ -16,8 +16,8 @@ namespace openxr_ui
 	{
 	public:
 		void clear();
-		void mark_saved(const technique_snapshot &snapshot);
-		void update(const technique_snapshot &snapshot);
+		void mark_saved(technique_snapshot &snapshot);
+		void update(technique_snapshot &snapshot);
 		bool is_dirty() const;
 		bool get_saved_technique_state(uint64_t technique_id, bool &enabled) const;
 		bool get_saved_parameter_values(uint64_t parameter_id, std::vector<double> &values) const;
@@ -90,7 +90,7 @@ namespace openxr_ui
 
 	bool save_current_preset(
 		reshade::api::effect_runtime *runtime,
-		const technique_snapshot &snapshot,
+		technique_snapshot &snapshot,
 		preset_dirty_state &dirty_state);
 	std::string current_preset_name(reshade::api::effect_runtime *runtime);
 	bool switch_to_sibling_preset(reshade::api::effect_runtime *runtime, bool previous);

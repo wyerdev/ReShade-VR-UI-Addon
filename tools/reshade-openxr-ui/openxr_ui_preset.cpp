@@ -48,28 +48,37 @@ void openxr_ui::preset_dirty_state::clear()
 	_dirty = false;
 }
 
-void openxr_ui::preset_dirty_state::mark_saved(const technique_snapshot &snapshot)
+void openxr_ui::preset_dirty_state::mark_saved(technique_snapshot &snapshot)
 {
 	_saved_technique_states.clear();
-	for (const technique &entry : snapshot.techniques)
+	for (technique &entry : snapshot.techniques)
+	{
 		_saved_technique_states.emplace(entry.id, entry.enabled);
+		entry.differs_from_saved = false;
+	}
 	_saved_parameter_values.clear();
 	for (const parameter &entry : snapshot.parameters)
 		_saved_parameter_values.emplace(entry.id, entry.values);
 	_dirty = false;
 }
 
-void openxr_ui::preset_dirty_state::update(const technique_snapshot &snapshot)
+void openxr_ui::preset_dirty_state::update(technique_snapshot &snapshot)
 {
+	for (technique &entry : snapshot.techniques)
+	{
+		const auto saved_technique = _saved_technique_states.find(entry.id);
+		entry.differs_from_saved = saved_technique == _saved_technique_states.end() || saved_technique->second != entry.enabled ||
+			std::any_of(snapshot.parameters.begin(), snapshot.parameters.end(), [this, &entry](const parameter &parameter_entry) {
+				if (parameter_entry.effect_name != entry.effect_name)
+					return false;
+				const auto saved_parameter = _saved_parameter_values.find(parameter_entry.id);
+				return saved_parameter == _saved_parameter_values.end() || saved_parameter->second != parameter_entry.values;
+			});
+	}
 	_dirty = _saved_technique_states.size() != snapshot.techniques.size() ||
 		_saved_parameter_values.size() != snapshot.parameters.size() ||
-		std::any_of(snapshot.techniques.begin(), snapshot.techniques.end(), [this](const technique &entry) {
-			const auto saved_it = _saved_technique_states.find(entry.id);
-			return saved_it == _saved_technique_states.end() || saved_it->second != entry.enabled;
-		}) ||
-		std::any_of(snapshot.parameters.begin(), snapshot.parameters.end(), [this](const parameter &entry) {
-			const auto saved_it = _saved_parameter_values.find(entry.id);
-			return saved_it == _saved_parameter_values.end() || saved_it->second != entry.values;
+		std::any_of(snapshot.techniques.begin(), snapshot.techniques.end(), [](const technique &entry) {
+			return entry.differs_from_saved;
 		});
 }
 
@@ -258,7 +267,7 @@ bool openxr_ui::pending_preset_delete::is_pending() const
 
 bool openxr_ui::save_current_preset(
 	reshade::api::effect_runtime *runtime,
-	const technique_snapshot &snapshot,
+	technique_snapshot &snapshot,
 	preset_dirty_state &dirty_state)
 {
 	if (runtime == nullptr)

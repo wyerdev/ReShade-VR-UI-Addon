@@ -51,6 +51,7 @@
 
 - Use `apply_patch` for edits to existing files and keep patches small.
 - After the first substantive edit, run the narrowest executable validation available before unrelated exploration or edits.
+- After changing source code or tests, run `build.bat` from the repository root yourself. Inspect and fix build or test failures, then rerun it until it passes; do not leave the build for the user to run.
 - Finish with an executable validation whenever the environment provides one. Report unavailable or blocked validation clearly.
 
 ## Clean Code And File Organization

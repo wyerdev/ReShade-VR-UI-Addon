@@ -326,12 +326,18 @@ int main()
 	renderer.render(render_target.Get(), snapshot, release);
 	if (!expect_command(renderer, render_target.Get(), snapshot, 40.0f, 429.0f,
 		openxr_ui::render_result::command::toggle_technique, 11))
+	{
+		std::fputs("Scrolled technique row did not toggle.\n", stderr);
 		return 1;
+	}
 	const openxr_ui::render_input open_technique_11 = { true, 900.0f, 429.0f, true };
 	renderer.render(render_target.Get(), snapshot, open_technique_11);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 520.0f, 32.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 615.0f, 32.0f,
 		openxr_ui::render_result::command::toggle_technique, 11))
+	{
+		std::fputs("Detail header technique button did not toggle.\n", stderr);
 		return 1;
+	}
 
 	const openxr_ui::render_input back = { true, 50.0f, 32.0f, true };
 	renderer.render(render_target.Get(), snapshot, back);
@@ -344,10 +350,10 @@ int main()
 	renderer.render(render_target.Get(), snapshot, release);
 	const openxr_ui::render_input open_technique_1 = { true, 900.0f, 144.0f, true };
 	renderer.render(render_target.Get(), snapshot, open_technique_1);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 244.5f, 105.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 202.5f, 105.0f,
 		openxr_ui::render_result::command::set_parameter, 100, 0, 0.1377, false))
 		return 1;
-	const openxr_ui::render_input value_drag = { true, 413.6f, 105.0f, false, false, true };
+	const openxr_ui::render_input value_drag = { true, 371.6f, 105.0f, false, false, true };
 	const openxr_ui::render_result dragged_value = renderer.render(render_target.Get(), snapshot, value_drag);
 	if (dragged_value.action != openxr_ui::render_result::command::set_parameter || dragged_value.target_id != 100 ||
 		std::abs(dragged_value.value - 0.6437) >= 0.0001)
@@ -359,22 +365,33 @@ int main()
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 780.0f, 105.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 738.0f, 105.0f,
 		openxr_ui::render_result::command::set_parameter, 100, 0, 0.6))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 835.0f, 105.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 793.0f, 105.0f,
 		openxr_ui::render_result::command::set_parameter, 100, 0, 1.5))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 930.0f, 105.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 888.0f, 105.0f,
 		openxr_ui::render_result::command::reset_parameter, 100))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 695.0f, 210.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 653.0f, 210.0f,
 		openxr_ui::render_result::command::set_parameter, 101, 0, 1.0))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 630.0f, 32.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 725.0f, 32.0f,
 		openxr_ui::render_result::command::reset_all_parameters, 1))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 735.0f, 32.0f,
+	const openxr_ui::render_input disabled_revert = { true, 830.0f, 32.0f, true };
+	if (renderer.render(render_target.Get(), snapshot, disabled_revert).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("Revert remained interactive when the technique matched its saved values.\n", stderr);
+		return 1;
+	}
+	renderer.render(render_target.Get(), snapshot, release);
+	renderer.render(render_target.Get(), snapshot, release);
+	renderer.render(render_target.Get(), snapshot, release);
+	openxr_ui::technique_snapshot changed_snapshot = snapshot;
+	changed_snapshot.techniques.front().differs_from_saved = true;
+	if (!expect_command(renderer, render_target.Get(), changed_snapshot, 830.0f, 32.0f,
 		openxr_ui::render_result::command::revert_technique, 1))
 		return 1;
 	openxr_ui::technique_snapshot restorable_snapshot = snapshot;
@@ -386,16 +403,28 @@ int main()
 		openxr_ui::render_result::command::save_preset, 0))
 		return 1;
 
-	const openxr_ui::render_input parameter_scroll_press = { true, 160.0f, 570.0f, true, false, true };
+	renderer.render(render_target.Get(), snapshot, joystick_down);
+	renderer.render(render_target.Get(), snapshot, warm_up);
+	renderer.render(render_target.Get(), snapshot, joystick_down);
+	if (!expect_command(renderer, render_target.Get(), snapshot, 738.0f, 105.0f,
+		openxr_ui::render_result::command::set_parameter, 102, 0, 0.6))
+	{
+		std::fputs("Joystick did not scroll shader parameters by row.\n", stderr);
+		return 1;
+	}
+	const openxr_ui::render_input parameter_scroll_press = { true, 983.0f, 145.0f, true, false, true };
 	renderer.render(render_target.Get(), snapshot, parameter_scroll_press);
-	const openxr_ui::render_input parameter_scroll_drag = { true, 430.0f, 570.0f, false, false, true };
+	const openxr_ui::render_input parameter_scroll_drag = { true, 983.0f, 570.0f, false, false, true };
 	renderer.render(render_target.Get(), snapshot, parameter_scroll_drag);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 780.0f, 105.0f,
-		openxr_ui::render_result::command::set_parameter, 105, 0, 0.6))
+	if (!expect_command(renderer, render_target.Get(), snapshot, 738.0f, 105.0f,
+		openxr_ui::render_result::command::set_parameter, 103, 0, 0.6))
+	{
+		std::fputs("Shader parameter scrollbar did not scroll to the final row offset.\n", stderr);
 		return 1;
+	}
 
 	const openxr_ui::render_input detail_back = { true, 50.0f, 32.0f, true };
 	renderer.render(render_target.Get(), snapshot, detail_back);
@@ -479,7 +508,7 @@ int main()
 	}
 	const openxr_ui::render_input open_expanded_technique_11 = { true, 900.0f, 449.0f, true, true };
 	renderer.render(render_target.Get(), snapshot, open_expanded_technique_11);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 520.0f, 32.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 615.0f, 32.0f,
 		openxr_ui::render_result::command::toggle_technique, 11, 0, 0.0, true))
 		return 1;
 

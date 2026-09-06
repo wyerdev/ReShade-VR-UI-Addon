@@ -285,8 +285,8 @@ namespace
 		for (const openxr_ui::technique &entry : updated->techniques)
 			ordered_techniques.push_back({ entry.id });
 		s_effect_runtime->reorder_techniques(ordered_techniques.size(), ordered_techniques.data());
+		openxr_ui::save_current_preset(s_effect_runtime, *updated, s_preset_dirty_state);
 		s_techniques = std::move(updated);
-		openxr_ui::save_current_preset(s_effect_runtime, *s_techniques, s_preset_dirty_state);
 	}
 
 #ifdef RESHADE_OPENVR_FRONTEND
@@ -544,9 +544,8 @@ namespace
 		}
 		s_effect_runtime = runtime;
 		reshade::get_config_value(runtime, "GENERAL", "PerformanceMode", s_performance_mode);
-		s_techniques = std::move(inventory.snapshot);
 		s_observed_preset_path = current_preset_path(runtime);
-		if (!s_techniques->techniques.empty())
+		if (!inventory.snapshot->techniques.empty())
 			s_empty_inventory_retry_frame = 0;
 		if (inventory_changed)
 			s_technique_restore_states.clear();
@@ -554,13 +553,14 @@ namespace
 		{
 			if (inventory_changed)
 			{
-				s_preset_dirty_state.mark_saved(*s_techniques);
+				s_preset_dirty_state.mark_saved(*inventory.snapshot);
 			}
 			else
 			{
-				s_preset_dirty_state.update(*s_techniques);
+				s_preset_dirty_state.update(*inventory.snapshot);
 			}
 		}
+		s_techniques = std::move(inventory.snapshot);
 		s_runtime_state_dirty.store(false, std::memory_order_release);
 		log_runtime_message(reshade::log::level::info, "scrollable technique model ready for controller input.");
 	}
@@ -600,15 +600,15 @@ namespace
 			s_shaders_temporarily_disabled = false;
 			for (openxr_ui::technique &entry : updated->techniques)
 				entry.has_restore_state = false;
+			s_preset_dirty_state.mark_saved(*updated);
 			s_techniques = std::move(updated);
-			s_preset_dirty_state.mark_saved(*s_techniques);
 		}
 		else
 		{
+			if (changed && !s_shaders_temporarily_disabled)
+				s_preset_dirty_state.update(*updated);
 			if (changed)
 				s_techniques = std::move(updated);
-			if (changed && !s_shaders_temporarily_disabled)
-				s_preset_dirty_state.update(*s_techniques);
 		}
 		return true;
 	}
@@ -764,8 +764,8 @@ bool openxr_ui_toggle_technique(uint64_t technique_id)
 	{
 		auto updated = std::make_shared<openxr_ui::technique_snapshot>(*s_techniques);
 		updated->techniques[technique_index].enabled = enabled;
+		s_preset_dirty_state.update(*updated);
 		s_techniques = std::move(updated);
-		s_preset_dirty_state.update(*s_techniques);
 	}
 	return changed;
 }
@@ -1015,8 +1015,8 @@ bool openxr_ui_set_parameter(uint64_t parameter_id, uint32_t component, double v
 		break;
 	}
 	openxr_ui::update_technique_default_states(*updated);
+	s_preset_dirty_state.update(*updated);
 	s_techniques = std::move(updated);
-	s_preset_dirty_state.update(*s_techniques);
 	return true;
 }
 
@@ -1036,8 +1036,8 @@ bool openxr_ui_reset_parameter(uint64_t parameter_id)
 	s_effect_runtime->reset_uniform_value({ parameter_id });
 	read_parameter_values(s_effect_runtime, { parameter_id }, parameter);
 	openxr_ui::update_technique_default_states(*updated);
+	s_preset_dirty_state.update(*updated);
 	s_techniques = std::move(updated);
-	s_preset_dirty_state.update(*s_techniques);
 	return true;
 }
 
@@ -1065,8 +1065,8 @@ bool openxr_ui_reset_all_parameters(uint64_t technique_id)
 	if (reset_any)
 	{
 		openxr_ui::update_technique_default_states(*updated);
+		s_preset_dirty_state.update(*updated);
 		s_techniques = std::move(updated);
-		s_preset_dirty_state.update(*s_techniques);
 	}
 	return reset_any;
 }
@@ -1110,8 +1110,8 @@ bool openxr_ui_revert_technique(uint64_t technique_id)
 	updated->techniques[technique_index].has_restore_state = true;
 	openxr_ui::update_technique_default_states(*updated);
 	s_technique_restore_states[technique_id] = std::move(restore_state);
+	s_preset_dirty_state.update(*updated);
 	s_techniques = std::move(updated);
-	s_preset_dirty_state.update(*s_techniques);
 	return true;
 }
 
@@ -1145,8 +1145,8 @@ bool openxr_ui_restore_technique(uint64_t technique_id)
 	updated->techniques[technique_index].has_restore_state = false;
 	openxr_ui::update_technique_default_states(*updated);
 	s_technique_restore_states.erase(restore_it);
+	s_preset_dirty_state.update(*updated);
 	s_techniques = std::move(updated);
-	s_preset_dirty_state.update(*s_techniques);
 	return true;
 }
 
@@ -1155,7 +1155,9 @@ bool openxr_ui_save_preset()
 	const std::lock_guard<std::mutex> lock(s_mutex);
 	if (s_effect_runtime == nullptr || s_shaders_temporarily_disabled)
 		return false;
-	openxr_ui::save_current_preset(s_effect_runtime, *s_techniques, s_preset_dirty_state);
+	auto updated = std::make_shared<openxr_ui::technique_snapshot>(*s_techniques);
+	openxr_ui::save_current_preset(s_effect_runtime, *updated, s_preset_dirty_state);
+	s_techniques = std::move(updated);
 	log_runtime_message(reshade::log::level::info, "controller saved all changes to the current preset.");
 	return true;
 }
