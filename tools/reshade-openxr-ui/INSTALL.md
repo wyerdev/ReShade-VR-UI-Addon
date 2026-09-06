@@ -35,13 +35,15 @@ The loader starts immediately after installation and at Windows sign-in. Its dia
 
 OpenVR games commonly create both a desktop effect runtime and a headset effect runtime. The SteamVR companion disables ReShade's built-in cross-runtime synchronization for that game before either runtime initializes; the SteamVR dashboard edits the headset runtime directly. This avoids recursive preset and uniform propagation between the two runtimes.
 
+On the first OpenVR launch for a runtime configuration, the companion also prevents ReShade's resolution-derived font scaling from enlarging controls inside its fixed 500-pixel SteamVR dashboard. If the runtime still uses ReShade's default font size and one of its automatic scales, the companion writes `STYLE/FontSize=12` and `STYLE/FontScale=1` to `ReShadeVR.ini`, then records the completed migration. Existing custom font sizing is preserved, and later user changes are not overwritten.
+
 ## No Shaders In The Panel
 
 `ReShade effect runtime unavailable` means ReShade did not initialize VR effects. This is not caused by a missing `ReShadeVR.ini`. For OpenXR, check `ReShade.log` for a message such as `Skipping OpenXR session because it was created without a proxy Direct3D 12 device.` For OpenVR, check `ReShade-VR-Loader.log` for successful central loading and then check the game-local `ReShade.log`.
 
 Do not add a game-local ReShade proxy. The loader injects the exact DLL referenced by official central OpenXR registration, so an OpenXR application resolves the same module rather than loading a second ReShade instance.
 
-`No ReShade techniques found` means the effect runtime exists but did not discover any effects. ReShade normally falls back from missing keys in `ReShadeVR.ini` to `ReShade.ini`; check `EffectSearchPaths`, the installed shader files, and the active preset in those files. The add-on does not overwrite or synthesize per-game ReShade configuration.
+`No ReShade techniques found` means the effect runtime exists but did not discover any effects. ReShade normally falls back from missing keys in `ReShadeVR.ini` to `ReShade.ini`; check `EffectSearchPaths`, the installed shader files, and the active preset in those files. The add-on does not synthesize per-game ReShade configuration; it only updates settings requested through its UI and performs the one-time SteamVR dashboard scale migration described above.
 
 ## Update
 

@@ -283,6 +283,32 @@ namespace
 		openxr_ui::save_current_preset(s_effect_runtime, *s_techniques, s_preset_dirty_state);
 	}
 
+#ifdef RESHADE_OPENVR_FRONTEND
+	void normalize_openvr_overlay_scale(effect_runtime *runtime)
+	{
+		bool migration_complete = false;
+		if (reshade::get_config_value(runtime, "ADDON", "SteamVROverlayScaleNormalized", migration_complete) && migration_complete)
+			return;
+
+		float font_size = 13.0f;
+		float font_scale = 1.0f;
+		const bool has_font_size = reshade::get_config_value(runtime, "STYLE", "FontSize", font_size);
+		const bool has_font_scale = reshade::get_config_value(runtime, "STYLE", "FontScale", font_scale);
+		const auto is_default_scale = [](float value) {
+			return std::fabs(value - 1.0f) < 0.001f || std::fabs(value - 1.5f) < 0.001f || std::fabs(value - 2.0f) < 0.001f;
+		};
+
+		if ((!has_font_size || std::fabs(font_size - 13.0f) < 0.001f) && (!has_font_scale || is_default_scale(font_scale)))
+		{
+			reshade::set_config_value(runtime, "STYLE", "FontSize", 12.0f);
+			reshade::set_config_value(runtime, "STYLE", "FontScale", 1.0f);
+			log_runtime_message(reshade::log::level::info, "normalized the original ReShade SteamVR dashboard scale for its fixed 500-pixel canvas.");
+		}
+
+		reshade::set_config_value(runtime, "ADDON", "SteamVROverlayScaleNormalized", true);
+	}
+#endif
+
 	void on_init_effect_runtime(effect_runtime *runtime)
 	{
 		const bool openxr_loaded = GetModuleHandleW(L"openxr_loader.dll") != nullptr;
@@ -296,6 +322,11 @@ namespace
 		}
 		if ((!openxr_loaded && !openvr_loaded) || runtime->get_hwnd() != nullptr)
 			return;
+
+#ifdef RESHADE_OPENVR_FRONTEND
+		if (openvr_loaded && !openxr_loaded)
+			normalize_openvr_overlay_scale(runtime);
+#endif
 
 		uint32_t width = 0;
 		uint32_t height = 0;

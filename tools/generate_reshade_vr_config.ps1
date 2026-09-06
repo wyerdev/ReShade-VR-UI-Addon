@@ -66,7 +66,8 @@ TextureSearchPaths=$textureSearchPaths
 KeyOverlay=36,0,0,0
 
 [STYLE]
-FontScale=2.000000
+FontSize=12.000000
+FontScale=1.000000
 "@
 
 if ($PSCmdlet.ShouldProcess($destinationPath, 'Generate portable ReShade VR configuration')) {
