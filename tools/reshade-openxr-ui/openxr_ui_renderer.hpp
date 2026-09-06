@@ -57,6 +57,8 @@ namespace openxr_ui
 			toggle_technique,
 			set_technique_hidden,
 			set_technique_favourite,
+			revert_technique,
+			restore_technique,
 			set_parameter,
 			reset_parameter,
 			reset_all_parameters,

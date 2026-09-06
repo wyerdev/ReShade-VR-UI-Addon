@@ -329,7 +329,7 @@ int main()
 		return 1;
 	const openxr_ui::render_input open_technique_11 = { true, 900.0f, 429.0f, true };
 	renderer.render(render_target.Get(), snapshot, open_technique_11);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 720.0f, 32.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 520.0f, 32.0f,
 		openxr_ui::render_result::command::toggle_technique, 11))
 		return 1;
 
@@ -371,8 +371,16 @@ int main()
 	if (!expect_command(renderer, render_target.Get(), snapshot, 695.0f, 210.0f,
 		openxr_ui::render_result::command::set_parameter, 101, 0, 1.0))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 825.0f, 32.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 630.0f, 32.0f,
 		openxr_ui::render_result::command::reset_all_parameters, 1))
+		return 1;
+	if (!expect_command(renderer, render_target.Get(), snapshot, 735.0f, 32.0f,
+		openxr_ui::render_result::command::revert_technique, 1))
+		return 1;
+	openxr_ui::technique_snapshot restorable_snapshot = snapshot;
+	restorable_snapshot.techniques.front().has_restore_state = true;
+	if (!expect_command(renderer, render_target.Get(), restorable_snapshot, 830.0f, 32.0f,
+		openxr_ui::render_result::command::restore_technique, 1))
 		return 1;
 	if (!expect_command(renderer, render_target.Get(), snapshot, 950.0f, 32.0f,
 		openxr_ui::render_result::command::save_preset, 0))
@@ -471,7 +479,7 @@ int main()
 	}
 	const openxr_ui::render_input open_expanded_technique_11 = { true, 900.0f, 449.0f, true, true };
 	renderer.render(render_target.Get(), snapshot, open_expanded_technique_11);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 720.0f, 32.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 520.0f, 32.0f,
 		openxr_ui::render_result::command::toggle_technique, 11, 0, 0.0, true))
 		return 1;
 

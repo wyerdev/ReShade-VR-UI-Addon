@@ -24,6 +24,8 @@ void openxr_ui_move_active_to_top();
 bool openxr_ui_move_technique(uint64_t technique_id, bool move_up);
 bool openxr_ui_set_technique_hidden(uint64_t technique_id, bool hidden);
 bool openxr_ui_set_technique_favourite(uint64_t technique_id, bool favourite);
+bool openxr_ui_revert_technique(uint64_t technique_id);
+bool openxr_ui_restore_technique(uint64_t technique_id);
 bool openxr_ui_get_ui_starts_open();
 bool openxr_ui_set_ui_starts_open(bool starts_open);
 bool openxr_ui_get_performance_mode();

@@ -816,7 +816,7 @@ namespace openxr_ui
 			ImGui::SameLine();
 			char selected_label[320];
 			std::snprintf(selected_label, sizeof(selected_label), "%s  [%s]", selected.name.c_str(), selected.effect_name.c_str());
-			const float controls_x = ImGui::GetWindowWidth() - outer_padding - 318.0f;
+			const float controls_x = ImGui::GetWindowWidth() - outer_padding - 524.0f;
 			const float selected_text_width = controls_x - ImGui::GetCursorScreenPos().x - 8.0f;
 			const std::string fitted_selected_label = fit_text(selected_label, selected_text_width);
 			ImGui::TextUnformatted(fitted_selected_label.c_str());
@@ -825,6 +825,10 @@ namespace openxr_ui
 			const bool toggle_hovered = draw_text_button("toggle", selected.enabled ? "Disable" : "Enable", { 92.0f, 30.0f });
 			ImGui::SameLine();
 			const bool reset_all_hovered = draw_text_button("reset_all", "Reset All", { 110.0f, 30.0f });
+			ImGui::SameLine();
+			const bool revert_hovered = draw_text_button("revert", "Revert", { 86.0f, 30.0f }, !input.shaders_temporarily_disabled);
+			ImGui::SameLine();
+			const bool restore_hovered = draw_text_button("restore", "Restore", { 90.0f, 30.0f }, selected.has_restore_state && !input.shaders_temporarily_disabled);
 			ImGui::SameLine();
 			const char *const save_label = input.preset_dirty ? "Save" : _implementation->save_feedback > 0 ? "Saved" : _implementation->save_feedback < 0 ? "Failed" : "Save";
 			const ImU32 save_color = input.preset_dirty ? IM_COL32(184, 138, 20, 255) :
@@ -845,6 +849,16 @@ namespace openxr_ui
 			else if (input.select_clicked && reset_all_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				result.action = render_result::command::reset_all_parameters;
+				result.target_id = selected.id;
+			}
+			else if (input.select_clicked && revert_hovered && _implementation->dragging == implementation::drag_target::none)
+			{
+				result.action = render_result::command::revert_technique;
+				result.target_id = selected.id;
+			}
+			else if (input.select_clicked && restore_hovered && _implementation->dragging == implementation::drag_target::none)
+			{
+				result.action = render_result::command::restore_technique;
 				result.target_id = selected.id;
 			}
 			else if (input.select_clicked && save_hovered && _implementation->dragging == implementation::drag_target::none)

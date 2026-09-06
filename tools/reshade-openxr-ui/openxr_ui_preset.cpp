@@ -78,6 +78,24 @@ bool openxr_ui::preset_dirty_state::is_dirty() const
 	return _dirty;
 }
 
+bool openxr_ui::preset_dirty_state::get_saved_technique_state(uint64_t technique_id, bool &enabled) const
+{
+	const auto saved_it = _saved_technique_states.find(technique_id);
+	if (saved_it == _saved_technique_states.end())
+		return false;
+	enabled = saved_it->second;
+	return true;
+}
+
+bool openxr_ui::preset_dirty_state::get_saved_parameter_values(uint64_t parameter_id, std::vector<double> &values) const
+{
+	const auto saved_it = _saved_parameter_values.find(parameter_id);
+	if (saved_it == _saved_parameter_values.end())
+		return false;
+	values = saved_it->second;
+	return true;
+}
+
 struct openxr_ui::inherited_preset_copy::state
 {
 	reshade::api::effect_runtime *runtime = nullptr;

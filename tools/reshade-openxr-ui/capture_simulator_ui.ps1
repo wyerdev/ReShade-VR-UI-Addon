@@ -4,7 +4,8 @@ param(
 	[int]$Frames = 1600,
 	[ValidateSet('Both', 'D3D11', 'D3D12')]
 	[string]$GraphicsApi = 'Both',
-	[string]$OutputDirectory = 'build\reshade-openxr-ui'
+	[string]$OutputDirectory = 'build\reshade-openxr-ui',
+	[switch]$RevertRestoreOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,7 +20,7 @@ if (-not [System.IO.Path]::IsPathRooted($OutputDirectory)) {
 
 if ($GraphicsApi -eq 'Both') {
 	foreach ($api in @('D3D11', 'D3D12')) {
-		& $PSCommandPath -TestRoot $TestRoot -Frames $Frames -GraphicsApi $api -OutputDirectory $OutputDirectory
+		& $PSCommandPath -TestRoot $TestRoot -Frames $Frames -GraphicsApi $api -OutputDirectory $OutputDirectory -RevertRestoreOnly:$RevertRestoreOnly
 	}
 	Write-Host "Saved D3D11 and D3D12 simulator UI captures."
 	return
@@ -29,8 +30,6 @@ $buildDirectory = $OutputDirectory
 $sourceDll = Join-Path $buildDirectory 'ReShade-OpenXR-UI.addon64'
 $sourceManifest = Join-Path $buildDirectory 'layers\ReShade-OpenXR-UI-Layer.json'
 $layerDirectory = Join-Path $TestRoot 'layers'
-$testDll = Join-Path $TestRoot 'ReShade-OpenXR-UI.addon64'
-$testManifest = Join-Path $layerDirectory 'ReShade-OpenXR-UI-Layer.json'
 $testReshadeManifest = Join-Path $layerDirectory 'ReShade64_XR_UI_Capture.json'
 $existingReshadeManifest = Join-Path $layerDirectory 'ReShade64_XR.json'
 $probeName = if ($GraphicsApi -eq 'D3D11') { 'xr_probe_d3d11.exe' } else { 'xr_probe.exe' }
@@ -39,6 +38,10 @@ $probeFrames = $Frames + 600
 $runtimeManifest = Join-Path $TestRoot 'openxr_simulator.json'
 $outputDirectory = Join-Path $buildDirectory "simulator-captures\$($GraphicsApi.ToLowerInvariant())"
 $testLocalAppData = Join-Path $TestRoot 'openxr-ui-capture-localappdata'
+$testInstallDirectory = Join-Path $testLocalAppData 'ReShade VR UI Add-on'
+$testLayerDirectory = Join-Path $testInstallDirectory 'openxr-layers'
+$testDll = Join-Path $testInstallDirectory 'ReShade-OpenXR-UI.addon64'
+$testManifest = Join-Path $testLayerDirectory 'ReShade-OpenXR-UI-Layer-Capture.json'
 $simulatorDataDirectory = Join-Path $testLocalAppData 'OpenXR-Simulator'
 $runtimeStatusPath = Join-Path $simulatorDataDirectory 'runtime_status.json'
 $controllerCommandPath = Join-Path $simulatorDataDirectory 'controller_pose_command.json'
@@ -208,12 +211,13 @@ $savedEnvironment = @{
 	XR_PROBE_SLEEP_MS = $env:XR_PROBE_SLEEP_MS
 	XR_PROBE_PROJECTION_ONLY = $env:XR_PROBE_PROJECTION_ONLY
 	DISABLE_XR_APILAYER_reshade_1 = $env:DISABLE_XR_APILAYER_reshade_1
+	DISABLE_XR_APILAYER_reshade_vr_ui = $env:DISABLE_XR_APILAYER_reshade_vr_ui
 	DISABLE_ReShade_VR_UI_Addon = $env:DISABLE_ReShade_VR_UI_Addon
 }
 $process = $null
 
 try {
-	New-Item -ItemType Directory -Path $outputDirectory, $testLocalAppData, $simulatorDataDirectory -Force | Out-Null
+	New-Item -ItemType Directory -Path $outputDirectory, $testLayerDirectory, $simulatorDataDirectory -Force | Out-Null
 	Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
 	Copy-Item -LiteralPath $sourceDll -Destination $testDll
 
@@ -237,9 +241,10 @@ try {
 
 	$env:LOCALAPPDATA = $testLocalAppData
 	$env:XR_RUNTIME_JSON = $runtimeManifest
-	$env:XR_API_LAYER_PATH = $layerDirectory
+	$env:XR_API_LAYER_PATH = $testLayerDirectory + ';' + $layerDirectory
 	$env:XR_ENABLE_API_LAYERS = 'XR_APILAYER_reshade_vr_ui_capture;XR_APILAYER_reshade_local_ui_capture'
 	$env:DISABLE_XR_APILAYER_reshade_1 = '1'
+	$env:DISABLE_XR_APILAYER_reshade_vr_ui = '1'
 	$env:DISABLE_ReShade_VR_UI_Addon = '1'
 	$env:XR_PROBE_FRAMES = $probeFrames.ToString()
 	$env:XR_PROBE_SLEEP_MS = '10'
@@ -249,6 +254,31 @@ try {
 		-RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
 	$processHandle = $process.Handle
 	Wait-ForFrame 60
+	if ($RevertRestoreOnly) {
+		Invoke-ControllerClick -X 900 -Y 145
+		Wait-ForFrame ((Get-FrameCount) + 15)
+		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-detail.png')
+
+		Invoke-ControllerClick -X 520 -Y 32
+		Wait-ForFrame ((Get-FrameCount) + 15)
+		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-edited.png')
+		Invoke-ControllerClick -X 735 -Y 32
+		Wait-ForFrame ((Get-FrameCount) + 15)
+		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-reverted.png')
+		Invoke-ControllerClick -X 830 -Y 32
+		Wait-ForFrame ((Get-FrameCount) + 15)
+		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-restored.png')
+
+		$process.WaitForExit()
+		$process.Refresh()
+		if ($process.ExitCode -ne 0) { throw "OpenXR probe failed with exit code $($process.ExitCode)." }
+		$probeOutput = Get-Content -LiteralPath $stdoutPath -Raw
+		if ($probeOutput -notmatch '=+ 0 failure\(s\), [0-9]+ warning\(s\) =+') {
+			throw "OpenXR probe did not report zero failures. See '$stdoutPath'."
+		}
+		Write-Host "Saved $GraphicsApi Revert/Restore simulator captures to $outputDirectory"
+		return
+	}
 	Save-SimulatorWindow (Join-Path $outputDirectory 'main.png')
 	Save-SimulatorWindow (Join-Path $outputDirectory 'preset-off.png')
 
@@ -262,6 +292,16 @@ try {
 	Invoke-ControllerClick -X 900 -Y 145
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'detail.png')
+
+	Invoke-ControllerClick -X 520 -Y 32
+	Wait-ForFrame ((Get-FrameCount) + 15)
+	Save-SimulatorWindow (Join-Path $outputDirectory 'detail-edited.png')
+	Invoke-ControllerClick -X 735 -Y 32
+	Wait-ForFrame ((Get-FrameCount) + 15)
+	Save-SimulatorWindow (Join-Path $outputDirectory 'detail-reverted.png')
+	Invoke-ControllerClick -X 830 -Y 32
+	Wait-ForFrame ((Get-FrameCount) + 15)
+	Save-SimulatorWindow (Join-Path $outputDirectory 'detail-restored.png')
 
 	Invoke-ControllerClick -X 50 -Y 32
 	Invoke-ControllerClick -X 860 -Y 102

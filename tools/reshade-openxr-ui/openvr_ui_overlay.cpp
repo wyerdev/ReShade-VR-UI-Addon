@@ -166,6 +166,14 @@ namespace
 				ImGui::SameLine();
 				if (ImGui::SmallButton("Reset all parameters"))
 					openxr_ui_reset_all_parameters(technique.id);
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Revert"))
+					openxr_ui_revert_technique(technique.id);
+				ImGui::SameLine();
+				ImGui::BeginDisabled(!technique.has_restore_state);
+				if (ImGui::SmallButton("Restore"))
+					openxr_ui_restore_technique(technique.id);
+				ImGui::EndDisabled();
 				draw_parameter_controls(*snapshot, technique);
 			}
 			ImGui::PopID();

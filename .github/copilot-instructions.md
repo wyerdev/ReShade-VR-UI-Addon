@@ -36,7 +36,6 @@
 
 - Use `setup-reshade.ps1 -Action Setup` to clone the latest ReShade source and initialize submodules.
 - Use `setup-reshade.ps1 -Action Update` to fetch and fast-forward the checkout's upstream default branch.
-- Use `build.bat` from the repository root for the normal build and package flow.
 - Use `-ReShadePath` when building against an external ReShade checkout.
 - Do not modify the external ReShade checkout to implement plugin behavior.
 
@@ -44,21 +43,13 @@
 
 - Treat every game directory and its ReShade configuration, effects, presets, logs, DLLs, and manifests as read-only evidence. Never edit, generate, copy, delete, or replace files there unless the user explicitly requests that exact target-side change.
 - Never modify a game-local `ReShade.ini` or `ReShadeVR.ini`, copy an add-on into a game directory, or change a game's launch configuration to make a test pass or to compensate for missing product behavior.
+- Never launch a game on the user's behalf.
 - A per-game workaround is not an implementation of global add-on activation and must not be reported as a fix. Solve activation in this repository's add-on, installer, or supported machine-wide registration while preserving the no-loader and no-injection architecture.
 - After a user-controlled game test, inspect game-local logs and configuration read-only. Ask the user only for headset observations that cannot be obtained from artifacts.
-
-## OpenXR Validation
-
-- Use the isolated OpenXR Simulator bundle supplied through `-TestRoot`. Do not rebuild, install, register, or modify that bundle unless the task explicitly targets it.
-- Never launch a game, deploy to Hubris, modify a runtime registration, or change machine-wide configuration as part of automated validation.
-- WARP tests validate interaction and state transitions only. Visual acceptance requires inspecting every actual simulator capture produced by `capture_simulator_ui.ps1`.
-- Inspect D3D11 and D3D12 captures when both APIs are requested. Do not treat logs, hashes, hit tests, or screenshot existence as visual proof.
-- Preserve simulator configuration and preset bytes; temporary staged DLLs, manifests, local-app-data state, and test presets must be removed by the harness.
 
 ## Edit And Validation Discipline
 
 - Use `apply_patch` for edits to existing files and keep patches small.
-- Use Windows PowerShell commands and checked-in scripts. Do not assume a Unix shell is available.
 - After the first substantive edit, run the narrowest executable validation available before unrelated exploration or edits.
 - Finish with an executable validation whenever the environment provides one. Report unavailable or blocked validation clearly.
 

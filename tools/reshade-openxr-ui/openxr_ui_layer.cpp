@@ -641,6 +641,12 @@ namespace
 			case openxr_ui::render_result::command::set_technique_favourite:
 				openxr_ui_set_technique_favourite(render_result.target_id, render_result.state);
 				break;
+			case openxr_ui::render_result::command::revert_technique:
+				openxr_ui_revert_technique(render_result.target_id);
+				break;
+			case openxr_ui::render_result::command::restore_technique:
+				openxr_ui_restore_technique(render_result.target_id);
+				break;
 			case openxr_ui::render_result::command::set_parameter:
 				openxr_ui_set_parameter(render_result.target_id, render_result.component, render_result.value);
 				break;

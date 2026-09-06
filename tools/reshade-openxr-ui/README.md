@@ -92,6 +92,7 @@ For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingV
 %LOCALAPPDATA%\ReShade VR UI Add-on\favourite-shaders.txt
 %LOCALAPPDATA%\ReShade VR UI Add-on\ReShade-VR-Loader.log
 - Shader parameter editing with sliders, steps, defaults, and reset actions
+- Per-shader Revert to the last successful preset save and Restore to the captured live state
 - Preset navigation, save, named Save As, and delete
 - Controller pointer, trigger interaction, thumbstick scrolling, and `L3 + R3` visibility control
 - Active graphics API indicator for Direct3D 11 and Direct3D 12 sessions

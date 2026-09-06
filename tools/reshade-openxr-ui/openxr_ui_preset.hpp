@@ -19,6 +19,8 @@ namespace openxr_ui
 		void mark_saved(const technique_snapshot &snapshot);
 		void update(const technique_snapshot &snapshot);
 		bool is_dirty() const;
+		bool get_saved_technique_state(uint64_t technique_id, bool &enabled) const;
+		bool get_saved_parameter_values(uint64_t parameter_id, std::vector<double> &values) const;
 
 	private:
 		bool _dirty = false;

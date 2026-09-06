@@ -20,6 +20,7 @@ namespace openxr_ui
 		bool hidden = false;
 		bool favourite = false;
 		std::string persistence_id;
+		bool has_restore_state = false;
 	};
 
 	enum class parameter_type

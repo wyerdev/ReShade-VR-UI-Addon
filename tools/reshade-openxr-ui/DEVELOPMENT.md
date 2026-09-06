@@ -26,6 +26,10 @@ Performance mode intentionally removes editable uniform variables. Technique ena
 
 Save is green when the current live technique and parameter state matches the last successful preset save. It turns amber after either a technique toggle or a parameter change/reset. A successful Save briefly changes the label to `Saved`; a failed save is red. Parameter changes remain live but unsaved until Save is pressed.
 
+## Per-shader revert and restore
+
+Each technique detail view has `Revert` and `Restore` controls. `Revert` captures the technique's current live enabled state and parameter values, then applies the values from the last successful preset save. `Restore` puts the captured live state back and remains available until it is used. The temporary state is cleared when the active preset or effect inventory changes; neither action saves the preset automatically.
+
 ## Cursor stabilization
 
 Free pointer movement uses a six-pixel radial dead zone followed by continuous low-pass motion and two-pixel output quantization. This avoids converting gradual controller drift into delayed cursor jumps. Holding select uses a faster low-pass response instead of raw pose coordinates, keeping sliders and drag controls responsive without exposing every tracking sample.
