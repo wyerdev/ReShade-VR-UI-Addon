@@ -3,8 +3,21 @@
 ## Repository Scope
 
 - This is a standalone plugin repository. Preserve staged and unstaged user changes.
+- The product must support both OpenXR and OpenVR. Do not remove or narrow either activation path without explicit user approval.
 - Never reset, restore, delete, or overwrite worktree changes that were not made during the current task.
 - Keep edits small, local, and consistent with the existing scripts and documentation.
+
+## Plain-English Communication
+
+- Always answer and explain things in plain English.
+- Start with the direct answer or main conclusion before technical details.
+- Do not assume the user understands programming terms, internal names, or acronyms.
+- Avoid technical jargon when ordinary words communicate the same meaning.
+- When a technical term is necessary, explain what it means in plain English the first time it appears.
+- Explain problems as a concrete sequence of what happens, why it fails, and how the proposed change fixes it.
+- Keep optional technical evidence separate from the main explanation.
+- Do not use source-code names, log messages, or file references as a substitute for explaining their meaning.
+- If the user says an explanation is unclear, restart from the basic facts with simpler language instead of repeating the same terminology.
 
 ## Git And Dependency Boundary
 
@@ -13,7 +26,6 @@
 - The checkout under `.deps\reshade` is an external, ignored build dependency. Do not copy it into this repository or include it in release packages.
 - `RESHADE-dependency.md` is an informational snapshot, not a pinned revision. Preserve user edits and regenerate it only through `setup-reshade.ps1` when the dependency checkout changes.
 - Do not initialize, commit, create remotes, or push unless the user explicitly requests that Git operation.
-- Before reporting repository state, use the current checkout's Git status; do not infer it from an earlier session.
 
 ## Privacy And Sensitive Data
 
@@ -27,6 +39,13 @@
 - Use `build.bat` from the repository root for the normal build and package flow.
 - Use `-ReShadePath` when building against an external ReShade checkout.
 - Do not modify the external ReShade checkout to implement plugin behavior.
+
+## Target Application Boundary
+
+- Treat every game directory and its ReShade configuration, effects, presets, logs, DLLs, and manifests as read-only evidence. Never edit, generate, copy, delete, or replace files there unless the user explicitly requests that exact target-side change.
+- Never modify a game-local `ReShade.ini` or `ReShadeVR.ini`, copy an add-on into a game directory, or change a game's launch configuration to make a test pass or to compensate for missing product behavior.
+- A per-game workaround is not an implementation of global add-on activation and must not be reported as a fix. Solve activation in this repository's add-on, installer, or supported machine-wide registration while preserving the no-loader and no-injection architecture.
+- After a user-controlled game test, inspect game-local logs and configuration read-only. Ask the user only for headset observations that cannot be obtained from artifacts.
 
 ## OpenXR Validation
 
@@ -42,7 +61,6 @@
 - Use Windows PowerShell commands and checked-in scripts. Do not assume a Unix shell is available.
 - After the first substantive edit, run the narrowest executable validation available before unrelated exploration or edits.
 - Finish with an executable validation whenever the environment provides one. Report unavailable or blocked validation clearly.
-- Run `git diff --check` when Git metadata is available, and inspect the relevant status without changing unrelated user work.
 
 ## Clean Code And File Organization
 

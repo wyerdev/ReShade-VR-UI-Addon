@@ -16,27 +16,20 @@ build in `RESHADE-dependency.md`, but does not pin that revision.
 
 ## Setup
 
-From this repository root:
+From this repository root, run the standard setup, build, and package flow:
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup-reshade.ps1 -Action Setup
+```bat
+build.bat
 ```
 
-To fetch the latest ReShade revision later:
+`build.bat` sets up the local ReShade dependency when it is missing, builds the
+add-ons, and creates the installable package. The setup script requires Git and
+initializes ReShade's required submodules. The ReShade checkout must contain
+its public headers plus the Dear ImGui, OpenXR SDK, and OpenVR dependency
+trees.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup-reshade.ps1 -Action Update
-```
-
-An existing ReShade checkout can be used instead:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-openxr-ui.ps1 -ReShadePath C:\path\to\reshade
-```
-
-The setup script requires Git and initializes ReShade's required submodules.
-The ReShade checkout must contain its public headers plus the Dear ImGui,
-OpenXR SDK, and OpenVR dependency trees.
+For a clean rebuild and package, run `clean.bat`. It assumes the ReShade
+dependency checkout has already been set up.
 
 ## Build
 
@@ -57,34 +50,11 @@ dependency checkout has already been set up. Run `install.bat` and
 OpenXR registration and runtime files while preserving per-user preferences
 and logs.
 
-Build and package the plugin from the repository root:
-
-```bat
-build.bat
-```
-
 The wrapper builds against `.deps\reshade`, packages the release, and writes
 generated files under `build\reshade-openxr-ui`. The build runs the private
 renderer interaction test and the central loader test. To build ReShade itself,
 use the build instructions and scripts inside the separate `.deps\reshade`
 checkout first.
-
-For a clean rebuild and package:
-
-```bat
-clean.bat
-```
-
-The direct PowerShell build wrapper is also available for advanced use and
-custom output paths:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-openxr-ui.ps1 -ReShadePath C:\path\to\reshade
-```
-
-That PowerShell wrapper builds the add-ons but does not create the release
-package. Use `tools\reshade-openxr-ui\package.ps1` afterward when packaging is
-needed.
 
 See [tools/reshade-openxr-ui/README.md](tools/reshade-openxr-ui/README.md) for
 plugin architecture, release packaging, and simulator validation details.
@@ -95,9 +65,12 @@ The deterministic simulator bundle is external to this repository. Supply its
 path explicitly:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\smoke.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test -Frames 30
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test -Frames 1600
+.\tools\reshade-openxr-ui\smoke.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test -Frames 30
+.\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test -Frames 1600
 ```
+
+These validation scripts do not have batch-file wrappers and must be run from
+PowerShell after `build.bat`.
 
 Inspect every captured simulator state. Synthetic renderer output, logs, hit
 tests, and screenshot existence do not prove the headset UI is visually
@@ -120,7 +93,7 @@ repository.
 The Hubris/Pimax harness is an optional read-only status check:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\test_openxr_hubris.ps1 -Action Status -GameRoot C:\path\to\Hubris
+.\tools\test_openxr_hubris.ps1 -Action Status -GameRoot C:\path\to\Hubris
 ```
 
 For `Install`, `Run`, or `Capture`, pass the path to an existing full
@@ -129,8 +102,8 @@ separate ReShade build or installation; it is not
 `ReShade-OpenXR-UI.addon64`, and `setup-reshade.ps1` does not build it:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\test_openxr_simulator.ps1 -Action Capture -TestRoot C:\path\to\OpenXR-Simulator-test -SourceDll C:\path\to\ReShade64.dll
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\test_openxr_hubris.ps1 -Action Prepare -GameRoot C:\path\to\Hubris -SourceDll C:\path\to\ReShade64.dll
+.\tools\test_openxr_simulator.ps1 -Action Capture -TestRoot C:\path\to\OpenXR-Simulator-test -SourceDll C:\path\to\ReShade64.dll
+.\tools\test_openxr_hubris.ps1 -Action Prepare -GameRoot C:\path\to\Hubris -SourceDll C:\path\to\ReShade64.dll
 ```
 
 The migration and build scripts never launch a game or modify an existing
@@ -140,9 +113,12 @@ ReShade checkout.
 
 After validation:
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\package.ps1
+```bat
+build.bat
 ```
+
+`build.bat` creates the release package after building the add-ons. For a clean
+release build, use `clean.bat` first.
 
 The package contains only the plugin artifacts, installer, uninstaller,
 manifest, install guide, project license, and third-party notices. It does not
