@@ -11,6 +11,7 @@
 #include <openxr/openxr_loader_negotiation.h>
 #include <wrl/client.h>
 
+#include "openxr_effect_fallback.hpp"
 #include "openxr_ui_model.hpp"
 #include "openxr_ui_renderer.hpp"
 #include "vr_ui_state.hpp"
@@ -18,6 +19,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -27,6 +29,10 @@ extern "C" XrResult XRAPI_CALL xrGetInstanceProcAddr(XrInstance instance, const 
 extern "C" XrResult XRAPI_CALL xrDestroyInstance(XrInstance instance);
 extern "C" XrResult XRAPI_CALL xrCreateSession(XrInstance instance, const XrSessionCreateInfo *create_info, XrSession *session);
 extern "C" XrResult XRAPI_CALL xrDestroySession(XrSession session);
+extern "C" XrResult XRAPI_CALL xrCreateSwapchain(XrSession session, const XrSwapchainCreateInfo *create_info, XrSwapchain *swapchain);
+extern "C" XrResult XRAPI_CALL xrDestroySwapchain(XrSwapchain swapchain);
+extern "C" XrResult XRAPI_CALL xrAcquireSwapchainImage(XrSwapchain swapchain, const XrSwapchainImageAcquireInfo *acquire_info, uint32_t *index);
+extern "C" XrResult XRAPI_CALL xrReleaseSwapchainImage(XrSwapchain swapchain, const XrSwapchainImageReleaseInfo *release_info);
 extern "C" XrResult XRAPI_CALL xrSuggestInteractionProfileBindings(XrInstance instance, const XrInteractionProfileSuggestedBinding *suggested_bindings);
 extern "C" XrResult XRAPI_CALL xrAttachSessionActionSets(XrSession session, const XrSessionActionSetsAttachInfo *attach_info);
 extern "C" XrResult XRAPI_CALL xrWaitFrame(XrSession session, const XrFrameWaitInfo *wait_info, XrFrameState *frame_state);
@@ -47,6 +53,8 @@ namespace
 	constexpr float pointer_drag_follow_rate = 0.35f;
 	constexpr float pointer_hover_output_step = 2.0f;
 	constexpr XrDuration menu_long_press_duration = 1500000000;
+	// Official ReShade creates its VR runtime on its first xrEndFrame, so it gets this many frames before the fallback starts.
+	constexpr uint32_t effect_fallback_wait_frames = 10;
 
 	enum class graphics_api
 	{
@@ -157,11 +165,30 @@ namespace
 		float scroll_y = 0.0f;
 		bool quad_ready = false;
 		bool quad_logged = false;
+		std::unique_ptr<openxr_ui::effect_fallback> effects;
+		std::vector<XrSwapchain> effect_swapchains;
+		std::vector<XrSwapchain> pending_releases;
+		uint32_t frames_without_vr_runtime = 0;
+		bool effects_decided = false;
+	};
+
+	struct swapchain_state
+	{
+		XrSession session = XR_NULL_HANDLE;
+		std::shared_ptr<instance_dispatch> dispatch;
+		std::vector<void *> textures;
+		std::deque<uint32_t> acquired;
+		// Eye regions of this swapchain in the last submitted projection layer; the texture is filled in on release.
+		std::vector<openxr_ui::effect_view> effect_regions;
+		// The application released the oldest acquired image, but the layer holds it until the frame's other eyes arrive.
+		bool release_pending = false;
+		bool static_image = false;
 	};
 
 	std::mutex s_layer_mutex;
 	std::unordered_map<XrInstance, std::shared_ptr<instance_dispatch>> s_instances;
 	std::unordered_map<XrSession, std::unique_ptr<session_state>> s_sessions;
+	std::unordered_map<XrSwapchain, swapchain_state> s_swapchains;
 
 	template <typename T>
 	bool load_proc(PFN_xrGetInstanceProcAddr get_instance_proc, XrInstance instance, const char *name, T &target)
@@ -212,6 +239,13 @@ namespace
 		const std::lock_guard<std::mutex> lock(s_layer_mutex);
 		const auto session_it = s_sessions.find(session);
 		return session_it != s_sessions.end() ? session_it->second.get() : nullptr;
+	}
+
+	swapchain_state *find_swapchain(XrSwapchain swapchain)
+	{
+		const std::lock_guard<std::mutex> lock(s_layer_mutex);
+		const auto swapchain_it = s_swapchains.find(swapchain);
+		return swapchain_it != s_swapchains.end() ? &swapchain_it->second : nullptr;
 	}
 
 	const XrGraphicsBindingD3D11KHR *find_d3d11_binding(const XrSessionCreateInfo *create_info)
@@ -827,6 +861,7 @@ namespace
 
 	void destroy_session_resources(session_state &state)
 	{
+		state.effects.reset();
 		state.renderer.reset();
 		state.render_target_views.clear();
 		state.render_target_views12.clear();
@@ -844,6 +879,123 @@ namespace
 		if (state.view_space != XR_NULL_HANDLE)
 			state.dispatch->DestroySpace(state.view_space);
 	}
+
+	bool ensure_effect_fallback(session_state &state)
+	{
+		if (state.effects != nullptr)
+			return true;
+		if (state.effects_decided || state.api == graphics_api::none)
+			return false;
+		if (openxr_ui_has_vr_runtime())
+		{
+			state.effects_decided = true;
+			return false;
+		}
+		if (++state.frames_without_vr_runtime < effect_fallback_wait_frames)
+			return false;
+
+		state.effects_decided = true;
+		openxr_ui_log_message("official ReShade did not start a VR effect runtime for this session; starting the effect fallback.");
+		state.effects = state.api == graphics_api::d3d11 ?
+			std::make_unique<openxr_ui::effect_fallback>(state.device.Get(), state.context.Get()) :
+			std::make_unique<openxr_ui::effect_fallback>(state.device12.Get(), state.command_queue12.Get());
+		return true;
+	}
+
+	// Runtimes may read an image as soon as it is released, so the effects run in xrReleaseSwapchainImage.
+	// Which images hold the eyes is only known from xrEndFrame, so the layout of the last frame is used.
+	void record_effect_layout(session_state &state, const XrFrameEndInfo &frame_end_info)
+	{
+		if (!ensure_effect_fallback(state))
+			return;
+
+		for (const XrSwapchain previous : state.effect_swapchains)
+			if (swapchain_state *const swapchain = find_swapchain(previous))
+				swapchain->effect_regions.clear();
+		state.effect_swapchains.clear();
+
+		for (uint32_t layer_index = 0; layer_index < frame_end_info.layerCount; ++layer_index)
+		{
+			const XrCompositionLayerBaseHeader *const layer = frame_end_info.layers[layer_index];
+			if (layer == nullptr || layer->type != XR_TYPE_COMPOSITION_LAYER_PROJECTION)
+				continue;
+
+			const auto *const projection = reinterpret_cast<const XrCompositionLayerProjection *>(layer);
+			for (uint32_t view_index = 0; view_index < projection->viewCount; ++view_index)
+			{
+				const XrSwapchainSubImage &sub_image = projection->views[view_index].subImage;
+				swapchain_state *const swapchain = find_swapchain(sub_image.swapchain);
+				// Effects on a static image would stack every frame.
+				if (swapchain == nullptr || swapchain->static_image || swapchain->textures.empty() ||
+					sub_image.imageRect.offset.x < 0 || sub_image.imageRect.offset.y < 0 ||
+					sub_image.imageRect.extent.width <= 0 || sub_image.imageRect.extent.height <= 0)
+					continue;
+				if (swapchain->effect_regions.empty())
+					state.effect_swapchains.push_back(sub_image.swapchain);
+				swapchain->effect_regions.push_back({
+					nullptr,
+					sub_image.imageArrayIndex,
+					sub_image.imageRect.offset.x,
+					sub_image.imageRect.offset.y,
+					static_cast<uint32_t>(sub_image.imageRect.extent.width),
+					static_cast<uint32_t>(sub_image.imageRect.extent.height),
+				});
+			}
+			// A runtime renders effects once per present, so only the first projection layer is processed.
+			return;
+		}
+	}
+
+	bool all_effect_images_released(const session_state &state)
+	{
+		for (const XrSwapchain handle : state.effect_swapchains)
+			if (const swapchain_state *const swapchain = find_swapchain(handle); swapchain != nullptr && !swapchain->release_pending)
+				return false;
+		return true;
+	}
+
+	// Games with one image per eye release them one by one. Holding them until all are released lets the effects run
+	// once per frame on one picture of fixed size; eyes that were not released keep their place in that picture.
+	void flush_effect_releases(session_state &state)
+	{
+		if (state.pending_releases.empty())
+			return;
+
+		std::vector<openxr_ui::effect_view> views;
+		for (const XrSwapchain handle : state.effect_swapchains)
+		{
+			const swapchain_state *const swapchain = find_swapchain(handle);
+			if (swapchain == nullptr)
+				continue;
+			for (openxr_ui::effect_view view : swapchain->effect_regions)
+			{
+				view.texture = swapchain->release_pending ? swapchain->textures[swapchain->acquired.front()] : nullptr;
+				views.push_back(view);
+			}
+		}
+		if (state.effects != nullptr && !views.empty())
+			state.effects->apply(views.data(), static_cast<uint32_t>(views.size()));
+
+		const XrSwapchainImageReleaseInfo release_info = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+		for (const XrSwapchain handle : state.pending_releases)
+		{
+			swapchain_state *const swapchain = find_swapchain(handle);
+			if (swapchain == nullptr || !swapchain->release_pending)
+				continue;
+			swapchain->release_pending = false;
+			if (XR_SUCCEEDED(swapchain->dispatch->ReleaseSwapchainImage(handle, &release_info)))
+				swapchain->acquired.pop_front();
+		}
+		state.pending_releases.clear();
+	}
+
+	void flush_effect_releases_for(const swapchain_state &swapchain)
+	{
+		if (!swapchain.release_pending)
+			return;
+		if (session_state *const state = find_session(swapchain.session))
+			flush_effect_releases(*state);
+	}
 }
 
 extern "C" XrResult XRAPI_CALL xrGetInstanceProcAddr(XrInstance instance, const char *name, PFN_xrVoidFunction *function)
@@ -855,6 +1007,10 @@ extern "C" XrResult XRAPI_CALL xrGetInstanceProcAddr(XrInstance instance, const 
 	OPENXR_UI_HOOK("xrDestroyInstance", xrDestroyInstance)
 	OPENXR_UI_HOOK("xrCreateSession", xrCreateSession)
 	OPENXR_UI_HOOK("xrDestroySession", xrDestroySession)
+	OPENXR_UI_HOOK("xrCreateSwapchain", xrCreateSwapchain)
+	OPENXR_UI_HOOK("xrDestroySwapchain", xrDestroySwapchain)
+	OPENXR_UI_HOOK("xrAcquireSwapchainImage", xrAcquireSwapchainImage)
+	OPENXR_UI_HOOK("xrReleaseSwapchainImage", xrReleaseSwapchainImage)
 	OPENXR_UI_HOOK("xrSuggestInteractionProfileBindings", xrSuggestInteractionProfileBindings)
 	OPENXR_UI_HOOK("xrAttachSessionActionSets", xrAttachSessionActionSets)
 	OPENXR_UI_HOOK("xrWaitFrame", xrWaitFrame)
@@ -918,9 +1074,113 @@ extern "C" XrResult XRAPI_CALL xrDestroySession(XrSession session)
 			return XR_ERROR_HANDLE_INVALID;
 		state = std::move(session_it->second);
 		s_sessions.erase(session_it);
+		// Destroying a session also destroys its swapchains.
+		for (auto swapchain_it = s_swapchains.begin(); swapchain_it != s_swapchains.end();)
+			swapchain_it = swapchain_it->second.session == session ? s_swapchains.erase(swapchain_it) : std::next(swapchain_it);
 	}
 	destroy_session_resources(*state);
 	return state->dispatch->DestroySession(session);
+}
+
+extern "C" XrResult XRAPI_CALL xrCreateSwapchain(XrSession session, const XrSwapchainCreateInfo *create_info, XrSwapchain *swapchain)
+{
+	session_state *const state = find_session(session);
+	if (state == nullptr)
+		return XR_ERROR_HANDLE_INVALID;
+	if (create_info == nullptr || swapchain == nullptr)
+		return state->dispatch->CreateSwapchain(session, create_info, swapchain);
+
+	XrSwapchainCreateInfo effect_info = *create_info;
+	// The effect fallback copies color images to and from its own texture, as official ReShade does.
+	if (state->api != graphics_api::none && (effect_info.usageFlags & XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT) != 0)
+		effect_info.usageFlags |= XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+	const XrResult result = state->dispatch->CreateSwapchain(session, &effect_info, swapchain);
+	if (XR_FAILED(result))
+		return result;
+
+	swapchain_state tracked;
+	tracked.session = session;
+	tracked.dispatch = state->dispatch;
+	tracked.static_image = (create_info->createFlags & XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT) != 0;
+	uint32_t image_count = 0;
+	if (state->api != graphics_api::none &&
+		XR_SUCCEEDED(state->dispatch->EnumerateSwapchainImages(*swapchain, 0, &image_count, nullptr)) && image_count != 0)
+	{
+		if (state->api == graphics_api::d3d11)
+		{
+			std::vector<XrSwapchainImageD3D11KHR> images(image_count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR });
+			if (XR_SUCCEEDED(state->dispatch->EnumerateSwapchainImages(*swapchain, image_count, &image_count,
+				reinterpret_cast<XrSwapchainImageBaseHeader *>(images.data()))))
+				for (const XrSwapchainImageD3D11KHR &image : images)
+					tracked.textures.push_back(image.texture);
+		}
+		else
+		{
+			std::vector<XrSwapchainImageD3D12KHR> images(image_count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR });
+			if (XR_SUCCEEDED(state->dispatch->EnumerateSwapchainImages(*swapchain, image_count, &image_count,
+				reinterpret_cast<XrSwapchainImageBaseHeader *>(images.data()))))
+				for (const XrSwapchainImageD3D12KHR &image : images)
+					tracked.textures.push_back(image.texture);
+		}
+	}
+	{
+		const std::lock_guard<std::mutex> lock(s_layer_mutex);
+		s_swapchains.insert_or_assign(*swapchain, std::move(tracked));
+	}
+	return result;
+}
+
+extern "C" XrResult XRAPI_CALL xrDestroySwapchain(XrSwapchain swapchain)
+{
+	if (const swapchain_state *const tracked = find_swapchain(swapchain))
+		flush_effect_releases_for(*tracked);
+	std::shared_ptr<instance_dispatch> dispatch;
+	{
+		const std::lock_guard<std::mutex> lock(s_layer_mutex);
+		const auto swapchain_it = s_swapchains.find(swapchain);
+		if (swapchain_it == s_swapchains.end())
+			return XR_ERROR_HANDLE_INVALID;
+		dispatch = swapchain_it->second.dispatch;
+		s_swapchains.erase(swapchain_it);
+	}
+	return dispatch->DestroySwapchain(swapchain);
+}
+
+extern "C" XrResult XRAPI_CALL xrAcquireSwapchainImage(XrSwapchain swapchain, const XrSwapchainImageAcquireInfo *acquire_info, uint32_t *index)
+{
+	swapchain_state *const tracked = find_swapchain(swapchain);
+	if (tracked == nullptr)
+		return XR_ERROR_HANDLE_INVALID;
+	flush_effect_releases_for(*tracked);
+	const XrResult result = tracked->dispatch->AcquireSwapchainImage(swapchain, acquire_info, index);
+	if (XR_SUCCEEDED(result) && index != nullptr)
+		tracked->acquired.push_back(*index);
+	return result;
+}
+
+extern "C" XrResult XRAPI_CALL xrReleaseSwapchainImage(XrSwapchain swapchain, const XrSwapchainImageReleaseInfo *release_info)
+{
+	swapchain_state *const tracked = find_swapchain(swapchain);
+	if (tracked == nullptr)
+		return XR_ERROR_HANDLE_INVALID;
+	flush_effect_releases_for(*tracked);
+	// Release returns the oldest acquired image, in acquire order.
+	if (!tracked->effect_regions.empty() && !tracked->acquired.empty() && tracked->acquired.front() < tracked->textures.size())
+	{
+		session_state *const state = find_session(tracked->session);
+		if (state != nullptr && state->effects != nullptr)
+		{
+			tracked->release_pending = true;
+			state->pending_releases.push_back(swapchain);
+			if (all_effect_images_released(*state))
+				flush_effect_releases(*state);
+			return XR_SUCCESS;
+		}
+	}
+	const XrResult result = tracked->dispatch->ReleaseSwapchainImage(swapchain, release_info);
+	if (XR_SUCCEEDED(result) && !tracked->acquired.empty())
+		tracked->acquired.pop_front();
+	return result;
 }
 
 extern "C" XrResult XRAPI_CALL xrSuggestInteractionProfileBindings(XrInstance instance, const XrInteractionProfileSuggestedBinding *suggested_bindings)
@@ -982,6 +1242,10 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 	const int preset_operation_result = openxr_ui_update_preset_operations();
 	if (preset_operation_result != 0 && state->renderer != nullptr)
 		state->renderer->notify_save_as_result(preset_operation_result > 0);
+	// The runtime requires every image of the frame to be released before it is submitted.
+	flush_effect_releases(*state);
+	if (frame_end_info != nullptr && state->should_render)
+		record_effect_layout(*state, *frame_end_info);
 	if (frame_end_info == nullptr || !state->quad_ready || !state->should_render)
 		return state->dispatch->EndFrame(session, frame_end_info);
 

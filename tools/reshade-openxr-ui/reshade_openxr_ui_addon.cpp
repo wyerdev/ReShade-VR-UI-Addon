@@ -732,6 +732,12 @@ bool openxr_ui_has_effect_runtime()
 	return s_effect_runtime != nullptr;
 }
 
+bool openxr_ui_has_vr_runtime()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	return !s_vr_runtimes.empty();
+}
+
 bool openxr_ui_uses_effect_runtime(effect_runtime *runtime)
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);

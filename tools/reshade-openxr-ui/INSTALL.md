@@ -1,56 +1,32 @@
 # Install ReShade VR UI Add-on
 
-## Install ReShade
+Works with 64-bit DirectX 11 and 12 games. Vulkan and OpenGL are not supported.
 
-1. Download **ReShade with full add-on support** from [reshade.me](https://reshade.me/).
-2. Run the installer and select the game's main `.exe` file.
-3. Select **DirectX 10/11/12**.
-4. Enable **OpenXR** and complete the installation.
+## Native OpenXR Games
 
-Repeat these ReShade steps for each game you want to enable in ReShade.
+- Install **ReShade with full add-on support** from [reshade.me](https://reshade.me/).
+- In ReShade Setup, pick the game's main `.exe`, choose **DirectX 10/11/12**, and enable **OpenXR**.
+- Close games and SteamVR, then right-click `Install.cmd` and choose **Run as administrator** (once for all games).
+- Start the game normally. The panel appears in the headset; `L3 + R3` shows or hides it.
 
-## Install the Add-on
+## SteamVR (OpenVR) Games
 
-1. Extract the complete ReShade VR UI Add-on ZIP.
-2. Close games and VR runtime software, including SteamVR.
-3. Right-click `Install.cmd` and select **Run as administrator**.
+- Do the same ReShade Setup steps as above (keep **OpenXR** enabled).
+- Run `Install.cmd` as administrator once, if not done already.
+- Start the game normally. ReShade's SteamVR dashboard opens after effects load.
+- Open **Add-ons** > **ReShade VR UI Add-on for SteamVR** for the controls.
+- Loader log: `%LOCALAPPDATA%\ReShade VR UI Add-on\ReShade-VR-Loader.log`.
 
-The runtime files and OpenXR registration are installed machine-wide so SteamVR can enable or disable the layer through its elevated API-layer control. The loader startup entry, preferences, and logs remain specific to your Windows account. Compatible 64-bit D3D11 and D3D12 games are supported through native OpenXR or SteamVR/OpenVR. Vulkan and OpenGL are not currently supported.
+## UEVR (Unreal Games)
 
-## SteamVR And OpenVR Games
+- Do the same ReShade Setup steps for the game's `...-Win64-Shipping.exe` (keep **OpenXR** enabled).
+- Run `Install.cmd` as administrator once, if not done already.
+- Start the game, then inject with UEVR set to **OpenXR** (not OpenVR).
+- The panel appears in the headset. `ReShade effect runtime unavailable` may show for a moment, then effects load.
+- Switch effects on in the panel. A new game starts with none enabled.
 
-SteamVR can run either OpenXR or the older OpenVR API. OpenXR games use the native headset quad. OpenVR games expose the focused controls inside ReShade's existing SteamVR dashboard.
+## Update Or Uninstall
 
-No separate OpenVR installation is required. Keep **OpenXR enabled** in official ReShade Setup. `Install.cmd` installs a per-user background loader that reads the official central ReShade application list and waits for each enabled game to select a VR API. Native OpenXR games remain on the existing OpenXR layer path. When a game loads `openvr_api.dll`, the loader loads the exact official `C:\ProgramData\ReShade\ReShade64.dll` and then the central SteamVR UI companion. Nothing is copied into a game directory.
-
-For **Propagation: Paradise Hotel**:
-
-1. Select `Propagation_PH-Win64-Shipping.exe` in official full-add-on ReShade Setup.
-2. Select **DirectX 10/11/12**, enable **OpenXR**, and complete Setup.
-3. Run this package's `Install.cmd` once.
-4. Launch the game normally. After effects finish loading, the companion opens ReShade's SteamVR dashboard.
-5. Open **Add-ons** and expand **ReShade VR UI Add-on for SteamVR** to use the focused controls. ReShade's complete shader list remains on **Home**; `Generic Depth` and `ReShade VR UI Add-on for SteamVR` are add-ons, not shaders.
-
-The loader starts immediately after installation and at Windows sign-in. Its diagnostic log is `%LOCALAPPDATA%\ReShade VR UI Add-on\ReShade-VR-Loader.log`. Some anti-cheat systems may reject process injection; the loader records that failure and does not bypass anti-cheat policy.
-
-OpenVR games commonly create both a desktop effect runtime and a headset effect runtime. The SteamVR companion disables ReShade's built-in cross-runtime synchronization for that game before either runtime initializes; the SteamVR dashboard edits the headset runtime directly. This avoids recursive preset and uniform propagation between the two runtimes.
-
-On the first OpenVR launch for a runtime configuration, the companion also prevents ReShade's resolution-derived font scaling from enlarging controls inside its fixed 500-pixel SteamVR dashboard. If the runtime still uses ReShade's default font size and one of its automatic scales, the companion writes `STYLE/FontSize=12` and `STYLE/FontScale=1` to `ReShadeVR.ini`, then records the completed migration. Existing custom font sizing is preserved, and later user changes are not overwritten.
-
-## No Shaders In The Panel
-
-`ReShade effect runtime unavailable` means ReShade did not initialize VR effects. This is not caused by a missing `ReShadeVR.ini`. For OpenXR, check `ReShade.log` for a message such as `Skipping OpenXR session because it was created without a proxy Direct3D 12 device.` For OpenVR, check `ReShade-VR-Loader.log` for successful central loading and then check the game-local `ReShade.log`.
-
-Do not add a game-local ReShade proxy. The loader injects the exact DLL referenced by official central OpenXR registration, so an OpenXR application resolves the same module rather than loading a second ReShade instance.
-
-`No ReShade techniques found` means the effect runtime exists but did not discover any effects. ReShade normally falls back from missing keys in `ReShadeVR.ini` to `ReShade.ini`; check `EffectSearchPaths`, the installed shader files, and the active preset in those files. The add-on does not synthesize per-game ReShade configuration; it only updates settings requested through its UI and performs the one-time SteamVR dashboard scale migration described above.
-
-## Update
-
-Extract the new release, then right-click `Install.cmd` and select **Run as administrator** again. The installer preserves the layer's existing On or Off state.
-
-## Uninstall
-
-Right-click `Uninstall.cmd` and select **Run as administrator**. This stops the central loader, removes its per-user startup entry, removes the add-on's OpenXR registration and installed runtime files, and keeps preferences and logs. It does not change official ReShade, games, effects, presets, or game configuration.
-
-Run `Uninstall.cmd` when you no longer use the add-on, including when uninstalling ReShade. If ReShade is removed first, the add-on remains registered but stays inactive; running `Uninstall.cmd` removes that remaining registration completely.
+- Update: extract the new release and run `Install.cmd` as administrator again.
+- Uninstall: run `Uninstall.cmd` as administrator. Presets, logs and games are not touched.
+- If no effects appear, check `ReShade.log` next to the game's `.exe`.

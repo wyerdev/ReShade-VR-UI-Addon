@@ -5,6 +5,9 @@ Date recorded: 2026-09-06
 Status: Research only. No UEVR compatibility implementation has been approved
 or added to this repository.
 
+> Superseded 2026-09-24: its "the add-on cannot fix this" conclusion is replaced
+> by `UEVR_RESHADE_RESEARCH.md` and `UEVR_RESHADE_PLAN.md`.
+
 ## Short Answer
 
 ReShade has one way to process the monitor image and another way to process VR

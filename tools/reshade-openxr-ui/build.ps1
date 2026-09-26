@@ -64,6 +64,7 @@ $source = Join-Path $PSScriptRoot 'reshade_openxr_ui_addon.cpp'
 $openvrOverlaySource = Join-Path $PSScriptRoot 'openvr_ui_overlay.cpp'
 $presetSource = Join-Path $PSScriptRoot 'openxr_ui_preset.cpp'
 $layerSource = Join-Path $PSScriptRoot 'openxr_ui_layer.cpp'
+$effectFallbackSource = Join-Path $PSScriptRoot 'openxr_effect_fallback.cpp'
 $rendererSource = Join-Path $PSScriptRoot 'openxr_ui_renderer.cpp'
 $rendererTestSource = Join-Path $PSScriptRoot 'openxr_ui_renderer_test.cpp'
 $loaderSource = Join-Path $PSScriptRoot 'steamvr_loader.cpp'
@@ -99,7 +100,7 @@ $openvrOverlayProbeProgramDatabase = Join-Path $OutputDirectory 'ReShade-OpenVR-
 $rendererTest = Join-Path $OutputDirectory 'ReShade-OpenXR-UI-Renderer-Test.exe'
 $rendererTestProgramDatabase = Join-Path $OutputDirectory 'ReShade-OpenXR-UI-Renderer-Test.pdb'
 
-$compileCommand = 'call "' + $developerCommand + '" -arch=x64 -host_arch=x64 >nul & cl.exe /nologo /LD /std:c++17 /EHsc /W4 /O2 /MD /I"' + $include + '" /I"' + $openxrInclude + '" /I"' + $imgui + '" /I"' + $imguiBackend + '" /Fo:"' + $OutputDirectory + '\\" "' + $source + '" "' + $presetSource + '" "' + $layerSource + '" "' + $rendererSource + '" "' + (Join-Path $imgui 'imgui.cpp') + '" "' + (Join-Path $imgui 'imgui_draw.cpp') + '" "' + (Join-Path $imgui 'imgui_tables.cpp') + '" "' + (Join-Path $imgui 'imgui_widgets.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx11.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx12.cpp') + '" /link d3d11.lib d3d12.lib dxgi.lib /OUT:"' + $output + '" /IMPLIB:"' + $importLibrary + '" /PDB:"' + $programDatabase + '"'
+$compileCommand = 'call "' + $developerCommand + '" -arch=x64 -host_arch=x64 >nul & cl.exe /nologo /LD /std:c++17 /EHsc /W4 /O2 /MD /I"' + $include + '" /I"' + $openxrInclude + '" /I"' + $imgui + '" /I"' + $imguiBackend + '" /Fo:"' + $OutputDirectory + '\\" "' + $source + '" "' + $presetSource + '" "' + $layerSource + '" "' + $effectFallbackSource + '" "' + $rendererSource + '" "' + (Join-Path $imgui 'imgui.cpp') + '" "' + (Join-Path $imgui 'imgui_draw.cpp') + '" "' + (Join-Path $imgui 'imgui_tables.cpp') + '" "' + (Join-Path $imgui 'imgui_widgets.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx11.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx12.cpp') + '" /link d3d11.lib d3d12.lib dxgi.lib /OUT:"' + $output + '" /IMPLIB:"' + $importLibrary + '" /PDB:"' + $programDatabase + '"'
 & cmd.exe /d /c $compileCommand
 if ($LASTEXITCODE -ne 0) {
 	throw "ReShade VR UI Add-on build failed with exit code $LASTEXITCODE."

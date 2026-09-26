@@ -25,7 +25,9 @@
 - Never commit or push changes to the upstream ReShade repository as part of work here.
 - The checkout under `.deps\reshade` is an external, ignored build dependency. Do not copy it into this repository or include it in release packages.
 - `RESHADE-dependency.md` is an informational snapshot, not a pinned revision. Preserve user edits and regenerate it only through `setup-reshade.ps1` when the dependency checkout changes.
-- Do not initialize, commit, create remotes, or push unless the user explicitly requests that Git operation.
+- Git is read-only for the agent. Only the user stages, unstages, commits, pushes, or otherwise changes Git state (branches, stash, reset, restore, remotes, config). The agent may run only read commands such as `git status`, `git diff`, `git log` and `git show`.
+- The workspace hook `.github/hooks/git-read-only.json` blocks Git change commands and edits inside `.git` folders. Never disable, edit or work around it; `.github/hooks/test-git-read-only.ps1` checks it.
+- `setup-reshade.ps1` changes the `.deps` Git checkouts, so run it only when the user asks.
 
 ## Privacy And Sensitive Data
 
@@ -43,9 +45,22 @@
 
 - Treat every game directory and its ReShade configuration, effects, presets, logs, DLLs, and manifests as read-only evidence. Never edit, generate, copy, delete, or replace files there unless the user explicitly requests that exact target-side change.
 - Never modify a game-local `ReShade.ini` or `ReShadeVR.ini`, copy an add-on into a game directory, or change a game's launch configuration to make a test pass or to compensate for missing product behavior.
-- Never launch a game on the user's behalf.
+- Never launch a game on the user's behalf, except the approved UEVR test cycle below.
 - A per-game workaround is not an implementation of global add-on activation and must not be reported as a fix. Solve activation in this repository's add-on, installer, or supported machine-wide registration while preserving the no-loader and no-injection architecture.
 - After a user-controlled game test, inspect game-local logs and configuration read-only. Ask the user only for headset observations that cannot be obtained from artifacts.
+
+## UEVR Test Cycle (Approved Exception)
+
+- Current scope: get ReShade effects into VR for Unreal games run through UEVR, per `tools/reshade-openxr-ui/UEVR_RESHADE_PLAN.md` (findings in `UEVR_RESHADE_RESEARCH.md`). Keep both files short and current.
+- Approved test game: Creatures of Ava (Steam app 2304440, `A:\SteamLibrary\steamapps\common\Ava`). No other game may be launched.
+- Launch it only through `tools/test_uevr_simulator.ps1 -Action Run`. It starts the game executable directly with `SteamAppId`/`SteamGameId` set, which stops Steam relaunching the game and showing the "custom arguments" prompt, and keeps the simulator setting in the game process.
+- UEVR runs from `A:\UEVR-build\uevr-reshade-testing` (latest nightly). `-Action Deploy` overwrites its UEVR backend with the `.deps\UEVR` build; nothing else may write there. The user's UEVR copy under `%APPDATA%\UnrealVRMod\UEVR-build` is read-only reference.
+- Select the OpenXR Simulator per process only, through a generated runtime manifest with an absolute DLL path (the bundle's own manifest fails with UEVR's older loader, error -51). Never change the machine-wide OpenXR runtime. `tools/disable_openxr_simulator.ps1` lets the user confirm or restore their headset runtime.
+- `-Action Run` deletes the game's UEVR log (`%APPDATA%\UnrealVRMod\<game>\log.txt`) before starting, so the log and its copy in `build\uevr-simulator\<game>` hold only the latest run.
+- Every wait step has a 30 second limit. If the expected result is not seen in time, kill every process the run started. On success, close the game and the injector.
+- The 30 second limit is for waiting, not for testing. For live checks, use `-Action Run -KeepRunning`, finish every check while the game is running, then close it with `-Action Stop`. Never leave a session open at the end of a task.
+- The user's UEVR MCP plugin (`uevr_mcp.dll`, already in the game's UEVR plugins folder) answers at `http://localhost:8899/api` while the game runs. Use it for UEVR status, VR status, render details and desktop screenshots. Never use its game-launch or setup tools.
+- Verify each run yourself: the script output, the saved headset capture (inspect it with the image viewer), and the UEVR and simulator logs in `build\uevr-simulator\<game>`. The OpenXR Simulator MCP server (`.vscode/mcp.json`) offers the same captures and logs when it is running.
 
 ## Edit And Validation Discipline
 
@@ -63,6 +78,8 @@
 
 ## Status And Continuation
 
+- Always write the complete answer in the final message the user sees: what was found, what changed, the validation results, and anything the user must do. Never say "see the summary above" or leave results only in earlier messages, tool calls, or internal reasoning; the user may not see those.
+- Never end a turn without visible answer text. Write the answer as plain message text after the last tool call, and also put the full answer in the task-complete summary, because text sent together with a tool call can be hidden.
 - End every final response or pause with explicit `Status:` and `Next:` lines.
 - `Status:` must identify what is complete, running, failed, or blocked and include the latest material validation result.
 - `Next:` must name the exact continuation command, check, user action, or decision. Use `Next: None; task complete.` when finished.

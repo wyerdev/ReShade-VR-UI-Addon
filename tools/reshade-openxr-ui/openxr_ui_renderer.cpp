@@ -958,17 +958,22 @@ namespace openxr_ui
 						coarse_increase_hovered = draw_text_button("coarse_increase", "+10x", { 52.0f, control_height });
 					}
 					ImGui::SameLine();
-					char reset_label[64] = "Reset";
+					char reset_label[64] = "*";
 					if (entry.resettable && reference.component < entry.default_values.size())
 					{
 						if (entry.type == parameter_type::boolean)
-							std::snprintf(reset_label, sizeof(reset_label), "Reset: %s", entry.default_values[reference.component] != 0.0 ? "On" : "Off");
+							std::snprintf(reset_label, sizeof(reset_label), "* %s", entry.default_values[reference.component] != 0.0 ? "On" : "Off");
 						else if (entry.type == parameter_type::floating_point)
-							std::snprintf(reset_label, sizeof(reset_label), "Reset: %.4g", entry.default_values[reference.component]);
+							std::snprintf(reset_label, sizeof(reset_label), "* %.3g", entry.default_values[reference.component]);
 						else
-							std::snprintf(reset_label, sizeof(reset_label), "Reset: %.0f", entry.default_values[reference.component]);
+							std::snprintf(reset_label, sizeof(reset_label), "* %.0f", entry.default_values[reference.component]);
 					}
-					const bool reset_hovered = draw_text_button("reset", reset_label, { 130.0f, control_height }, entry.resettable);
+					const bool reset_hovered = draw_text_button("reset", reset_label, { 92.0f, control_height }, entry.resettable);
+					if (reset_hovered && ImGui::BeginTooltip())
+					{
+						ImGui::TextUnformatted("Revert to default");
+						ImGui::EndTooltip();
+					}
 					const bool dragging_value = _implementation->dragging == implementation::drag_target::value_slider &&
 						_implementation->dragged_parameter == entry.id && _implementation->dragged_component == reference.component;
 					if (result.action == render_result::command::none &&

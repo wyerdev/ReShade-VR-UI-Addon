@@ -15,6 +15,7 @@ bool openxr_ui_ensure_addon_registered();
 void openxr_ui_log_message(const char *message, bool error = false);
 std::shared_ptr<const openxr_ui::technique_snapshot> openxr_ui_get_techniques();
 bool openxr_ui_has_effect_runtime();
+bool openxr_ui_has_vr_runtime();
 bool openxr_ui_uses_effect_runtime(reshade::api::effect_runtime *runtime);
 bool openxr_ui_toggle_technique(uint64_t technique_id);
 bool openxr_ui_are_shaders_temporarily_disabled();
