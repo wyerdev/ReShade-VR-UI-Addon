@@ -10,11 +10,15 @@
 - Controllers: Oculus Touch style controllers work best. Other controllers use
   a basic fallback with fewer controls.
 - The **UI starts open** setting applies from the next game start.
+- The FPS counter measures how often the game hands a frame to the headset.
+  It does not show frames the headset software fills in by itself
+  (reprojection, motion smoothing).
 
 ## SteamVR (OpenVR) Games
 
 - The controls are a page inside ReShade's own SteamVR dashboard
   (**Add-ons** > **ReShade VR UI Add-on for SteamVR**), not a separate panel.
+- The FPS numbers are a line on that page only; there is no always-on counter.
 - Only games in ReShade Setup's game list are picked up, and only while the
   add-on's loader is running (it starts when you sign in to Windows).
 - The add-on changes two settings in the game's ReShade files: it turns off

@@ -3,6 +3,7 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 
+#include <chrono>
 #include <cstdio>
 #include <vector>
 
@@ -452,6 +453,21 @@ int main()
 		std::fputs("Performance mode checkbox did not produce its persisted next-start command.\n", stderr);
 		return 1;
 	}
+	const openxr_ui::render_input statistics_toggle = { true, 420.0f, 498.0f, true };
+	const openxr_ui::render_result statistics_result = renderer.render(render_target.Get(), snapshot, statistics_toggle);
+	if (statistics_result.action != openxr_ui::render_result::command::set_always_show_statistics || !statistics_result.state)
+	{
+		std::fputs("Always show FPS checkbox did not produce its persisted command.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input frame_rate_toggle = { true, 440.0f, 535.0f, true };
+	frame_rate_toggle.frame_rate_divisor = 3;
+	const openxr_ui::render_result frame_rate_result = renderer.render(render_target.Get(), snapshot, frame_rate_toggle);
+	if (frame_rate_result.action != openxr_ui::render_result::command::set_frame_rate_divisor || frame_rate_result.value != 1.0)
+	{
+		std::fputs("FPS target button did not cycle from third rate back to full rate.\n", stderr);
+		return 1;
+	}
 	if (!expect_command(renderer, render_target.Get(), snapshot, 675.0f, 102.0f,
 		openxr_ui::render_result::command::previous_preset, 0) ||
 		!expect_command(renderer, render_target.Get(), snapshot, 715.0f, 102.0f,
@@ -512,6 +528,73 @@ int main()
 		openxr_ui::render_result::command::toggle_technique, 11, 0, 0.0, true))
 		return 1;
 
-	std::puts("Private ImGui named preset save/delete controls, sorting, shader hiding, global favourites, close control, full-row toggles, drag scrolling, sliders, expansion, and parameter controls passed.");
+	openxr_ui::frame_statistics_tracker tracker;
+	std::chrono::steady_clock::time_point frame_time;
+	const auto add_frames = [&tracker, &frame_time](int count, int milliseconds) {
+		for (int index = 0; index < count; ++index)
+		{
+			frame_time += std::chrono::milliseconds(milliseconds);
+			tracker.add_frame(frame_time);
+		}
+	};
+	tracker.add_frame(frame_time);
+	const bool default_refresh_ok = tracker.statistics().refresh_hz == openxr_ui::default_refresh_hz && !tracker.statistics().refresh_hz_reported;
+	tracker.set_refresh_hz(120.0f);
+	tracker.set_refresh_hz(0.0f);
+	const bool reported_refresh_ok = tracker.statistics().refresh_hz == 120.0f && tracker.statistics().refresh_hz_reported;
+	tracker.set_frame_rate_divisor(2);
+	tracker.set_frame_rate_divisor(4);
+	const bool half_rate_ok = tracker.statistics().target_hz() == 60.0f;
+	tracker.set_frame_rate_divisor(1);
+	if (!default_refresh_ok || !reported_refresh_ok || !half_rate_ok)
+	{
+		std::fputs("The FPS graph did not keep the headset refresh rate.\n", stderr);
+		return 1;
+	}
+	add_frames(1000, 10);
+	add_frames(1, 100);
+	add_frames(200, 10);
+	add_frames(1, 2000);
+	const openxr_ui::frame_statistics statistics = tracker.statistics();
+	constexpr double graph_column_seconds = openxr_ui::frame_graph_seconds / openxr_ui::frame_graph_columns;
+	size_t other_columns = 0;
+	size_t stutter_columns = 0;
+	size_t newest_stutter_column = 0;
+	for (size_t index = 0; index < openxr_ui::frame_graph_columns; ++index)
+	{
+		const float milliseconds = statistics.graph_ms[index];
+		if (std::abs(milliseconds - 100.0f) < 0.1f)
+		{
+			++stutter_columns;
+			newest_stutter_column = index;
+		}
+		else if (std::abs(milliseconds - 10.0f) > 0.1f)
+			++other_columns;
+	}
+	const double stutter_seconds_ago = static_cast<double>(openxr_ui::frame_graph_columns - 1 - newest_stutter_column) * graph_column_seconds;
+	if (statistics.revision == 0 || std::abs(statistics.average_fps - 100.0f) > 1.0f || std::abs(statistics.frame_time_ms - 10.0f) > 0.1f ||
+		other_columns != 0 || stutter_columns < 9 || stutter_columns > 11 || stutter_seconds_ago < 1.4 || stutter_seconds_ago > 2.1)
+	{
+		std::fprintf(stderr, "Frame statistics were %.2f FPS, %.2f ms; graph had %zu empty or unexpected columns and %zu stutter columns ending %.2f s ago.\n",
+			statistics.average_fps, statistics.frame_time_ms, other_columns, stutter_columns, stutter_seconds_ago);
+		return 1;
+	}
+
+	texture_desc.Width = openxr_ui::statistics_width;
+	texture_desc.Height = openxr_ui::statistics_height;
+	ComPtr<ID3D11Texture2D> statistics_texture;
+	ComPtr<ID3D11RenderTargetView> statistics_target;
+	openxr_ui::panel_renderer statistics_renderer;
+	if (FAILED(device->CreateTexture2D(&texture_desc, nullptr, &statistics_texture)) ||
+		FAILED(device->CreateRenderTargetView(statistics_texture.Get(), nullptr, &statistics_target)) ||
+		!statistics_renderer.initialize(device.Get(), context.Get(), openxr_ui::statistics_width, openxr_ui::statistics_height))
+	{
+		std::fputs("Failed to create the FPS counter renderer.\n", stderr);
+		return 1;
+	}
+	statistics_renderer.render_statistics(statistics_target.Get(), openxr_ui::frame_statistics());
+	statistics_renderer.render_statistics(statistics_target.Get(), statistics);
+
+	std::puts("Private ImGui named preset save/delete controls, sorting, shader hiding, global favourites, close control, full-row toggles, drag scrolling, sliders, expansion, parameter controls, and the FPS counter passed.");
 	return 0;
 }

@@ -47,6 +47,11 @@ namespace
 	constexpr float expanded_panel_world_height = panel_world_width * openxr_ui::expanded_panel_height / openxr_ui::panel_width;
 	constexpr float panel_y = -0.08f;
 	constexpr float panel_z = -1.0f;
+	constexpr float statistics_world_width = 0.366f;
+	constexpr float statistics_world_height = statistics_world_width * openxr_ui::statistics_height / openxr_ui::statistics_width;
+	// Above the top edge of the expanded panel, so the FPS counter never covers it.
+	constexpr float statistics_x = -0.30f;
+	constexpr float statistics_y = 0.41f;
 	constexpr LONG pointer_margin = 12;
 	constexpr float pointer_hover_dead_zone = 6.0f;
 	constexpr float pointer_hover_follow_rate = 0.18f;
@@ -114,6 +119,15 @@ namespace
 		bool actions_ready = false;
 	};
 
+	struct quad_target
+	{
+		XrSwapchain swapchain = XR_NULL_HANDLE;
+		std::vector<ComPtr<ID3D11RenderTargetView>> render_target_views;
+		ComPtr<ID3D12DescriptorHeap> render_target_heap12;
+		std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> render_target_views12;
+		std::unique_ptr<openxr_ui::panel_renderer> renderer;
+	};
+
 	struct session_state
 	{
 		XrInstance instance = XR_NULL_HANDLE;
@@ -125,20 +139,19 @@ namespace
 		ComPtr<ID3D11Query> completion_query;
 		ComPtr<ID3D12Device> device12;
 		ComPtr<ID3D12CommandQueue> command_queue12;
-		ComPtr<ID3D12DescriptorHeap> render_target_heap12;
 		ComPtr<ID3D12CommandAllocator> command_allocator12;
 		ComPtr<ID3D12GraphicsCommandList> command_list12;
 		ComPtr<ID3D12Fence> completion_fence12;
 		HANDLE completion_event12 = nullptr;
 		uint64_t completion_value12 = 0;
 		XrSpace view_space = XR_NULL_HANDLE;
-		XrSwapchain quad_swapchain = XR_NULL_HANDLE;
 		int64_t quad_format = 0;
-		std::vector<XrSwapchainImageD3D11KHR> images;
-		std::vector<ComPtr<ID3D11RenderTargetView>> render_target_views;
-		std::vector<XrSwapchainImageD3D12KHR> images12;
-		std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> render_target_views12;
-		std::unique_ptr<openxr_ui::panel_renderer> renderer;
+		quad_target panel;
+		quad_target statistics;
+		openxr_ui::frame_statistics_tracker frame_timing;
+		bool always_show_statistics = false;
+		bool statistics_image_ready = false;
+		uint64_t statistics_image_revision = 0;
 		XrSpace aim_space = XR_NULL_HANDLE;
 		bool actions_attached = false;
 		bool should_render = true;
@@ -394,6 +407,78 @@ namespace
 		}
 	}
 
+	bool create_quad_target(session_state &state, uint32_t width, uint32_t height, quad_target &target)
+	{
+		XrSwapchainCreateInfo swapchain_info = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+		swapchain_info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+		swapchain_info.format = state.quad_format;
+		swapchain_info.sampleCount = 1;
+		swapchain_info.width = width;
+		swapchain_info.height = height;
+		swapchain_info.faceCount = 1;
+		swapchain_info.arraySize = 1;
+		swapchain_info.mipCount = 1;
+		if (XR_FAILED(state.dispatch->CreateSwapchain(state.session, &swapchain_info, &target.swapchain)))
+			return false;
+
+		uint32_t image_count = 0;
+		if (XR_FAILED(state.dispatch->EnumerateSwapchainImages(target.swapchain, 0, &image_count, nullptr)) || image_count == 0)
+			return false;
+		if (state.api == graphics_api::d3d11)
+		{
+			std::vector<XrSwapchainImageD3D11KHR> images(image_count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR });
+			if (XR_FAILED(state.dispatch->EnumerateSwapchainImages(target.swapchain, image_count, &image_count,
+				reinterpret_cast<XrSwapchainImageBaseHeader *>(images.data()))))
+				return false;
+
+			target.render_target_views.reserve(image_count);
+			for (const XrSwapchainImageD3D11KHR &image : images)
+			{
+				D3D11_RENDER_TARGET_VIEW_DESC view_desc = {};
+				view_desc.Format = static_cast<DXGI_FORMAT>(state.quad_format);
+				view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+				ComPtr<ID3D11RenderTargetView> view;
+				if (image.texture == nullptr || FAILED(state.device->CreateRenderTargetView(image.texture, &view_desc, &view)))
+					return false;
+				target.render_target_views.push_back(std::move(view));
+			}
+		}
+		else
+		{
+			std::vector<XrSwapchainImageD3D12KHR> images(image_count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR });
+			if (XR_FAILED(state.dispatch->EnumerateSwapchainImages(target.swapchain, image_count, &image_count,
+				reinterpret_cast<XrSwapchainImageBaseHeader *>(images.data()))))
+				return false;
+
+			D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+			heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+			heap_desc.NumDescriptors = image_count;
+			if (FAILED(state.device12->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&target.render_target_heap12))))
+				return false;
+			const uint32_t descriptor_increment = state.device12->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+			D3D12_CPU_DESCRIPTOR_HANDLE descriptor = target.render_target_heap12->GetCPUDescriptorHandleForHeapStart();
+			target.render_target_views12.reserve(image_count);
+			for (const XrSwapchainImageD3D12KHR &image : images)
+			{
+				if (image.texture == nullptr)
+					return false;
+				D3D12_RENDER_TARGET_VIEW_DESC view_desc = {};
+				view_desc.Format = static_cast<DXGI_FORMAT>(state.quad_format);
+				view_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+				state.device12->CreateRenderTargetView(image.texture, &view_desc, descriptor);
+				target.render_target_views12.push_back(descriptor);
+				descriptor.ptr += descriptor_increment;
+			}
+		}
+		target.renderer = std::make_unique<openxr_ui::panel_renderer>();
+		const bool renderer_initialized = state.api == graphics_api::d3d11 ?
+			target.renderer->initialize(state.device.Get(), state.context.Get(), width, height) :
+			target.renderer->initialize(state.device12.Get(), state.command_queue12.Get(), image_count, state.quad_format, width, height);
+		if (!renderer_initialized)
+			target.renderer.reset();
+		return renderer_initialized;
+	}
+
 	bool initialize_quad(session_state &state, const XrSessionCreateInfo *create_info)
 	{
 		if (const XrGraphicsBindingD3D11KHR *const binding = find_d3d11_binding(create_info);
@@ -447,66 +532,8 @@ namespace
 			return false;
 		}
 
-		XrSwapchainCreateInfo swapchain_info = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
-		swapchain_info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
-		swapchain_info.format = state.quad_format;
-		swapchain_info.sampleCount = 1;
-		swapchain_info.width = openxr_ui::panel_width;
-		swapchain_info.height = openxr_ui::expanded_panel_height;
-		swapchain_info.faceCount = 1;
-		swapchain_info.arraySize = 1;
-		swapchain_info.mipCount = 1;
-		if (XR_FAILED(state.dispatch->CreateSwapchain(state.session, &swapchain_info, &state.quad_swapchain)))
-			return false;
-
-		uint32_t image_count = 0;
-		if (XR_FAILED(state.dispatch->EnumerateSwapchainImages(state.quad_swapchain, 0, &image_count, nullptr)) || image_count == 0)
-			return false;
-		if (state.api == graphics_api::d3d11)
+		if (state.api == graphics_api::d3d12)
 		{
-			state.images.resize(image_count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR });
-			if (XR_FAILED(state.dispatch->EnumerateSwapchainImages(state.quad_swapchain, image_count, &image_count,
-				reinterpret_cast<XrSwapchainImageBaseHeader *>(state.images.data()))))
-				return false;
-
-			state.render_target_views.reserve(image_count);
-			for (const XrSwapchainImageD3D11KHR &image : state.images)
-			{
-				D3D11_RENDER_TARGET_VIEW_DESC view_desc = {};
-				view_desc.Format = static_cast<DXGI_FORMAT>(state.quad_format);
-				view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-				ComPtr<ID3D11RenderTargetView> view;
-				if (image.texture == nullptr || FAILED(state.device->CreateRenderTargetView(image.texture, &view_desc, &view)))
-					return false;
-				state.render_target_views.push_back(std::move(view));
-			}
-		}
-		else
-		{
-			state.images12.resize(image_count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR });
-			if (XR_FAILED(state.dispatch->EnumerateSwapchainImages(state.quad_swapchain, image_count, &image_count,
-				reinterpret_cast<XrSwapchainImageBaseHeader *>(state.images12.data()))))
-				return false;
-
-			D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
-			heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-			heap_desc.NumDescriptors = image_count;
-			if (FAILED(state.device12->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&state.render_target_heap12))))
-				return false;
-			const uint32_t descriptor_increment = state.device12->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-			D3D12_CPU_DESCRIPTOR_HANDLE descriptor = state.render_target_heap12->GetCPUDescriptorHandleForHeapStart();
-			state.render_target_views12.reserve(image_count);
-			for (const XrSwapchainImageD3D12KHR &image : state.images12)
-			{
-				if (image.texture == nullptr)
-					return false;
-				D3D12_RENDER_TARGET_VIEW_DESC view_desc = {};
-				view_desc.Format = static_cast<DXGI_FORMAT>(state.quad_format);
-				view_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-				state.device12->CreateRenderTargetView(image.texture, &view_desc, descriptor);
-				state.render_target_views12.push_back(descriptor);
-				descriptor.ptr += descriptor_increment;
-			}
 			if (FAILED(state.device12->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&state.command_allocator12))) ||
 				FAILED(state.device12->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, state.command_allocator12.Get(), nullptr,
 					IID_PPV_ARGS(&state.command_list12))) || FAILED(state.command_list12->Close()) ||
@@ -516,16 +543,13 @@ namespace
 			if (state.completion_event12 == nullptr)
 				return false;
 		}
-		state.renderer = std::make_unique<openxr_ui::panel_renderer>();
-		const bool renderer_initialized = state.api == graphics_api::d3d11 ?
-			state.renderer->initialize(state.device.Get(), state.context.Get(), openxr_ui::panel_width, openxr_ui::expanded_panel_height) :
-			state.renderer->initialize(state.device12.Get(), state.command_queue12.Get(), image_count, state.quad_format,
-				openxr_ui::panel_width, openxr_ui::expanded_panel_height);
-		if (!renderer_initialized)
+		if (!create_quad_target(state, openxr_ui::panel_width, openxr_ui::expanded_panel_height, state.panel))
 		{
-			openxr_ui_log_message("native quad initialization failed: private ImGui renderer could not initialize.", true);
+			openxr_ui_log_message("native quad initialization failed: the panel swapchain or private ImGui renderer could not initialize.", true);
 			return false;
 		}
+		if (!create_quad_target(state, openxr_ui::statistics_width, openxr_ui::statistics_height, state.statistics))
+			openxr_ui_log_message("FPS counter unavailable: its swapchain or renderer could not initialize.", true);
 		state.quad_ready = true;
 		if (state.dispatch->actions_ready)
 		{
@@ -571,20 +595,21 @@ namespace
 
 	bool render_quad(session_state &state)
 	{
-		if (state.quad_swapchain == XR_NULL_HANDLE)
+		quad_target &target = state.panel;
+		if (target.swapchain == XR_NULL_HANDLE)
 			return false;
 
 		uint32_t image_index = 0;
 		XrSwapchainImageAcquireInfo acquire_info = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-		if (XR_FAILED(state.dispatch->AcquireSwapchainImage(state.quad_swapchain, &acquire_info, &image_index)))
+		if (XR_FAILED(state.dispatch->AcquireSwapchainImage(target.swapchain, &acquire_info, &image_index)))
 			return false;
 		XrSwapchainImageWaitInfo wait_info = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
 		wait_info.timeout = XR_INFINITE_DURATION;
-		if (XR_FAILED(state.dispatch->WaitSwapchainImage(state.quad_swapchain, &wait_info)))
+		if (XR_FAILED(state.dispatch->WaitSwapchainImage(target.swapchain, &wait_info)))
 			return false;
 
-		bool rendered = state.api == graphics_api::d3d11 ? image_index < state.render_target_views.size() :
-			state.api == graphics_api::d3d12 && image_index < state.render_target_views12.size();
+		bool rendered = state.api == graphics_api::d3d11 ? image_index < target.render_target_views.size() :
+			state.api == graphics_api::d3d12 && image_index < target.render_target_views12.size();
 		if (rendered)
 		{
 			const std::shared_ptr<const openxr_ui::technique_snapshot> snapshot = openxr_ui_get_techniques();
@@ -612,11 +637,13 @@ namespace
 				state.preset_dirty,
 				openxr_ui_get_preset_name(),
 				openxr_ui_has_effect_runtime(),
+				state.always_show_statistics,
+				state.frame_timing.statistics().frame_rate_divisor,
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
 			{
-				render_result = state.renderer->render(state.render_target_views[image_index].Get(), *snapshot, input);
+				render_result = target.renderer->render(target.render_target_views[image_index].Get(), *snapshot, input);
 			}
 			else if (FAILED(state.command_allocator12->Reset()) ||
 				FAILED(state.command_list12->Reset(state.command_allocator12.Get(), nullptr)))
@@ -625,7 +652,7 @@ namespace
 			}
 			else
 			{
-				render_result = state.renderer->render(state.command_list12.Get(), state.render_target_views12[image_index], *snapshot, input);
+				render_result = target.renderer->render(state.command_list12.Get(), target.render_target_views12[image_index], *snapshot, input);
 				if (FAILED(state.command_list12->Close()))
 					rendered = false;
 				else
@@ -652,7 +679,7 @@ namespace
 				openxr_ui_toggle_all_techniques();
 				break;
 			case openxr_ui::render_result::command::save_preset:
-				state.renderer->notify_save_result(openxr_ui_save_preset());
+				target.renderer->notify_save_result(openxr_ui_save_preset());
 				break;
 			case openxr_ui::render_result::command::previous_preset:
 				openxr_ui_switch_preset(true);
@@ -661,7 +688,7 @@ namespace
 				openxr_ui_switch_preset(false);
 				break;
 			case openxr_ui::render_result::command::save_preset_as:
-				state.renderer->notify_save_as_started(openxr_ui_save_preset_as(render_result.text));
+				target.renderer->notify_save_as_started(openxr_ui_save_preset_as(render_result.text));
 				break;
 			case openxr_ui::render_result::command::delete_preset:
 				openxr_ui_delete_preset();
@@ -701,6 +728,14 @@ namespace
 				if (openxr_ui_set_performance_mode(render_result.state))
 					state.performance_mode = render_result.state;
 				break;
+			case openxr_ui::render_result::command::set_always_show_statistics:
+				if (openxr_ui_set_always_show_statistics(render_result.state))
+					state.always_show_statistics = render_result.state;
+				break;
+			case openxr_ui::render_result::command::set_frame_rate_divisor:
+				if (openxr_ui_set_frame_rate_divisor(static_cast<uint32_t>(render_result.value)))
+					state.frame_timing.set_frame_rate_divisor(static_cast<uint32_t>(render_result.value));
+				break;
 			case openxr_ui::render_result::command::none:
 				break;
 			}
@@ -709,7 +744,50 @@ namespace
 		}
 
 		XrSwapchainImageReleaseInfo release_info = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-		return XR_SUCCEEDED(state.dispatch->ReleaseSwapchainImage(state.quad_swapchain, &release_info)) && rendered;
+		return XR_SUCCEEDED(state.dispatch->ReleaseSwapchainImage(target.swapchain, &release_info)) && rendered;
+	}
+
+	// The counter changes only twice per second; in between the runtime shows the last released image again.
+	bool render_statistics_quad(session_state &state)
+	{
+		quad_target &target = state.statistics;
+		if (target.renderer == nullptr)
+			return false;
+		const openxr_ui::frame_statistics &statistics = state.frame_timing.statistics();
+		if (state.statistics_image_ready && state.statistics_image_revision == statistics.revision)
+			return true;
+
+		uint32_t image_index = 0;
+		XrSwapchainImageAcquireInfo acquire_info = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+		if (XR_FAILED(state.dispatch->AcquireSwapchainImage(target.swapchain, &acquire_info, &image_index)))
+			return false;
+		XrSwapchainImageWaitInfo wait_info = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+		wait_info.timeout = XR_INFINITE_DURATION;
+		if (XR_FAILED(state.dispatch->WaitSwapchainImage(target.swapchain, &wait_info)))
+			return false;
+
+		bool rendered = false;
+		if (state.api == graphics_api::d3d11 && image_index < target.render_target_views.size())
+		{
+			target.renderer->render_statistics(target.render_target_views[image_index].Get(), statistics);
+			rendered = wait_for_d3d11_gpu(state);
+		}
+		else if (state.api == graphics_api::d3d12 && image_index < target.render_target_views12.size() &&
+			SUCCEEDED(state.command_allocator12->Reset()) && SUCCEEDED(state.command_list12->Reset(state.command_allocator12.Get(), nullptr)))
+		{
+			target.renderer->render_statistics(state.command_list12.Get(), target.render_target_views12[image_index], statistics);
+			if (SUCCEEDED(state.command_list12->Close()))
+			{
+				ID3D12CommandList *const command_lists[] = { state.command_list12.Get() };
+				state.command_queue12->ExecuteCommandLists(1, command_lists);
+				rendered = wait_for_d3d12_gpu(state);
+			}
+		}
+
+		XrSwapchainImageReleaseInfo release_info = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+		state.statistics_image_ready = XR_SUCCEEDED(state.dispatch->ReleaseSwapchainImage(target.swapchain, &release_info)) && rendered;
+		state.statistics_image_revision = statistics.revision;
+		return state.statistics_image_ready;
 	}
 
 	XrVector3f aim_direction(const XrQuaternionf &orientation)
@@ -859,14 +937,22 @@ namespace
 		}
 	}
 
+	void destroy_quad_target(session_state &state, quad_target &target)
+	{
+		target.renderer.reset();
+		target.render_target_views.clear();
+		target.render_target_views12.clear();
+		target.render_target_heap12.Reset();
+		if (target.swapchain != XR_NULL_HANDLE)
+			state.dispatch->DestroySwapchain(target.swapchain);
+		target.swapchain = XR_NULL_HANDLE;
+	}
+
 	void destroy_session_resources(session_state &state)
 	{
 		state.effects.reset();
-		state.renderer.reset();
-		state.render_target_views.clear();
-		state.render_target_views12.clear();
-		state.images.clear();
-		state.images12.clear();
+		destroy_quad_target(state, state.panel);
+		destroy_quad_target(state, state.statistics);
 		if (state.completion_event12 != nullptr)
 		{
 			CloseHandle(state.completion_event12);
@@ -874,8 +960,6 @@ namespace
 		}
 		if (state.aim_space != XR_NULL_HANDLE)
 			state.dispatch->DestroySpace(state.aim_space);
-		if (state.quad_swapchain != XR_NULL_HANDLE)
-			state.dispatch->DestroySwapchain(state.quad_swapchain);
 		if (state.view_space != XR_NULL_HANDLE)
 			state.dispatch->DestroySpace(state.view_space);
 	}
@@ -1054,6 +1138,8 @@ extern "C" XrResult XRAPI_CALL xrCreateSession(XrInstance instance, const XrSess
 	state->dispatch = dispatch;
 	state->ui_starts_open = openxr_ui_get_ui_starts_open();
 	state->performance_mode = openxr_ui_get_performance_mode();
+	state->always_show_statistics = openxr_ui_get_always_show_statistics();
+	state->frame_timing.set_frame_rate_divisor(openxr_ui_get_frame_rate_divisor());
 	state->panel_visible = state->ui_starts_open;
 	if (state->dispatch->actions_ready)
 		initialize_quad(*state, create_info);
@@ -1230,7 +1316,11 @@ extern "C" XrResult XRAPI_CALL xrWaitFrame(XrSession session, const XrFrameWaitI
 		return XR_ERROR_HANDLE_INVALID;
 	const XrResult result = state->dispatch->WaitFrame(session, wait_info, frame_state);
 	if (XR_SUCCEEDED(result) && frame_state != nullptr)
+	{
 		state->should_render = frame_state->shouldRender == XR_TRUE;
+		if (frame_state->predictedDisplayPeriod > 0)
+			state->frame_timing.set_refresh_hz(static_cast<float>(1e9 / static_cast<double>(frame_state->predictedDisplayPeriod)));
+	}
 	return result;
 }
 
@@ -1239,9 +1329,10 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 	session_state *const state = find_session(session);
 	if (state == nullptr)
 		return XR_ERROR_HANDLE_INVALID;
+	state->frame_timing.add_frame(std::chrono::steady_clock::now());
 	const int preset_operation_result = openxr_ui_update_preset_operations();
-	if (preset_operation_result != 0 && state->renderer != nullptr)
-		state->renderer->notify_save_as_result(preset_operation_result > 0);
+	if (preset_operation_result != 0 && state->panel.renderer != nullptr)
+		state->panel.renderer->notify_save_as_result(preset_operation_result > 0);
 	// The runtime requires every image of the frame to be released before it is submitted.
 	flush_effect_releases(*state);
 	if (frame_end_info != nullptr && state->should_render)
@@ -1250,37 +1341,47 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 		return state->dispatch->EndFrame(session, frame_end_info);
 
 	update_interaction(*state, frame_end_info->displayTime);
-	if (!state->panel_visible)
-		return state->dispatch->EndFrame(session, frame_end_info);
-	if (!render_quad(*state))
-		return state->dispatch->EndFrame(session, frame_end_info);
+	std::vector<const XrCompositionLayerBaseHeader *> layers(frame_end_info->layers, frame_end_info->layers + frame_end_info->layerCount);
 
-	const XrPosef panel_pose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, panel_y, panel_z } };
 	XrCompositionLayerQuad quad = { XR_TYPE_COMPOSITION_LAYER_QUAD };
-	quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-	quad.space = state->view_space;
-	quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-	quad.subImage.swapchain = state->quad_swapchain;
-	const uint32_t panel_height = state->panel_expanded ? openxr_ui::expanded_panel_height : openxr_ui::compact_panel_height;
-	const float panel_world_height = state->panel_expanded ? expanded_panel_world_height : compact_panel_world_height;
-	quad.subImage.imageRect = { { 0, 0 }, { static_cast<int32_t>(openxr_ui::panel_width), static_cast<int32_t>(panel_height) } };
-	quad.pose = panel_pose;
-	quad.size = { panel_world_width, panel_world_height };
+	if (state->panel_visible && render_quad(*state))
+	{
+		quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+		quad.space = state->view_space;
+		quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+		quad.subImage.swapchain = state->panel.swapchain;
+		const uint32_t panel_height = state->panel_expanded ? openxr_ui::expanded_panel_height : openxr_ui::compact_panel_height;
+		const float panel_world_height = state->panel_expanded ? expanded_panel_world_height : compact_panel_world_height;
+		quad.subImage.imageRect = { { 0, 0 }, { static_cast<int32_t>(openxr_ui::panel_width), static_cast<int32_t>(panel_height) } };
+		quad.pose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, panel_y, panel_z } };
+		quad.size = { panel_world_width, panel_world_height };
+		layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader *>(&quad));
+		if (!state->quad_logged)
+		{
+			openxr_ui_log_message("submitting native XrCompositionLayerQuad in VIEW space.");
+			state->quad_logged = true;
+		}
+	}
 
-	std::vector<const XrCompositionLayerBaseHeader *> layers;
-	layers.reserve(frame_end_info->layerCount + 1);
-	for (uint32_t index = 0; index < frame_end_info->layerCount; ++index)
-		layers.push_back(frame_end_info->layers[index]);
-	layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader *>(&quad));
+	XrCompositionLayerQuad statistics_quad = { XR_TYPE_COMPOSITION_LAYER_QUAD };
+	if ((state->always_show_statistics || state->panel_visible) && render_statistics_quad(*state))
+	{
+		statistics_quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+		statistics_quad.space = state->view_space;
+		statistics_quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+		statistics_quad.subImage.swapchain = state->statistics.swapchain;
+		statistics_quad.subImage.imageRect = { { 0, 0 },
+			{ static_cast<int32_t>(openxr_ui::statistics_width), static_cast<int32_t>(openxr_ui::statistics_height) } };
+		statistics_quad.pose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { statistics_x, statistics_y, panel_z } };
+		statistics_quad.size = { statistics_world_width, statistics_world_height };
+		layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader *>(&statistics_quad));
+	}
+
+	if (layers.size() == frame_end_info->layerCount)
+		return state->dispatch->EndFrame(session, frame_end_info);
 	XrFrameEndInfo combined_info = *frame_end_info;
 	combined_info.layerCount = static_cast<uint32_t>(layers.size());
 	combined_info.layers = layers.data();
-
-	if (!state->quad_logged)
-	{
-		openxr_ui_log_message("submitting native XrCompositionLayerQuad in VIEW space.");
-		state->quad_logged = true;
-	}
 	return state->dispatch->EndFrame(session, &combined_info);
 }
 

@@ -3,6 +3,7 @@
 #include <openvr.h>
 #include <reshade.hpp>
 
+#include "vr_frame_graph.hpp"
 #include "vr_ui_state.hpp"
 
 #include <Windows.h>
@@ -92,6 +93,24 @@ namespace
 		{
 			ImGui::TextWrapped("Waiting for ReShade's windowless OpenVR effect runtime.");
 			return;
+		}
+
+		const openxr_ui::frame_statistics statistics = openvr_ui_get_frame_statistics();
+		if (statistics.revision == 0)
+			ImGui::TextUnformatted("-- FPS");
+		else
+			ImGui::Text("%.0f FPS   %.1f ms", statistics.average_fps, statistics.frame_time_ms);
+		char graph_label[32];
+		openxr_ui::format_frame_graph_label(statistics, graph_label);
+		ImGui::SameLine();
+		ImGui::TextDisabled("(graph: %s)", graph_label);
+		openxr_ui::draw_frame_graph(statistics, { ImGui::GetContentRegionAvail().x, 90.0f });
+		ImGui::TextUnformatted("FPS target:");
+		for (uint32_t divisor = 1; divisor <= openxr_ui::max_frame_rate_divisor; ++divisor)
+		{
+			ImGui::SameLine();
+			if (ImGui::RadioButton(openxr_ui::frame_rate_divisor_name(divisor), statistics.frame_rate_divisor == divisor))
+				openxr_ui_set_frame_rate_divisor(divisor);
 		}
 
 		const std::shared_ptr<const openxr_ui::technique_snapshot> snapshot = openxr_ui_get_techniques();
@@ -212,4 +231,22 @@ bool openvr_ui_show_dashboard()
 		return false;
 	overlay->ShowDashboard("reshade");
 	return true;
+}
+
+float openvr_ui_get_display_frequency()
+{
+	const HMODULE openvr_module = GetModuleHandleW(L"openvr_api.dll");
+	if (openvr_module == nullptr)
+		return 0.0f;
+	const auto get_interface = reinterpret_cast<void *(VR_CALLTYPE *)(const char *, vr::EVRInitError *)>(
+		GetProcAddress(openvr_module, "VR_GetGenericInterface"));
+	if (get_interface == nullptr)
+		return 0.0f;
+	vr::EVRInitError error = vr::VRInitError_None;
+	auto *const system = static_cast<vr::IVRSystem *>(get_interface(vr::IVRSystem_Version, &error));
+	if (system == nullptr || error != vr::VRInitError_None)
+		return 0.0f;
+	vr::ETrackedPropertyError property_error = vr::TrackedProp_Success;
+	const float frequency = system->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_DisplayFrequency_Float, &property_error);
+	return property_error == vr::TrackedProp_Success ? frequency : 0.0f;
 }

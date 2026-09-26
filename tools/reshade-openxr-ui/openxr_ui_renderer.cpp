@@ -6,6 +6,8 @@
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_dx12.h>
 
+#include "vr_frame_graph.hpp"
+
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -747,6 +749,12 @@ namespace openxr_ui
 
 			ImGui::SetCursorScreenPos(footer_min);
 			const bool performance_hovered = draw_tick_box("performance_mode", "Performance next start", input.performance_mode, 230.0f);
+			ImGui::SetCursorScreenPos({ footer_min.x + 330.0f, footer_min.y });
+			const bool statistics_hovered = draw_tick_box("always_show_statistics", "Always show FPS", input.always_show_statistics, 190.0f);
+			ImGui::SetCursorScreenPos({ footer_min.x + 330.0f, footer_min.y + 39.0f });
+			char frame_rate_label[48];
+			std::snprintf(frame_rate_label, sizeof(frame_rate_label), "FPS target: %s", frame_rate_divisor_name(input.frame_rate_divisor));
+			const bool frame_rate_hovered = draw_text_button("frame_rate_divisor", frame_rate_label, { 240.0f, 30.0f });
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 37.0f });
 			const bool starts_open_hovered = draw_tick_box("starts_open", "UI starts open", input.ui_starts_open, 184.0f);
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 74.0f });
@@ -787,6 +795,16 @@ namespace openxr_ui
 			{
 				result.action = render_result::command::set_performance_mode;
 				result.state = !input.performance_mode;
+			}
+			else if (input.select_clicked && statistics_hovered && _implementation->dragging == implementation::drag_target::none)
+			{
+				result.action = render_result::command::set_always_show_statistics;
+				result.state = !input.always_show_statistics;
+			}
+			else if (input.select_clicked && frame_rate_hovered && _implementation->dragging == implementation::drag_target::none)
+			{
+				result.action = render_result::command::set_frame_rate_divisor;
+				result.value = input.frame_rate_divisor % max_frame_rate_divisor + 1;
 			}
 		}
 		else
@@ -1073,20 +1091,7 @@ namespace openxr_ui
 		ImGui::SetCurrentContext(_implementation->context);
 		ImGui_ImplDX11_NewFrame();
 		const render_result result = render_ui(snapshot, input);
-
-		ID3D11RenderTargetView *previous_render_targets[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-		ID3D11DepthStencilView *previous_depth_stencil = nullptr;
-		_implementation->device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, previous_render_targets, &previous_depth_stencil);
-		const float transparent[4] = {};
-		_implementation->device_context->ClearRenderTargetView(render_target, transparent);
-		_implementation->device_context->OMSetRenderTargets(1, &render_target, nullptr);
-		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-		_implementation->device_context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, previous_render_targets, previous_depth_stencil);
-		for (ID3D11RenderTargetView *previous_render_target : previous_render_targets)
-			if (previous_render_target != nullptr)
-				previous_render_target->Release();
-		if (previous_depth_stencil != nullptr)
-			previous_depth_stencil->Release();
+		submit(render_target);
 		return result;
 	}
 
@@ -1101,12 +1106,84 @@ namespace openxr_ui
 		ImGui::SetCurrentContext(_implementation->context);
 		ImGui_ImplDX12_NewFrame();
 		const render_result result = render_ui(snapshot, input);
+		submit(command_list, render_target);
+		return result;
+	}
+
+	void panel_renderer::render_statistics(ID3D11RenderTargetView *render_target, const frame_statistics &statistics)
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		if (_implementation->context == nullptr || _implementation->api != implementation::graphics_api::d3d11 || render_target == nullptr)
+			return;
+
+		ImGui::SetCurrentContext(_implementation->context);
+		ImGui_ImplDX11_NewFrame();
+		render_statistics_ui(statistics);
+		submit(render_target);
+	}
+
+	void panel_renderer::render_statistics(ID3D12GraphicsCommandList *command_list, D3D12_CPU_DESCRIPTOR_HANDLE render_target, const frame_statistics &statistics)
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		if (_implementation->context == nullptr || _implementation->api != implementation::graphics_api::d3d12 ||
+			command_list == nullptr || render_target.ptr == 0)
+			return;
+
+		ImGui::SetCurrentContext(_implementation->context);
+		ImGui_ImplDX12_NewFrame();
+		render_statistics_ui(statistics);
+		submit(command_list, render_target);
+	}
+
+	void panel_renderer::render_statistics_ui(const frame_statistics &statistics)
+	{
+		ImGuiIO &io = ImGui::GetIO();
+		io.DisplaySize = { static_cast<float>(_implementation->width), static_cast<float>(_implementation->height) };
+		io.DeltaTime = 1.0f / 90.0f;
+		io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({ 0.0f, 0.0f });
+		ImGui::SetNextWindowSize(io.DisplaySize);
+		ImGui::Begin("Frame statistics", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs);
+		ImGui::SetWindowFontScale(1.25f);
+		if (statistics.revision == 0)
+			ImGui::TextUnformatted("-- FPS");
+		else
+			ImGui::Text("%.0f FPS   %.1f ms", statistics.average_fps, statistics.frame_time_ms);
+		char graph_label[32];
+		openxr_ui::format_frame_graph_label(statistics, graph_label);
+		ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(graph_label).x);
+		ImGui::TextDisabled("%s", graph_label);
+		openxr_ui::draw_frame_graph(statistics, ImGui::GetContentRegionAvail());
+		ImGui::End();
+		ImGui::Render();
+	}
+
+	void panel_renderer::submit(ID3D11RenderTargetView *render_target)
+	{
+		ID3D11RenderTargetView *previous_render_targets[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+		ID3D11DepthStencilView *previous_depth_stencil = nullptr;
+		_implementation->device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, previous_render_targets, &previous_depth_stencil);
+		const float transparent[4] = {};
+		_implementation->device_context->ClearRenderTargetView(render_target, transparent);
+		_implementation->device_context->OMSetRenderTargets(1, &render_target, nullptr);
+		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+		_implementation->device_context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, previous_render_targets, previous_depth_stencil);
+		for (ID3D11RenderTargetView *previous_render_target : previous_render_targets)
+			if (previous_render_target != nullptr)
+				previous_render_target->Release();
+		if (previous_depth_stencil != nullptr)
+			previous_depth_stencil->Release();
+	}
+
+	void panel_renderer::submit(ID3D12GraphicsCommandList *command_list, D3D12_CPU_DESCRIPTOR_HANDLE render_target)
+	{
 		const float transparent[4] = {};
 		command_list->ClearRenderTargetView(render_target, transparent, 0, nullptr);
 		command_list->OMSetRenderTargets(1, &render_target, FALSE, nullptr);
 		ID3D12DescriptorHeap *const heaps[] = { _implementation->srv_descriptor_heap };
 		command_list->SetDescriptorHeaps(1, heaps);
 		ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), command_list);
-		return result;
 	}
 }

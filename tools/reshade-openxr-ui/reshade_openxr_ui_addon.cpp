@@ -33,6 +33,8 @@ namespace
 	std::unordered_set<std::string> s_favourite_techniques;
 	bool s_favourite_techniques_loaded = false;
 	bool s_ui_starts_open = true;
+	bool s_always_show_statistics = false;
+	uint32_t s_frame_rate_divisor = 1;
 	bool s_ui_settings_loaded = false;
 	bool s_performance_mode = false;
 	bool s_openvr_runtime_sync_disabled = false;
@@ -51,6 +53,11 @@ namespace
 	std::atomic<bool> s_runtime_state_dirty = false;
 	std::string s_observed_preset_path;
 	uint32_t s_empty_inventory_retry_frame = 0;
+#ifdef RESHADE_OPENVR_FRONTEND
+	// ReShade presents its OpenVR runtime once per frame, after the right eye.
+	openxr_ui::frame_statistics_tracker s_openvr_frame_timing;
+	uint32_t s_openvr_refresh_query_frame = 0;
+#endif
 
 	std::filesystem::path configuration_directory()
 	{
@@ -105,7 +112,15 @@ namespace
 		s_ui_settings_loaded = true;
 		const std::filesystem::path path = ui_settings_path();
 		if (!path.empty())
+		{
 			s_ui_starts_open = GetPrivateProfileIntW(L"UI", L"StartsOpen", 1, path.c_str()) != 0;
+			s_always_show_statistics = GetPrivateProfileIntW(L"UI", L"AlwaysShowFPS", 0, path.c_str()) != 0;
+			const UINT divisor = GetPrivateProfileIntW(L"UI", L"FrameRateDivisor", 1, path.c_str());
+			s_frame_rate_divisor = divisor >= 1 && divisor <= openxr_ui::max_frame_rate_divisor ? divisor : 1;
+		}
+#ifdef RESHADE_OPENVR_FRONTEND
+		s_openvr_frame_timing.set_frame_rate_divisor(s_frame_rate_divisor);
+#endif
 	}
 
 	void load_technique_identities(std::unordered_set<std::string> &identities, const std::filesystem::path &path)
@@ -657,11 +672,24 @@ namespace
 
 #ifdef RESHADE_OPENVR_FRONTEND
 		bool show_dashboard = false;
+		bool query_refresh_rate = false;
 		{
 			const std::lock_guard<std::mutex> lock(s_mutex);
+			if (runtime == s_effect_runtime)
+			{
+				s_openvr_frame_timing.add_frame(std::chrono::steady_clock::now());
+				// The headset rate rarely changes, so ask SteamVR about every five seconds instead of every frame.
+				query_refresh_rate = s_openvr_refresh_query_frame++ % 450 == 0;
+			}
 			show_dashboard = runtime == s_effect_runtime && s_openvr_dashboard_pending && !s_techniques->techniques.empty();
 			if (show_dashboard)
 				s_openvr_dashboard_pending = false;
+		}
+		if (query_refresh_rate)
+		{
+			const float refresh_hz = openvr_ui_get_display_frequency();
+			const std::lock_guard<std::mutex> lock(s_mutex);
+			s_openvr_frame_timing.set_refresh_hz(refresh_hz);
 		}
 		if (show_dashboard)
 		{
@@ -941,6 +969,72 @@ bool openxr_ui_set_ui_starts_open(bool starts_open)
 	log_runtime_message(reshade::log::level::info, starts_open ? "UI will start open." : "UI will start closed.");
 	return true;
 }
+
+bool openxr_ui_get_always_show_statistics()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_always_show_statistics;
+}
+
+bool openxr_ui_set_always_show_statistics(bool enabled)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	const std::filesystem::path path = ui_settings_path();
+	if (path.empty())
+		return false;
+	std::error_code error;
+	std::filesystem::create_directories(path.parent_path(), error);
+	if (error || !WritePrivateProfileStringW(L"UI", L"AlwaysShowFPS", enabled ? L"1" : L"0", path.c_str()))
+	{
+		log_runtime_message(reshade::log::level::error, "failed to save the FPS counter setting.");
+		return false;
+	}
+	s_always_show_statistics = enabled;
+	log_runtime_message(reshade::log::level::info, enabled ? "FPS counter is always shown." : "FPS counter is shown only with the UI.");
+	return true;
+}
+
+uint32_t openxr_ui_get_frame_rate_divisor()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_frame_rate_divisor;
+}
+
+bool openxr_ui_set_frame_rate_divisor(uint32_t divisor)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	const std::filesystem::path path = ui_settings_path();
+	if (path.empty() || divisor < 1 || divisor > openxr_ui::max_frame_rate_divisor)
+		return false;
+	std::error_code error;
+	std::filesystem::create_directories(path.parent_path(), error);
+	if (error || !WritePrivateProfileStringW(L"UI", L"FrameRateDivisor", std::to_wstring(divisor).c_str(), path.c_str()))
+	{
+		log_runtime_message(reshade::log::level::error, "failed to save the FPS target setting.");
+		return false;
+	}
+	s_frame_rate_divisor = divisor;
+#ifdef RESHADE_OPENVR_FRONTEND
+	s_openvr_frame_timing.set_frame_rate_divisor(divisor);
+#endif
+	char message[64];
+	std::snprintf(message, sizeof(message), "FPS target is %s.", openxr_ui::frame_rate_divisor_name(divisor));
+	log_runtime_message(reshade::log::level::info, message);
+	return true;
+}
+
+#ifdef RESHADE_OPENVR_FRONTEND
+openxr_ui::frame_statistics openvr_ui_get_frame_statistics()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_openvr_frame_timing.statistics();
+}
+#endif
 
 bool openxr_ui_get_performance_mode()
 {

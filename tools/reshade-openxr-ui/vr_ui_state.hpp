@@ -1,6 +1,7 @@
 #pragma once
 
 #include "openxr_ui_model.hpp"
+#include "vr_frame_statistics.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -29,6 +30,11 @@ bool openxr_ui_revert_technique(uint64_t technique_id);
 bool openxr_ui_restore_technique(uint64_t technique_id);
 bool openxr_ui_get_ui_starts_open();
 bool openxr_ui_set_ui_starts_open(bool starts_open);
+bool openxr_ui_get_always_show_statistics();
+bool openxr_ui_set_always_show_statistics(bool enabled);
+// 1 = full headset rate, 2 = half, 3 = third; colours the FPS graph.
+uint32_t openxr_ui_get_frame_rate_divisor();
+bool openxr_ui_set_frame_rate_divisor(uint32_t divisor);
 bool openxr_ui_get_performance_mode();
 bool openxr_ui_set_performance_mode(bool enabled);
 bool openxr_ui_set_parameter(uint64_t parameter_id, uint32_t component, double value);
@@ -44,3 +50,6 @@ int openxr_ui_update_preset_operations();
 bool openvr_ui_register_addon(void *module);
 void openvr_ui_unregister_overlay();
 bool openvr_ui_show_dashboard();
+// Zero when SteamVR does not report the headset refresh rate.
+float openvr_ui_get_display_frequency();
+openxr_ui::frame_statistics openvr_ui_get_frame_statistics();
