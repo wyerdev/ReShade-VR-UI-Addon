@@ -74,7 +74,7 @@ Run the packaged installer as administrator from the repository root after closi
 - Windows x64
 - 64-bit OpenXR or OpenVR applications
 - Direct3D 11 or Direct3D 12 renderer
-%LOCALAPPDATA%\ReShade VR UI Add-on\
+- Unreal games run through UEVR in OpenXR mode (the add-on creates its own effect runtime; no depth effects)
 - Oculus Touch-compatible controllers
 - Khronos simple-controller profile as a limited fallback
 
@@ -87,10 +87,9 @@ The companion disables ReShade's built-in Effect Runtime Sync for OpenVR-only pr
 The companion also performs a one-time density migration for ReShade's fixed 500-pixel SteamVR dashboard. When the OpenVR effect runtime still has the default font size and an automatic `1`, `1.5`, or `2` scale, it writes `STYLE/FontSize=12` and `STYLE/FontScale=1` to `ReShadeVR.ini`. A per-runtime marker prevents later user-selected font settings from being overwritten. The portable VR configuration generator uses the same baseline.
 
 For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingVulkanKHR` and Vulkan swapchain images. The current add-on accepts `XrGraphicsBindingD3D11KHR` and `XrGraphicsBindingD3D12KHR`, owns matching graphics resources, and renders Dear ImGui through the corresponding backend. It therefore leaves a Vulkan session running but skips native-quad initialization and logs `native quad skipped: the OpenXR session is not using D3D11 or D3D12.` SteamVR acting as the OpenXR runtime does not translate Vulkan images into a Direct3D graphics binding for API layers, so changing the runtime to SteamVR does not make the UI renderer compatible. Vulkan UI support still requires a Vulkan swapchain-image path and Vulkan ImGui renderer in this add-on.
-%LOCALAPPDATA%\ReShade VR UI Add-on\settings.ini
-%LOCALAPPDATA%\ReShade VR UI Add-on\hidden-shaders.txt
-%LOCALAPPDATA%\ReShade VR UI Add-on\favourite-shaders.txt
-%LOCALAPPDATA%\ReShade VR UI Add-on\ReShade-VR-Loader.log
+## Features
+
+- Technique enable/disable, ordering, favourites, and hiding
 - Shader parameter editing with sliders, steps, defaults, and reset actions
 - Per-shader Revert to the last successful preset save and Restore to the captured live state
 - Preset navigation, save, named Save As, and delete
@@ -99,9 +98,10 @@ For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingV
 - Distinct diagnostics for a missing OpenXR effect runtime and an empty technique inventory
 - Compact and expanded panel layouts
 - Temporary disable and restore for all techniques
+- FPS counter with a 5-second frame-time graph and a full/half/third-rate FPS target
 - Persistent UI preferences under `%LOCALAPPDATA%\ReShade VR UI Add-on`
 
-The project has four main implementation boundaries:
+The project has these main implementation boundaries:
 
 - `openxr_ui_layer.cpp` owns OpenXR negotiation, sessions, controller actions, D3D11/D3D12 swapchain resources, and quad submission.
 - `openvr_ui_overlay.cpp` owns the focused page rendered by ReShade's existing SteamVR dashboard.
@@ -129,7 +129,7 @@ CMake is not required. The build script locates Visual Studio with `vswhere.exe`
 ## Source Layout
 
 This standalone repository keeps the plugin under `tools\reshade-openxr-ui`.
-.\build\reshade-openxr-ui-release\ReShade-VR-UI-Addon\Install.cmd
+ReShade is fetched separately into the ignored `.deps\reshade` checkout. Its
 current source snapshot is recorded in the repository root's
 `RESHADE-dependency.md`; it is informational and is not a version pin.
 

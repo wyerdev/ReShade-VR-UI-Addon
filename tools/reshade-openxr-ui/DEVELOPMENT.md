@@ -70,7 +70,7 @@ The main header uses three explicit rows so no text shares space with another co
 
 Expand doubles the panel height and visible entries from 10 to 20 techniques or from 5 to 10 parameter components. Collapse restores the compact panel.
 
-Pressing both thumbsticks (`L3 + R3`) hides or reopens the panel; `Hide/show: hold L3 + R3 1.5s` optionally requires a sustained chord (the simple-controller fallback uses its menu click). The main footer uses four rows: `Performance next start` and `Always show FPS` share the first row, `UI starts open` and the visibility gesture each have a dedicated row, while temporary disable and Expand/Collapse occupy the fourth row. Hidden frames do not submit the quad. Free hover uses a six-pixel radial dead zone, 18% follow rate, and two-pixel output quantization; held select uses a responsive 35% low-pass. Each compact technique row keeps the technique and effect names on one line to avoid vertical clipping. Uniforms marked `hidden` or `noedit` are not exposed, and `noreset` values do not offer reset controls.
+Pressing both thumbsticks (`L3 + R3`) hides or reopens the panel; `Hide/show: hold L3 + R3 1.5s` optionally requires a sustained chord (the simple-controller fallback uses its menu click). The main footer uses four rows: `Performance next start` and `Always show FPS` share the first row, `UI starts open` and the visibility gesture each have a dedicated row (the gesture row also holds `Lock UI in place`), while temporary disable and Expand/Collapse occupy the fourth row. `Lock UI in place` (session only) keeps the panel and FPS counter at a fixed world direction (yaw and pitch, no roll) at their usual distance around the head, submitted in LOCAL space; a panel reopened after hiding appears in front of the current view. Hidden frames do not submit the quad. Free hover uses a six-pixel radial dead zone, 18% follow rate, and two-pixel output quantization; held select uses a responsive 35% low-pass. Each compact technique row keeps the technique and effect names on one line to avoid vertical clipping. Uniforms marked `hidden` or `noedit` are not exposed, and `noreset` values do not offer reset controls.
 
 The source is split by responsibility: `openxr_ui_layer.cpp` owns OpenXR session, input, and D3D11/D3D12 swapchain flow; `reshade_openxr_ui_addon.cpp` owns ReShade callbacks, runtime handles, and technique state; `openxr_ui_preset.cpp` owns preset dirty-state comparison, sibling navigation, saving, pending inherited-copy, and pending deletion; and `openxr_ui_renderer.cpp` owns the private ImGui context and both rendering backends. Preset code is deliberately represented by bounded operation-specific types rather than a generic manager object.
 
@@ -199,6 +199,8 @@ configuration, or logs. They intentionally preserve preferences and
 `ReShade-VR-Loader.log`.
 
 ## Headset Test
+
+Last headset check (2026-09-26): Hubris (native OpenXR) and UEVR games on a Pimax headset; the FPS counter and graph work.
 
 Only the user launches Hubris. Keep SteamVR stopped. The central installation should activate automatically because official ReShade OpenXR is already enabled for Hubris; no Hubris-local add-on DLL, manifest, or registry value is needed. Confirm the UI appears in Hubris but not in Pimax Home, which has no ReShade add-on API to satisfy the activation gate.
 

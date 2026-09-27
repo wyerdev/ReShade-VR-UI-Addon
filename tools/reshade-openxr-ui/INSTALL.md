@@ -19,6 +19,7 @@ Works with 64-bit DirectX 11 and 12 games. Vulkan and OpenGL are not supported.
 
 ## UEVR (Unreal Games)
 
+- If ReShade is installed in the game folder (a normal desktop install), turn it off first. Either run ReShade Setup, pick the game and choose **Uninstall**, or rename ReShade's `dxgi.dll` next to the game's `.exe` (for example to `dxgi.dll.off`; rename it back for flat play). UEVR needs ReShade only as an OpenXR layer.
 - Do the same ReShade Setup steps for the game's `...-Win64-Shipping.exe` (keep **OpenXR** enabled).
 - Run `Install.cmd` as administrator once, if not done already.
 - Start the game, then inject with UEVR set to **OpenXR** (not OpenVR).

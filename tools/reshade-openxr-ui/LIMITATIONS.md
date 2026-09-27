@@ -13,12 +13,14 @@
 - The FPS counter measures how often the game hands a frame to the headset.
   It does not show frames the headset software fills in by itself
   (reprojection, motion smoothing).
+- The FPS counter does not notice when the headset software runs the game at
+  half rate. Pick **FPS target** yourself so the graph colours match.
 
 ## SteamVR (OpenVR) Games
 
 - The controls are a page inside ReShade's own SteamVR dashboard
   (**Add-ons** > **ReShade VR UI Add-on for SteamVR**), not a separate panel.
-- The FPS numbers are a line on that page only; there is no always-on counter.
+- The FPS line and graph are on that page only; there is no always-on counter.
 - Only games in ReShade Setup's game list are picked up, and only while the
   add-on's loader is running (it starts when you sign in to Windows).
 - The add-on changes two settings in the game's ReShade files: it turns off
@@ -28,6 +30,8 @@
 ## UEVR (Unreal Games)
 
 - UEVR must be set to **OpenXR**, not OpenVR.
+- ReShade installed in the game folder is not supported with UEVR. Uninstall
+  it there or rename its `dxgi.dll`, and use ReShade only as an OpenXR layer.
 - **No depth effects.** Effects that need to know how far away things are
   (for example MXAO ambient occlusion, depth of field, depth fog) get no depth
   information. Colour, sharpening and tone effects work.
@@ -40,12 +44,9 @@
 
 Not tested yet (may or may not work):
 
-- ReShade also installed in the game folder at the same time.
 - UEVR's 2D-screen mode and extreme compatibility mode (not handled).
 - Headset software other than the OpenXR Simulator and Pimax, such as SteamVR
   or Virtual Desktop.
-- Whether desktop and VR presets stay in sync when ReShade is also in the
-  game folder.
 
 Not caused by the add-on:
 

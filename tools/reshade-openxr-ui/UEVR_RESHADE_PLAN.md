@@ -4,6 +4,14 @@ Findings live in `UEVR_RESHADE_RESEARCH.md`. Keep that file short and update
 it whenever something new is learned. Record disproven ideas too, not only
 successes.
 
+## Current Status (2026-09-26)
+
+Option 1 works. Effects show in both eyes on the Simulator and on a real
+Pimax headset in UEVR games (D3D11 and D3D12). Native OpenXR (Hubris) still
+works, and the FPS counter with graph works on the headset.
+Open: depth effects. ReShade in the game folder (setup A) is not supported;
+users must uninstall it there or rename its `dxgi.dll` (see `INSTALL.md`).
+
 ## Goal
 
 Get ReShade effects into the headset for Unreal games run through UEVR. UEVR is
@@ -18,12 +26,12 @@ Direct3D 11 and Direct3D 12 must both work. OpenXR and OpenVR support must stay.
 
 Earlier notes that ruled out any of these options no longer apply.
 
-## Phase 1: Source Research (Current)
+## Phase 1: Source Research (Done)
 
 - Study `.deps/reshade` and `.deps/UEVR` (codegraph indexes exist in both).
 - Answer, for each option, whether it can work and why.
 - Output: `UEVR_RESHADE_RESEARCH.md`.
-- Status: first pass done. Option 1 looks possible. See the research note.
+- Status: done. Option 1 was possible and is now built.
 
 ## Phase 1.5: UEVR Baseline On The Simulator (Done)
 
@@ -45,7 +53,7 @@ Earlier notes that ruled out any of these options no longer apply.
   created without a proxy Direct3D 12 device". The game made its device before
   ReShade loaded, so this is the case Phase 2 must fix.
 
-## Phase 2: Option 1 Prototype
+## Phase 2: Option 1 Prototype (Done)
 
 - Add a fallback to the OpenXR layer. When official ReShade skips the session,
   create a runtime with `reshade::create_effect_runtime` on UEVR's device and
@@ -61,8 +69,8 @@ Earlier notes that ruled out any of these options no longer apply.
   in both eyes of the UEVR capture; the add-on menu stays un-inverted.
   `build.bat` and the D3D11/D3D12 smoke tests pass. The user confirmed effects
   on a real Pimax Crystal Super with the installed add-on, in Jedi Survivor
-  (D3D12) and Jedi Fallen Order (D3D11). Still to check: ReShade in the game
-  folder (setup A).
+  (D3D12) and Jedi Fallen Order (D3D11). Hubris (native OpenXR) still works
+  on the headset. ReShade in the game folder (setup A) is not supported.
 
 ## Phase 3: Test Tooling (Done)
 
@@ -86,6 +94,9 @@ Earlier notes that ruled out any of these options no longer apply.
 3. Read the ReShade, add-on and UEVR logs, and inspect the captures directly.
 4. Do a final check on a real headset. Only the user can report what it looks
    like there.
+
+- Status (2026-09-26): passed on the Simulator and on a Pimax headset (UEVR
+  Jedi games, native Hubris). The FPS counter and graph work on the headset.
 
 ## Decided
 

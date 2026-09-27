@@ -468,6 +468,12 @@ int main()
 		std::fputs("FPS target button did not cycle from third rate back to full rate.\n", stderr);
 		return 1;
 	}
+	const openxr_ui::render_input lock_toggle = { true, 420.0f, 572.0f, true };
+	if (renderer.render(render_target.Get(), snapshot, lock_toggle).action != openxr_ui::render_result::command::toggle_panel_lock)
+	{
+		std::fputs("Lock UI in place checkbox did not produce its command.\n", stderr);
+		return 1;
+	}
 	if (!expect_command(renderer, render_target.Get(), snapshot, 675.0f, 102.0f,
 		openxr_ui::render_result::command::previous_preset, 0) ||
 		!expect_command(renderer, render_target.Get(), snapshot, 715.0f, 102.0f,

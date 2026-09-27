@@ -1,7 +1,8 @@
 # UEVR + ReShade VR Research
 
 Date started: 2026-09-24. Status (2026-09-26): option 1 is built and shows
-effects in both eyes of Creatures of Ava (D3D12) on the OpenXR Simulator.
+effects in both eyes on the OpenXR Simulator (Creatures of Ava, D3D12) and on
+a Pimax headset (Jedi Survivor D3D12, Jedi Fallen Order D3D11).
 
 This note replaces the conclusion of `UEVR_OPENXR_RESHADE_RESEARCH.md`. That
 note is correct about why the official ReShade VR path skips UEVR, but it
@@ -11,7 +12,7 @@ missed a supported ReShade feature that works around the problem.
 
 | Option | Verdict |
 | --- | --- |
-| 1. One ReShade add-on only | **Very likely possible.** Recommended. Needs a prototype to prove it. |
+| 1. One ReShade add-on only | **Works.** Built and tested on the Simulator and a Pimax headset. |
 | 2. UEVR C++ plugin + add-on | Not needed for basic effects. Useful later for depth effects. |
 | 3. Custom ReShade build | Not needed. Would not be simpler than option 1. |
 
@@ -130,7 +131,8 @@ Still open:
   no effects ever loaded.
 - **Side-by-side processing:** effects on a double-width image treat both eyes
   as one picture. Official ReShade VR behaves the same way.
-- **Timing:** works on the Simulator. SteamVR and Virtual Desktop untested.
+- **Timing:** works on the Simulator and Pimax. SteamVR and Virtual Desktop
+  untested.
 - **No depth:** a created runtime has no depth buffer detection. Depth effects
   need extra work (see option 2).
 - **Desktop and VR preset sync:** ReShade's built-in "Effect Runtime Sync"

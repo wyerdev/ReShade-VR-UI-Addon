@@ -17,6 +17,7 @@
 #include "vr_ui_state.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <deque>
@@ -145,6 +146,15 @@ namespace
 		HANDLE completion_event12 = nullptr;
 		uint64_t completion_value12 = 0;
 		XrSpace view_space = XR_NULL_HANDLE;
+		XrSpace local_space = XR_NULL_HANDLE;
+		bool head_valid = false;
+		XrVector3f head_position = { 0.0f, 0.0f, 0.0f };
+		XrQuaternionf head_orientation = { 0.0f, 0.0f, 0.0f, 1.0f };
+		// When locked, the panel stays at a fixed direction in the world, at its usual distance around the head.
+		bool panel_locked = false;
+		bool anchor_ready = false;
+		float anchor_yaw = 0.0f;
+		float anchor_pitch = 0.0f;
 		int64_t quad_format = 0;
 		quad_target panel;
 		quad_target statistics;
@@ -516,6 +526,9 @@ namespace
 		space_info.poseInReferenceSpace = identity;
 		if (XR_FAILED(state.dispatch->CreateReferenceSpace(state.session, &space_info, &state.view_space)))
 			return false;
+		space_info.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+		if (XR_FAILED(state.dispatch->CreateReferenceSpace(state.session, &space_info, &state.local_space)))
+			openxr_ui_log_message("Lock UI in place unavailable: the LOCAL reference space could not be created.", true);
 
 		uint32_t format_count = 0;
 		if (XR_FAILED(state.dispatch->EnumerateSwapchainFormats(state.session, 0, &format_count, nullptr)) || format_count == 0)
@@ -639,6 +652,7 @@ namespace
 				openxr_ui_has_effect_runtime(),
 				state.always_show_statistics,
 				state.frame_timing.statistics().frame_rate_divisor,
+				state.panel_locked,
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
@@ -736,6 +750,10 @@ namespace
 				if (openxr_ui_set_frame_rate_divisor(static_cast<uint32_t>(render_result.value)))
 					state.frame_timing.set_frame_rate_divisor(static_cast<uint32_t>(render_result.value));
 				break;
+			case openxr_ui::render_result::command::toggle_panel_lock:
+				state.panel_locked = !state.panel_locked;
+				state.anchor_ready = false;
+				break;
 			case openxr_ui::render_result::command::none:
 				break;
 			}
@@ -797,6 +815,73 @@ namespace
 			-2.0f * (orientation.y * orientation.z - orientation.w * orientation.x),
 			-(1.0f - 2.0f * (orientation.x * orientation.x + orientation.y * orientation.y)),
 		};
+	}
+
+	XrQuaternionf multiply(const XrQuaternionf &a, const XrQuaternionf &b)
+	{
+		return {
+			a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+			a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+			a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+			a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+		};
+	}
+
+	XrVector3f rotate(const XrQuaternionf &q, const XrVector3f &v)
+	{
+		const XrVector3f t = { 2.0f * (q.y * v.z - q.z * v.y), 2.0f * (q.z * v.x - q.x * v.z), 2.0f * (q.x * v.y - q.y * v.x) };
+		return {
+			v.x + q.w * t.x + q.y * t.z - q.z * t.y,
+			v.y + q.w * t.y + q.z * t.x - q.x * t.z,
+			v.z + q.w * t.z + q.x * t.y - q.y * t.x,
+		};
+	}
+
+	bool panel_anchored(const session_state &state)
+	{
+		return state.panel_locked && state.anchor_ready;
+	}
+
+	// Yaw then pitch, without roll, so the locked panel stays upright.
+	XrQuaternionf anchor_orientation(const session_state &state)
+	{
+		const XrQuaternionf yaw = { 0.0f, std::sin(state.anchor_yaw * 0.5f), 0.0f, std::cos(state.anchor_yaw * 0.5f) };
+		const XrQuaternionf pitch = { std::sin(state.anchor_pitch * 0.5f), 0.0f, 0.0f, std::cos(state.anchor_pitch * 0.5f) };
+		return multiply(yaw, pitch);
+	}
+
+	// Converts an offset in front of the head into a LOCAL-space pose that keeps the locked direction.
+	XrPosef anchored_pose(const session_state &state, const XrVector3f &offset)
+	{
+		const XrQuaternionf orientation = anchor_orientation(state);
+		const XrVector3f rotated = rotate(orientation, offset);
+		return { orientation, { state.head_position.x + rotated.x, state.head_position.y + rotated.y, state.head_position.z + rotated.z } };
+	}
+
+	void update_head_pose(session_state &state, XrTime display_time)
+	{
+		if (state.local_space == XR_NULL_HANDLE)
+			return;
+		constexpr XrSpaceLocationFlags required = XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+		XrSpaceLocation location = { XR_TYPE_SPACE_LOCATION };
+		// If tracking is lost, the last known head pose is kept.
+		if (XR_SUCCEEDED(state.dispatch->LocateSpace(state.view_space, state.local_space, display_time, &location)) &&
+			(location.locationFlags & required) == required)
+		{
+			state.head_position = location.pose.position;
+			state.head_orientation = location.pose.orientation;
+			state.head_valid = true;
+		}
+	}
+
+	void capture_panel_anchor(session_state &state)
+	{
+		if (!state.head_valid)
+			return;
+		const XrVector3f forward = aim_direction(state.head_orientation);
+		state.anchor_yaw = std::atan2(-forward.x, -forward.z);
+		state.anchor_pitch = std::asin(std::clamp(forward.y, -1.0f, 1.0f));
+		state.anchor_ready = true;
 	}
 
 	void update_interaction(session_state &state, XrTime display_time)
@@ -882,19 +967,29 @@ namespace
 			return;
 
 		XrSpaceLocation location = { XR_TYPE_SPACE_LOCATION };
-		if (XR_FAILED(state.dispatch->LocateSpace(state.aim_space, state.view_space, display_time, &location)) ||
+		const bool anchored = panel_anchored(state);
+		if (XR_FAILED(state.dispatch->LocateSpace(state.aim_space, anchored ? state.local_space : state.view_space, display_time, &location)) ||
 			(location.locationFlags & (XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) !=
 				(XR_SPACE_LOCATION_POSITION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT))
 			return;
 
-		const XrVector3f direction = aim_direction(location.pose.orientation);
+		// The hit test works in the panel's own frame: the head view when following, the locked direction otherwise.
+		XrVector3f origin = location.pose.position;
+		XrVector3f direction = aim_direction(location.pose.orientation);
+		if (anchored)
+		{
+			XrQuaternionf inverse = anchor_orientation(state);
+			inverse = { -inverse.x, -inverse.y, -inverse.z, inverse.w };
+			origin = rotate(inverse, { origin.x - state.head_position.x, origin.y - state.head_position.y, origin.z - state.head_position.z });
+			direction = rotate(inverse, direction);
+		}
 		if (direction.z < -0.0001f)
 		{
 			const float panel_world_height = state.panel_expanded ? expanded_panel_world_height : compact_panel_world_height;
 			const uint32_t panel_height = state.panel_expanded ? openxr_ui::expanded_panel_height : openxr_ui::compact_panel_height;
-			const float distance = (panel_z - location.pose.position.z) / direction.z;
-			const float hit_x = location.pose.position.x + direction.x * distance;
-			const float hit_y = location.pose.position.y + direction.y * distance;
+			const float distance = (panel_z - origin.z) / direction.z;
+			const float hit_x = origin.x + direction.x * distance;
+			const float hit_y = origin.y + direction.y * distance;
 			state.pointer_visible = distance > 0.0f && hit_x >= -panel_world_width * 0.5f && hit_x <= panel_world_width * 0.5f &&
 				hit_y >= panel_y - panel_world_height * 0.5f && hit_y <= panel_y + panel_world_height * 0.5f;
 			if (state.pointer_visible)
@@ -960,6 +1055,8 @@ namespace
 		}
 		if (state.aim_space != XR_NULL_HANDLE)
 			state.dispatch->DestroySpace(state.aim_space);
+		if (state.local_space != XR_NULL_HANDLE)
+			state.dispatch->DestroySpace(state.local_space);
 		if (state.view_space != XR_NULL_HANDLE)
 			state.dispatch->DestroySpace(state.view_space);
 	}
@@ -1340,20 +1437,29 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 	if (frame_end_info == nullptr || !state->quad_ready || !state->should_render)
 		return state->dispatch->EndFrame(session, frame_end_info);
 
+	update_head_pose(*state, frame_end_info->displayTime);
 	update_interaction(*state, frame_end_info->displayTime);
+	// A hidden panel reopens in front of the current view.
+	if (!state->panel_visible)
+		state->anchor_ready = false;
 	std::vector<const XrCompositionLayerBaseHeader *> layers(frame_end_info->layers, frame_end_info->layers + frame_end_info->layerCount);
 
 	XrCompositionLayerQuad quad = { XR_TYPE_COMPOSITION_LAYER_QUAD };
-	if (state->panel_visible && render_quad(*state))
+	const bool panel_rendered = state->panel_visible && render_quad(*state);
+	if (state->panel_locked && !state->anchor_ready)
+		capture_panel_anchor(*state);
+	const bool anchored = panel_anchored(*state);
+	if (panel_rendered)
 	{
 		quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-		quad.space = state->view_space;
+		quad.space = anchored ? state->local_space : state->view_space;
 		quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
 		quad.subImage.swapchain = state->panel.swapchain;
 		const uint32_t panel_height = state->panel_expanded ? openxr_ui::expanded_panel_height : openxr_ui::compact_panel_height;
 		const float panel_world_height = state->panel_expanded ? expanded_panel_world_height : compact_panel_world_height;
 		quad.subImage.imageRect = { { 0, 0 }, { static_cast<int32_t>(openxr_ui::panel_width), static_cast<int32_t>(panel_height) } };
-		quad.pose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, panel_y, panel_z } };
+		quad.pose = anchored ? anchored_pose(*state, { 0.0f, panel_y, panel_z }) :
+			XrPosef{ { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, panel_y, panel_z } };
 		quad.size = { panel_world_width, panel_world_height };
 		layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader *>(&quad));
 		if (!state->quad_logged)
@@ -1367,12 +1473,13 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 	if ((state->always_show_statistics || state->panel_visible) && render_statistics_quad(*state))
 	{
 		statistics_quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-		statistics_quad.space = state->view_space;
+		statistics_quad.space = anchored ? state->local_space : state->view_space;
 		statistics_quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
 		statistics_quad.subImage.swapchain = state->statistics.swapchain;
 		statistics_quad.subImage.imageRect = { { 0, 0 },
 			{ static_cast<int32_t>(openxr_ui::statistics_width), static_cast<int32_t>(openxr_ui::statistics_height) } };
-		statistics_quad.pose = { { 0.0f, 0.0f, 0.0f, 1.0f }, { statistics_x, statistics_y, panel_z } };
+		statistics_quad.pose = anchored ? anchored_pose(*state, { statistics_x, statistics_y, panel_z }) :
+			XrPosef{ { 0.0f, 0.0f, 0.0f, 1.0f }, { statistics_x, statistics_y, panel_z } };
 		statistics_quad.size = { statistics_world_width, statistics_world_height };
 		layers.push_back(reinterpret_cast<const XrCompositionLayerBaseHeader *>(&statistics_quad));
 	}

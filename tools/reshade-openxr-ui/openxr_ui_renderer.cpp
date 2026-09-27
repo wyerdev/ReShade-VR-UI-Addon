@@ -755,6 +755,8 @@ namespace openxr_ui
 			char frame_rate_label[48];
 			std::snprintf(frame_rate_label, sizeof(frame_rate_label), "FPS target: %s", frame_rate_divisor_name(input.frame_rate_divisor));
 			const bool frame_rate_hovered = draw_text_button("frame_rate_divisor", frame_rate_label, { 240.0f, 30.0f });
+			ImGui::SetCursorScreenPos({ footer_min.x + 330.0f, footer_min.y + 74.0f });
+			const bool lock_hovered = draw_tick_box("panel_locked", "Lock UI in place", input.panel_locked, 210.0f);
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 37.0f });
 			const bool starts_open_hovered = draw_tick_box("starts_open", "UI starts open", input.ui_starts_open, 184.0f);
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 74.0f });
@@ -806,6 +808,8 @@ namespace openxr_ui
 				result.action = render_result::command::set_frame_rate_divisor;
 				result.value = input.frame_rate_divisor % max_frame_rate_divisor + 1;
 			}
+			else if (input.select_clicked && lock_hovered && _implementation->dragging == implementation::drag_target::none)
+				result.action = render_result::command::toggle_panel_lock;
 		}
 		else
 		{

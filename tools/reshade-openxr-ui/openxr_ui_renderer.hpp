@@ -42,6 +42,7 @@ namespace openxr_ui
 		bool effect_runtime_available = true;
 		bool always_show_statistics = false;
 		uint32_t frame_rate_divisor = 1;
+		bool panel_locked = false;
 	};
 
 	struct render_result
@@ -72,6 +73,7 @@ namespace openxr_ui
 			set_performance_mode,
 			set_always_show_statistics,
 			set_frame_rate_divisor,
+			toggle_panel_lock,
 		};
 
 		command action = command::none;
