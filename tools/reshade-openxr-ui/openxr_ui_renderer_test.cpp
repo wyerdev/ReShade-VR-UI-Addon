@@ -351,13 +351,13 @@ int main()
 	renderer.render(render_target.Get(), snapshot, release);
 	const openxr_ui::render_input open_technique_1 = { true, 900.0f, 144.0f, true };
 	renderer.render(render_target.Get(), snapshot, open_technique_1);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 202.5f, 105.0f,
-		openxr_ui::render_result::command::set_parameter, 100, 0, 0.1377, false))
+	if (!expect_command(renderer, render_target.Get(), snapshot, 197.0f, 105.0f,
+		openxr_ui::render_result::command::set_parameter, 100, 0, 0.1005, false))
 		return 1;
-	const openxr_ui::render_input value_drag = { true, 371.6f, 105.0f, false, false, true };
+	const openxr_ui::render_input value_drag = { true, 401.0f, 105.0f, false, false, true };
 	const openxr_ui::render_result dragged_value = renderer.render(render_target.Get(), snapshot, value_drag);
 	if (dragged_value.action != openxr_ui::render_result::command::set_parameter || dragged_value.target_id != 100 ||
-		std::abs(dragged_value.value - 0.6437) >= 0.0001)
+		std::abs(dragged_value.value - 0.6005) >= 0.0001)
 	{
 		std::fprintf(stderr, "Numeric slider did not update while select remained held: action %u, target %llu, value %.6f.\n",
 			static_cast<unsigned>(dragged_value.action), static_cast<unsigned long long>(dragged_value.target_id), dragged_value.value);
@@ -366,16 +366,24 @@ int main()
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 738.0f, 105.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 811.0f, 105.0f,
 		openxr_ui::render_result::command::set_parameter, 100, 0, 0.6))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 793.0f, 105.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 870.0f, 105.0f,
 		openxr_ui::render_result::command::set_parameter, 100, 0, 1.5))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 888.0f, 105.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 929.0f, 105.0f,
 		openxr_ui::render_result::command::reset_parameter, 100))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 653.0f, 210.0f,
+	openxr_ui::technique_snapshot default_value_snapshot = snapshot;
+	default_value_snapshot.parameters.front().values = default_value_snapshot.parameters.front().default_values;
+	const openxr_ui::render_input reset_at_default = { true, 929.0f, 105.0f, true };
+	if (renderer.render(render_target.Get(), default_value_snapshot, reset_at_default).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("Parameter reset remained interactive when the value already matched its default.\n", stderr);
+		return 1;
+	}
+	if (!expect_command(renderer, render_target.Get(), snapshot, 724.0f, 210.0f,
 		openxr_ui::render_result::command::set_parameter, 101, 0, 1.0))
 		return 1;
 	if (!expect_command(renderer, render_target.Get(), snapshot, 725.0f, 32.0f,
@@ -407,7 +415,7 @@ int main()
 	renderer.render(render_target.Get(), snapshot, joystick_down);
 	renderer.render(render_target.Get(), snapshot, warm_up);
 	renderer.render(render_target.Get(), snapshot, joystick_down);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 738.0f, 105.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 811.0f, 105.0f,
 		openxr_ui::render_result::command::set_parameter, 102, 0, 0.6))
 	{
 		std::fputs("Joystick did not scroll shader parameters by row.\n", stderr);
@@ -420,7 +428,7 @@ int main()
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 738.0f, 105.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 811.0f, 105.0f,
 		openxr_ui::render_result::command::set_parameter, 103, 0, 0.6))
 	{
 		std::fputs("Shader parameter scrollbar did not scroll to the final row offset.\n", stderr);
@@ -429,7 +437,7 @@ int main()
 
 	const openxr_ui::render_input detail_back = { true, 50.0f, 32.0f, true };
 	renderer.render(render_target.Get(), snapshot, detail_back);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 950.0f, 609.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 900.0f, 32.0f,
 		openxr_ui::render_result::command::toggle_panel_size, 0))
 		return 1;
 	const openxr_ui::render_input long_press_toggle = { true, 160.0f, 572.0f, true, false, false, false, 0.0f, false };
@@ -453,14 +461,14 @@ int main()
 		std::fputs("Performance mode checkbox did not produce its persisted next-start command.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input statistics_toggle = { true, 420.0f, 498.0f, true };
+	const openxr_ui::render_input statistics_toggle = { true, 480.0f, 498.0f, true };
 	const openxr_ui::render_result statistics_result = renderer.render(render_target.Get(), snapshot, statistics_toggle);
 	if (statistics_result.action != openxr_ui::render_result::command::set_always_show_statistics || !statistics_result.state)
 	{
 		std::fputs("Always show FPS checkbox did not produce its persisted command.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input frame_rate_toggle = { true, 440.0f, 535.0f, true };
+	openxr_ui::render_input frame_rate_toggle = { true, 480.0f, 535.0f, true };
 	frame_rate_toggle.frame_rate_divisor = 3;
 	const openxr_ui::render_result frame_rate_result = renderer.render(render_target.Get(), snapshot, frame_rate_toggle);
 	if (frame_rate_result.action != openxr_ui::render_result::command::set_frame_rate_divisor || frame_rate_result.value != 1.0)
@@ -468,24 +476,24 @@ int main()
 		std::fputs("FPS target button did not cycle from third rate back to full rate.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input lock_toggle = { true, 420.0f, 572.0f, true };
+	const openxr_ui::render_input lock_toggle = { true, 780.0f, 32.0f, true };
 	if (renderer.render(render_target.Get(), snapshot, lock_toggle).action != openxr_ui::render_result::command::toggle_panel_lock)
 	{
-		std::fputs("Lock UI in place checkbox did not produce its command.\n", stderr);
+		std::fputs("Pin UI button did not produce its command.\n", stderr);
 		return 1;
 	}
-	if (!expect_command(renderer, render_target.Get(), snapshot, 675.0f, 102.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 587.0f, 102.0f,
 		openxr_ui::render_result::command::previous_preset, 0) ||
-		!expect_command(renderer, render_target.Get(), snapshot, 715.0f, 102.0f,
+		!expect_command(renderer, render_target.Get(), snapshot, 629.0f, 102.0f,
 		openxr_ui::render_result::command::next_preset, 0))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 780.0f, 102.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 700.0f, 102.0f,
 		openxr_ui::render_result::command::save_preset, 0))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 935.0f, 102.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, 955.0f, 102.0f,
 		openxr_ui::render_result::command::delete_preset, 0))
 		return 1;
-	openxr_ui::render_input open_save_as = { true, 840.0f, 102.0f, true };
+	openxr_ui::render_input open_save_as = { true, 827.0f, 102.0f, true };
 	open_save_as.preset_name = "Hubris Super Resolution Tuned Copy 12";
 	if (renderer.render(render_target.Get(), snapshot, open_save_as).action != openxr_ui::render_result::command::none)
 	{
@@ -506,7 +514,7 @@ int main()
 		openxr_ui::render_result::command::toggle_all_techniques, 0))
 		return 1;
 	const openxr_ui::render_input temporarily_disabled_save = {
-		true, 780.0f, 102.0f, true, false, false, false, 0.0f, false, true, false, true, false
+		true, 700.0f, 102.0f, true, false, false, false, 0.0f, false, true, false, true, false
 	};
 	if (renderer.render(render_target.Get(), snapshot, temporarily_disabled_save).action != openxr_ui::render_result::command::none)
 	{

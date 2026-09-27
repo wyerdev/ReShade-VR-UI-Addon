@@ -75,6 +75,27 @@ namespace
 		return hovered;
 	}
 
+	// Returns hover even when disabled so the tooltip can explain why nothing will happen.
+	bool draw_reset_button(const char *id, const ImVec2 size, bool enabled)
+	{
+		ImGui::InvisibleButton(id, size);
+		const bool hovered = ImGui::IsItemHovered();
+		const ImVec2 minimum = ImGui::GetItemRectMin();
+		const ImVec2 maximum = ImGui::GetItemRectMax();
+		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+		draw_list->AddRectFilled(minimum, maximum, enabled && hovered ? IM_COL32(28, 82, 90, 255) : IM_COL32(18, 48, 55, 255), 3.0f);
+
+		const ImVec2 center = { (minimum.x + maximum.x) * 0.5f, (minimum.y + maximum.y) * 0.5f };
+		const float radius = std::clamp((std::min)(size.x, size.y) * 0.5f - 6.0f, 4.0f, 9.0f);
+		const ImU32 color = enabled ? IM_COL32(222, 242, 245, 255) : IM_COL32(78, 90, 92, 255);
+		draw_list->PathArcTo(center, radius, -1.5707963268f, 3.8f, 24);
+		draw_list->PathStroke(color, ImDrawFlags_None, 2.5f);
+		const float head = radius * 0.6f;
+		draw_list->AddTriangleFilled({ center.x - head, center.y - radius }, { center.x + head * 0.4f, center.y - radius - head },
+			{ center.x + head * 0.4f, center.y - radius + head }, color);
+		return hovered;
+	}
+
 	bool draw_star_button(const char *id, const ImVec2 size, bool active)
 	{
 		ImGui::InvisibleButton(id, size);
@@ -162,7 +183,7 @@ namespace
 		float fraction = 0.0f;
 	};
 
-	slider_interaction draw_slider(const char *id, const ImVec2 size, float fraction, bool enabled = true)
+	slider_interaction draw_slider(const char *id, const ImVec2 size, float fraction, bool enabled = true, float default_fraction = -1.0f)
 	{
 		fraction = std::clamp(fraction, 0.0f, 1.0f);
 		ImGui::BeginDisabled(!enabled);
@@ -177,6 +198,11 @@ namespace
 		draw_list->AddRectFilled({ track_min_x, center_y - 3.0f }, { track_max_x, center_y + 3.0f }, IM_COL32(30, 55, 61, 255), 3.0f);
 		draw_list->AddRectFilled({ track_min_x, center_y - 3.0f }, { track_min_x + (track_max_x - track_min_x) * fraction, center_y + 3.0f },
 			enabled ? IM_COL32(0, 174, 197, 255) : IM_COL32(62, 73, 76, 255), 3.0f);
+		if (enabled && default_fraction >= 0.0f && default_fraction <= 1.0f)
+		{
+			const float default_x = track_min_x + (track_max_x - track_min_x) * default_fraction;
+			draw_list->AddLine({ default_x, center_y - 8.0f }, { default_x, center_y + 8.0f }, default_value_color, 2.0f);
+		}
 		draw_list->AddCircleFilled({ track_min_x + (track_max_x - track_min_x) * fraction, center_y }, 7.0f,
 			hovered ? IM_COL32(235, 250, 255, 255) : IM_COL32(170, 220, 226, 255));
 		ImGui::EndDisabled();
@@ -445,7 +471,7 @@ namespace openxr_ui
 		{
 			ImGui::TextUnformatted("Save preset as");
 			ImGui::SameLine();
-			ImGui::TextDisabled("Graphics: %s", graphics_api_label);
+			ImGui::TextDisabled("|  Graphics: %s", graphics_api_label);
 			ImGui::SetCursorScreenPos({ io.DisplaySize.x - outer_padding - 34.0f, 18.0f });
 			const bool close_dialog_hovered = draw_text_button("close_save_as", "X", { 34.0f, 30.0f });
 
@@ -562,20 +588,25 @@ namespace openxr_ui
 			ImGui::TextDisabled("%s", page_text);
 			ImGui::SetCursorScreenPos({ ImGui::GetWindowWidth() - outer_padding - 34.0f, header_origin.y });
 			const bool close_hovered = draw_text_button("close", "X", { 34.0f, 30.0f });
+			ImGui::SetCursorScreenPos({ ImGui::GetWindowWidth() - outer_padding - 162.0f, header_origin.y });
+			const bool expand_hovered = draw_text_button("expand", input.expanded ? "Collapse" : "Expand", { 120.0f, 30.0f });
+			ImGui::SetCursorScreenPos({ ImGui::GetWindowWidth() - outer_padding - 270.0f, header_origin.y });
+			const bool pin_hovered = draw_text_button("pin", "Pin UI", { 100.0f, 30.0f }, true,
+				input.panel_locked ? IM_COL32(22, 132, 72, 255) : 0);
 
 			ImGui::SetCursorScreenPos({ header_origin.x, header_origin.y + 36.0f });
-			const bool active_first_hovered = draw_text_button("active_first", "Active first", { 140.0f, 30.0f });
-			ImGui::SetCursorScreenPos({ header_origin.x + 148.0f, header_origin.y + 36.0f });
-			const bool favourites_only_hovered = draw_text_button("favourites_only", "Starred only", { 150.0f, 30.0f }, true,
+			const bool active_first_hovered = draw_text_button("active_first", "Active first", { 166.0f, 30.0f });
+			ImGui::SetCursorScreenPos({ header_origin.x + 174.0f, header_origin.y + 36.0f });
+			const bool favourites_only_hovered = draw_text_button("favourites_only", "Starred only", { 166.0f, 30.0f }, true,
 				_implementation->show_favourites_only ? IM_COL32(184, 138, 20, 255) : 0);
-			ImGui::SetCursorScreenPos({ header_origin.x + 306.0f, header_origin.y + 36.0f });
-			const bool show_hidden_hovered = draw_text_button("show_hidden", _implementation->show_hidden ? "Hide hidden" : "Show hidden", { 140.0f, 30.0f }, true,
+			ImGui::SetCursorScreenPos({ header_origin.x + 348.0f, header_origin.y + 36.0f });
+			const bool show_hidden_hovered = draw_text_button("show_hidden", _implementation->show_hidden ? "Hide hidden" : "Show hidden", { 154.0f, 30.0f }, true,
 				_implementation->show_hidden ? IM_COL32(22, 132, 72, 255) : 0);
 
 			ImGui::SetCursorScreenPos({ header_origin.x, header_origin.y + 72.0f });
 			ImGui::TextUnformatted("Current preset:");
 			ImGui::SameLine();
-			const float preset_controls_x = ImGui::GetWindowWidth() - outer_padding - 348.0f;
+			const float preset_controls_x = ImGui::GetWindowWidth() - outer_padding - 430.0f;
 			const float preset_name_width = preset_controls_x - ImGui::GetCursorScreenPos().x - 8.0f;
 			const std::string preset_label = fit_text(input.preset_name.empty() ? "No preset" : input.preset_name.c_str(), preset_name_width);
 			ImGui::TextUnformatted(preset_label.c_str());
@@ -589,21 +620,25 @@ namespace openxr_ui
 				_implementation->save_feedback > 0 ? IM_COL32(22, 132, 72, 255) :
 				_implementation->save_feedback < 0 ? IM_COL32(166, 48, 48, 255) :
 				IM_COL32(22, 132, 72, 255);
-			const bool save_hovered = draw_text_button("save", save_label, { 68.0f, 30.0f }, !input.shaders_temporarily_disabled, save_color);
+			const bool save_hovered = draw_text_button("save", save_label, { 90.0f, 30.0f }, !input.shaders_temporarily_disabled, save_color);
 			ImGui::SameLine();
 			const char *const save_as_label = _implementation->save_as_feedback == 2 ? "Creating..." :
 				_implementation->save_as_feedback > 0 ? "Created" : _implementation->save_as_feedback < 0 ? "Failed" : "Save As";
 			const ImU32 save_as_color = _implementation->save_as_feedback == 2 ? IM_COL32(184, 138, 20, 255) :
 				_implementation->save_as_feedback > 0 ? IM_COL32(22, 132, 72, 255) :
 				_implementation->save_as_feedback < 0 ? IM_COL32(166, 48, 48, 255) : 0;
-			const bool save_as_hovered = draw_text_button("save_as", save_as_label, { 88.0f, 30.0f },
+			const bool save_as_hovered = draw_text_button("save_as", save_as_label, { 150.0f, 30.0f },
 				!input.shaders_temporarily_disabled && _implementation->save_as_feedback != 2, save_as_color);
 			ImGui::SameLine();
-			const bool delete_preset_hovered = draw_text_button("delete_preset", "Delete", { 76.0f, 30.0f },
+			const bool delete_preset_hovered = draw_text_button("delete_preset", "Delete", { 90.0f, 30.0f },
 				!input.shaders_temporarily_disabled && _implementation->save_as_feedback != 2, IM_COL32(166, 48, 48, 255));
 			ImGui::SetCursorScreenPos({ header_origin.x, header_origin.y + 108.0f });
 			if (input.select_clicked && close_hovered && _implementation->dragging == implementation::drag_target::none)
 				result.action = render_result::command::hide_panel;
+			else if (input.select_clicked && expand_hovered && _implementation->dragging == implementation::drag_target::none)
+				result.action = render_result::command::toggle_panel_size;
+			else if (input.select_clicked && pin_hovered && _implementation->dragging == implementation::drag_target::none)
+				result.action = render_result::command::toggle_panel_lock;
 			else if (input.select_clicked && active_first_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				result.action = render_result::command::move_active_to_top;
@@ -748,25 +783,21 @@ namespace openxr_ui
 			}
 
 			ImGui::SetCursorScreenPos(footer_min);
-			const bool performance_hovered = draw_tick_box("performance_mode", "Performance next start", input.performance_mode, 230.0f);
-			ImGui::SetCursorScreenPos({ footer_min.x + 330.0f, footer_min.y });
-			const bool statistics_hovered = draw_tick_box("always_show_statistics", "Always show FPS", input.always_show_statistics, 190.0f);
-			ImGui::SetCursorScreenPos({ footer_min.x + 330.0f, footer_min.y + 39.0f });
+			const bool performance_hovered = draw_tick_box("performance_mode", "Performance next start", input.performance_mode, 310.0f);
+			ImGui::SetCursorScreenPos({ footer_min.x + 420.0f, footer_min.y });
+			const bool statistics_hovered = draw_tick_box("always_show_statistics", "Always show FPS", input.always_show_statistics, 230.0f);
+			ImGui::SetCursorScreenPos({ footer_min.x + 420.0f, footer_min.y + 39.0f });
 			char frame_rate_label[48];
 			std::snprintf(frame_rate_label, sizeof(frame_rate_label), "FPS target: %s", frame_rate_divisor_name(input.frame_rate_divisor));
-			const bool frame_rate_hovered = draw_text_button("frame_rate_divisor", frame_rate_label, { 240.0f, 30.0f });
-			ImGui::SetCursorScreenPos({ footer_min.x + 330.0f, footer_min.y + 74.0f });
-			const bool lock_hovered = draw_tick_box("panel_locked", "Lock UI in place", input.panel_locked, 210.0f);
+			const bool frame_rate_hovered = draw_text_button("frame_rate_divisor", frame_rate_label, { 290.0f, 30.0f });
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 37.0f });
-			const bool starts_open_hovered = draw_tick_box("starts_open", "UI starts open", input.ui_starts_open, 184.0f);
+			const bool starts_open_hovered = draw_tick_box("starts_open", "UI starts open", input.ui_starts_open, 220.0f);
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 74.0f });
-			const bool long_press_hovered = draw_tick_box("long_press", "Hide/show: hold L3 + R3 1.5s", input.long_press_enabled);
+			const bool long_press_hovered = draw_tick_box("long_press", "Hide/show: hold L3 + R3 1.5s", input.long_press_enabled, 380.0f);
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 111.0f });
 			const bool disable_all_hovered = draw_text_button("disable_all",
-				input.shaders_temporarily_disabled ? "Restore shaders" : "Disable all", { 150.0f, 34.0f }, true,
+				input.shaders_temporarily_disabled ? "Restore shaders" : "Disable all", { 200.0f, 34.0f }, true,
 				input.shaders_temporarily_disabled ? IM_COL32(22, 132, 72, 255) : 0);
-			ImGui::SameLine(ImGui::GetWindowWidth() - outer_padding - 104.0f);
-			const bool expand_hovered = draw_text_button("expand", input.expanded ? "Collapse" : "Expand", { 104.0f, 34.0f });
 			if (input.select_clicked && previous_preset_hovered && _implementation->dragging == implementation::drag_target::none)
 				result.action = render_result::command::previous_preset;
 			else if (input.select_clicked && next_preset_hovered && _implementation->dragging == implementation::drag_target::none)
@@ -784,8 +815,6 @@ namespace openxr_ui
 				result.action = render_result::command::delete_preset;
 			else if (input.select_clicked && disable_all_hovered && _implementation->dragging == implementation::drag_target::none)
 				result.action = render_result::command::toggle_all_techniques;
-			else if (input.select_clicked && expand_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::toggle_panel_size;
 			else if (input.select_clicked && long_press_hovered && _implementation->dragging == implementation::drag_target::none)
 				result.action = render_result::command::toggle_long_press;
 			else if (input.select_clicked && starts_open_hovered && _implementation->dragging == implementation::drag_target::none)
@@ -808,8 +837,6 @@ namespace openxr_ui
 				result.action = render_result::command::set_frame_rate_divisor;
 				result.value = input.frame_rate_divisor % max_frame_rate_divisor + 1;
 			}
-			else if (input.select_clicked && lock_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::toggle_panel_lock;
 		}
 		else
 		{
@@ -818,17 +845,17 @@ namespace openxr_ui
 			ImGui::SameLine();
 			char selected_label[320];
 			std::snprintf(selected_label, sizeof(selected_label), "%s  [%s]", selected.name.c_str(), selected.effect_name.c_str());
-			const float controls_x = ImGui::GetWindowWidth() - outer_padding - 430.0f;
+			const float controls_x = ImGui::GetWindowWidth() - outer_padding - 446.0f;
 			const float selected_text_width = controls_x - ImGui::GetCursorScreenPos().x - 8.0f;
 			const std::string fitted_selected_label = fit_text(selected_label, selected_text_width);
 			ImGui::TextUnformatted(fitted_selected_label.c_str());
 			draw_hover_details(ImGui::GetItemRectMin(), { ImGui::GetItemRectMin().x + selected_text_width, ImGui::GetItemRectMax().y }, selected_label, selected.tooltip.c_str());
 			ImGui::SameLine(controls_x);
-			const bool toggle_hovered = draw_text_button("toggle", selected.enabled ? "Disable" : "Enable", { 92.0f, 30.0f });
+			const bool toggle_hovered = draw_text_button("toggle", selected.enabled ? "Disable" : "Enable", { 104.0f, 30.0f });
 			ImGui::SameLine();
-			const bool reset_all_hovered = draw_text_button("reset_all", "Reset All", { 110.0f, 30.0f });
+			const bool reset_all_hovered = draw_text_button("reset_all", "Reset All", { 124.0f, 30.0f });
 			ImGui::SameLine();
-			const bool revert_restore_hovered = draw_text_button("revert_restore", selected.has_restore_state ? "Restore" : "Revert", { 90.0f, 30.0f },
+			const bool revert_restore_hovered = draw_text_button("revert_restore", selected.has_restore_state ? "Restore" : "Revert", { 104.0f, 30.0f },
 				(selected.has_restore_state || selected.differs_from_saved) && !input.shaders_temporarily_disabled);
 			ImGui::SameLine();
 			const char *const save_label = input.preset_dirty ? "Save" : _implementation->save_feedback > 0 ? "Saved" : _implementation->save_feedback < 0 ? "Failed" : "Save";
@@ -836,7 +863,7 @@ namespace openxr_ui
 				_implementation->save_feedback > 0 ? IM_COL32(22, 132, 72, 255) :
 				_implementation->save_feedback < 0 ? IM_COL32(166, 48, 48, 255) :
 				IM_COL32(22, 132, 72, 255);
-			const bool save_hovered = draw_text_button("save", save_label, { 100.0f, 30.0f }, true, save_color);
+			const bool save_hovered = draw_text_button("save", save_label, { 90.0f, 30.0f }, true, save_color);
 			if (input.select_clicked && back_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				_implementation->selected_technique = 0;
@@ -946,10 +973,13 @@ namespace openxr_ui
 						std::snprintf(value_text, sizeof(value_text), "%.0f", entry.values[reference.component]);
 					const bool has_slider = entry.type != parameter_type::boolean && std::isfinite(entry.minimum) && std::isfinite(entry.maximum) && entry.minimum < entry.maximum;
 					const float slider_fraction = has_slider ? static_cast<float>((entry.values[reference.component] - entry.minimum) / (entry.maximum - entry.minimum)) : 0.0f;
+					const bool has_default = reference.component < entry.default_values.size();
+					const float default_fraction = has_slider && has_default ?
+						static_cast<float>((entry.default_values[reference.component] - entry.minimum) / (entry.maximum - entry.minimum)) : -1.0f;
 					const float control_height = row_height - label_font_size - 7.0f;
 					const float control_y = row_max.y - control_height - 3.0f;
 					ImGui::SetCursorScreenPos({ row_max.x - 810.0f, control_y });
-					const slider_interaction value_slider = draw_slider("value_slider", { 350.0f, control_height }, slider_fraction, has_slider);
+					const slider_interaction value_slider = draw_slider("value_slider", { 424.0f, control_height }, slider_fraction, has_slider, default_fraction);
 					if (input.select_clicked && value_slider.hovered && _implementation->dragging == implementation::drag_target::none)
 					{
 						_implementation->dragging = implementation::drag_target::value_slider;
@@ -959,41 +989,42 @@ namespace openxr_ui
 					}
 
 					const ImVec2 value_size = ImGui::CalcTextSize(value_text);
-					ImGui::GetWindowDrawList()->AddText({ row_max.x - 362.0f - value_size.x, control_y + (control_height - ImGui::GetFontSize()) * 0.5f },
+					ImGui::GetWindowDrawList()->AddText({ row_max.x - 294.0f - value_size.x, control_y + (control_height - ImGui::GetFontSize()) * 0.5f },
 						changed_from_default ? changed_value_color : default_value_color, value_text);
 
 					bool coarse_decrease_hovered = false;
 					bool decrease_hovered = false;
 					bool increase_hovered = false;
 					bool coarse_increase_hovered = false;
-					ImGui::SetCursorScreenPos({ row_max.x - 350.0f, control_y });
+					ImGui::SetCursorScreenPos({ row_max.x - 286.0f, control_y });
 					if (entry.type == parameter_type::boolean)
-						increase_hovered = draw_text_button("change", "Toggle", { 92.0f, control_height });
+						increase_hovered = draw_text_button("change", "Toggle", { 104.0f, control_height });
 					else
 					{
-						coarse_decrease_hovered = draw_text_button("coarse_decrease", "-10x", { 52.0f, control_height });
+						coarse_decrease_hovered = draw_text_button("coarse_decrease", "-10x", { 60.0f, control_height });
 						ImGui::SameLine();
 						decrease_hovered = draw_text_button("decrease", "-", { 42.0f, control_height });
 						ImGui::SameLine();
 						increase_hovered = draw_text_button("increase", "+", { 42.0f, control_height });
 						ImGui::SameLine();
-						coarse_increase_hovered = draw_text_button("coarse_increase", "+10x", { 52.0f, control_height });
+						coarse_increase_hovered = draw_text_button("coarse_increase", "+10x", { 60.0f, control_height });
 					}
 					ImGui::SameLine();
-					char reset_label[64] = "*";
-					if (entry.resettable && reference.component < entry.default_values.size())
-					{
-						if (entry.type == parameter_type::boolean)
-							std::snprintf(reset_label, sizeof(reset_label), "* %s", entry.default_values[reference.component] != 0.0 ? "On" : "Off");
-						else if (entry.type == parameter_type::floating_point)
-							std::snprintf(reset_label, sizeof(reset_label), "* %.3g", entry.default_values[reference.component]);
-						else
-							std::snprintf(reset_label, sizeof(reset_label), "* %.0f", entry.default_values[reference.component]);
-					}
-					const bool reset_hovered = draw_text_button("reset", reset_label, { 92.0f, control_height }, entry.resettable);
+					const bool can_reset = entry.resettable && changed_from_default;
+					const bool reset_hovered = draw_reset_button("reset", { 42.0f, control_height }, can_reset);
 					if (reset_hovered && ImGui::BeginTooltip())
 					{
-						ImGui::TextUnformatted("Revert to default");
+						char default_text[64] = "";
+						if (has_default && entry.type == parameter_type::boolean)
+							std::snprintf(default_text, sizeof(default_text), "%s", entry.default_values[reference.component] != 0.0 ? "On" : "Off");
+						else if (has_default && entry.type == parameter_type::floating_point)
+							std::snprintf(default_text, sizeof(default_text), "%.4g", entry.default_values[reference.component]);
+						else if (has_default)
+							std::snprintf(default_text, sizeof(default_text), "%.0f", entry.default_values[reference.component]);
+						if (!entry.resettable || !has_default)
+							ImGui::TextUnformatted("This setting cannot be reset");
+						else
+							ImGui::Text(changed_from_default ? "Reset to default: %s" : "Already at default: %s", default_text);
 						ImGui::EndTooltip();
 					}
 					const bool dragging_value = _implementation->dragging == implementation::drag_target::value_slider &&
@@ -1021,7 +1052,7 @@ namespace openxr_ui
 								entry.values[reference.component] + (coarse_increase_hovered ? 10.0 * entry.step :
 									increase_hovered ? entry.step : coarse_decrease_hovered ? -10.0 * entry.step : -entry.step);
 						}
-						else if (reset_hovered)
+						else if (reset_hovered && can_reset)
 						{
 							result.action = render_result::command::reset_parameter;
 							result.target_id = entry.id;
@@ -1055,11 +1086,17 @@ namespace openxr_ui
 
 			ImGui::SetCursorScreenPos(footer_min);
 			ImGui::TextDisabled("%zu values  |  API: %s", components.size(), graphics_api_label);
-			ImGui::SameLine(ImGui::GetWindowWidth() - outer_padding - 104.0f);
-			const bool expand_hovered = draw_text_button("expand", input.expanded ? "Collapse" : "Expand", { 104.0f, 34.0f });
+			ImGui::SameLine(ImGui::GetWindowWidth() - outer_padding - 228.0f);
+			const bool pin_hovered = draw_text_button("pin", "Pin UI", { 100.0f, 34.0f }, true,
+				input.panel_locked ? IM_COL32(22, 132, 72, 255) : 0);
+			ImGui::SameLine();
+			const bool expand_hovered = draw_text_button("expand", input.expanded ? "Collapse" : "Expand", { 120.0f, 34.0f });
 			if (result.action == render_result::command::none && input.select_clicked && expand_hovered &&
 				_implementation->dragging == implementation::drag_target::none)
 				result.action = render_result::command::toggle_panel_size;
+			else if (result.action == render_result::command::none && input.select_clicked && pin_hovered &&
+				_implementation->dragging == implementation::drag_target::none)
+				result.action = render_result::command::toggle_panel_lock;
 		}
 
 		if (_implementation->save_feedback_frame_count != 0)

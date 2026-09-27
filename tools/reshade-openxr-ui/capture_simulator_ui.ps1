@@ -34,7 +34,7 @@ $testReshadeManifest = Join-Path $layerDirectory 'ReShade64_XR_UI_Capture.json'
 $existingReshadeManifest = Join-Path $layerDirectory 'ReShade64_XR.json'
 $probeName = if ($GraphicsApi -eq 'D3D11') { 'xr_probe_d3d11.exe' } else { 'xr_probe.exe' }
 $probe = Join-Path $TestRoot $probeName
-$probeFrames = $Frames + 600
+$probeFrames = $Frames + 800
 $runtimeManifest = Join-Path $TestRoot 'openxr_simulator.json'
 $outputDirectory = Join-Path $buildDirectory "simulator-captures\$($GraphicsApi.ToLowerInvariant())"
 $testLocalAppData = Join-Path $TestRoot 'openxr-ui-capture-localappdata'
@@ -133,15 +133,18 @@ function Set-ControllerPointer {
 	param(
 		[Parameter(Mandatory = $true)][float]$X,
 		[Parameter(Mandatory = $true)][float]$Y,
-		[Parameter(Mandatory = $true)][float]$Trigger
+		[Parameter(Mandatory = $true)][float]$Trigger,
+		[switch]$Pinned
 	)
 	$hitX = ($X / 1024.0 - 0.5) * 0.96
 	$panelWorldHeight = 0.96 * 650.0 / 1024.0
 	$hitY = -0.08 + (0.5 - $Y / 650.0) * $panelWorldHeight
+	# The simulator reports one controller pose for every base space; the pinned hit test subtracts the 1.7 m head height.
+	$headHeight = if ($Pinned) { 0.0 } else { 1.7 }
 	[ordered]@{
 		hand = 1
 		posX = $hitX
-		posY = $hitY - 1.7
+		posY = $hitY - $headHeight
 		posZ = -0.4
 		yaw = 0.0
 		pitch = 0.0
@@ -150,13 +153,13 @@ function Set-ControllerPointer {
 }
 
 function Invoke-ControllerClick {
-	param([Parameter(Mandatory = $true)][float]$X, [Parameter(Mandatory = $true)][float]$Y)
+	param([Parameter(Mandatory = $true)][float]$X, [Parameter(Mandatory = $true)][float]$Y, [switch]$Pinned)
 	$frame = Get-FrameCount
-	Set-ControllerPointer -X $X -Y $Y -Trigger 0.0
+	Set-ControllerPointer -X $X -Y $Y -Trigger 0.0 -Pinned:$Pinned
 	Wait-ForFrame ($frame + 60)
-	Set-ControllerPointer -X $X -Y $Y -Trigger 1.0
+	Set-ControllerPointer -X $X -Y $Y -Trigger 1.0 -Pinned:$Pinned
 	Wait-ForFrame ($frame + 65)
-	Set-ControllerPointer -X $X -Y $Y -Trigger 0.0
+	Set-ControllerPointer -X $X -Y $Y -Trigger 0.0 -Pinned:$Pinned
 	Wait-ForFrame ($frame + 70)
 }
 
@@ -280,12 +283,17 @@ try {
 		return
 	}
 	Save-SimulatorWindow (Join-Path $outputDirectory 'main.png')
+	Invoke-ControllerClick -X 780 -Y 32
+	Wait-ForFrame ((Get-FrameCount) + 15)
+	Save-SimulatorWindow (Join-Path $outputDirectory 'pinned.png')
+	Invoke-ControllerClick -X 780 -Y 32 -Pinned
+	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'preset-off.png')
 
-	Invoke-ControllerClick -X 720 -Y 102
+	Invoke-ControllerClick -X 629 -Y 102
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'preset-on.png')
-	Invoke-ControllerClick -X 680 -Y 102
+	Invoke-ControllerClick -X 587 -Y 102
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'preset-off-again.png')
 
@@ -304,7 +312,7 @@ try {
 	Save-SimulatorWindow (Join-Path $outputDirectory 'detail-restored.png')
 
 	Invoke-ControllerClick -X 50 -Y 32
-	Invoke-ControllerClick -X 860 -Y 102
+	Invoke-ControllerClick -X 827 -Y 102
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'save-as.png')
 
@@ -322,7 +330,7 @@ try {
 	if (Test-Path -LiteralPath $createdPresetPath) {
 		throw "Deleted preset was recreated after ReShade flushed its preset cache: $createdPresetPath"
 	}
-	Invoke-ControllerClick -X 680 -Y 102
+	Invoke-ControllerClick -X 587 -Y 102
 	Wait-ForFrame ((Get-FrameCount) + 10)
 	if (Test-Path -LiteralPath $createdPresetPath) {
 		throw "Deleted preset reappeared after backward preset navigation: $createdPresetPath"

@@ -1439,9 +1439,6 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 
 	update_head_pose(*state, frame_end_info->displayTime);
 	update_interaction(*state, frame_end_info->displayTime);
-	// A hidden panel reopens in front of the current view.
-	if (!state->panel_visible)
-		state->anchor_ready = false;
 	std::vector<const XrCompositionLayerBaseHeader *> layers(frame_end_info->layers, frame_end_info->layers + frame_end_info->layerCount);
 
 	XrCompositionLayerQuad quad = { XR_TYPE_COMPOSITION_LAYER_QUAD };
