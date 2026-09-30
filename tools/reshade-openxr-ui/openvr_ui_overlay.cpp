@@ -8,6 +8,7 @@
 
 #include <Windows.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -17,6 +18,21 @@ namespace
 	bool s_favourites_only = false;
 	bool s_open_logged = false;
 	char s_save_as_name[128] = {};
+
+	template <typename T>
+	T *get_openvr_interface(const char *version)
+	{
+		const HMODULE openvr_module = GetModuleHandleW(L"openvr_api.dll");
+		if (openvr_module == nullptr)
+			return nullptr;
+		const auto get_interface = reinterpret_cast<void *(VR_CALLTYPE *)(const char *, vr::EVRInitError *)>(
+			GetProcAddress(openvr_module, "VR_GetGenericInterface"));
+		if (get_interface == nullptr)
+			return nullptr;
+		vr::EVRInitError error = vr::VRInitError_None;
+		T *const result = static_cast<T *>(get_interface(version, &error));
+		return error == vr::VRInitError_None ? result : nullptr;
+	}
 
 	void draw_parameter_controls(const openxr_ui::technique_snapshot &snapshot, const openxr_ui::technique &technique)
 	{
@@ -104,6 +120,23 @@ namespace
 		openxr_ui::format_frame_graph_label(statistics, graph_label);
 		ImGui::SameLine();
 		ImGui::TextDisabled("(graph: %s)", graph_label);
+		char cpu_label[48];
+		openxr_ui::format_cpu_label(statistics, cpu_label);
+		ImGui::TextUnformatted(cpu_label);
+		// The size changes only with SteamVR's resolution setting, so ask about every five seconds instead of every draw.
+		static uint32_t s_eye_width = 0;
+		static uint32_t s_eye_height = 0;
+		static uint32_t s_resolution_query_frame = 0;
+		if (s_resolution_query_frame++ % 450 == 0)
+		{
+			if (vr::IVRSystem *const system = get_openvr_interface<vr::IVRSystem>(vr::IVRSystem_Version))
+				system->GetRecommendedRenderTargetSize(&s_eye_width, &s_eye_height);
+		}
+		if (s_eye_width != 0 && s_eye_height != 0)
+		{
+			ImGui::SameLine();
+			ImGui::TextDisabled("|  Headset: %ux%u per eye", s_eye_width, s_eye_height);
+		}
 		openxr_ui::draw_frame_graph(statistics, { ImGui::GetContentRegionAvail().x, 90.0f });
 		ImGui::TextUnformatted("FPS target:");
 		for (uint32_t divisor = 1; divisor <= openxr_ui::max_frame_rate_divisor; ++divisor)
@@ -218,16 +251,8 @@ void openvr_ui_unregister_overlay()
 
 bool openvr_ui_show_dashboard()
 {
-	const HMODULE openvr_module = GetModuleHandleW(L"openvr_api.dll");
-	if (openvr_module == nullptr)
-		return false;
-	const auto get_interface = reinterpret_cast<void *(VR_CALLTYPE *)(const char *, vr::EVRInitError *)>(
-		GetProcAddress(openvr_module, "VR_GetGenericInterface"));
-	if (get_interface == nullptr)
-		return false;
-	vr::EVRInitError error = vr::VRInitError_None;
-	auto *const overlay = static_cast<vr::IVROverlay *>(get_interface(vr::IVROverlay_Version, &error));
-	if (overlay == nullptr || error != vr::VRInitError_None)
+	vr::IVROverlay *const overlay = get_openvr_interface<vr::IVROverlay>(vr::IVROverlay_Version);
+	if (overlay == nullptr)
 		return false;
 	overlay->ShowDashboard("reshade");
 	return true;
@@ -235,18 +260,33 @@ bool openvr_ui_show_dashboard()
 
 float openvr_ui_get_display_frequency()
 {
-	const HMODULE openvr_module = GetModuleHandleW(L"openvr_api.dll");
-	if (openvr_module == nullptr)
-		return 0.0f;
-	const auto get_interface = reinterpret_cast<void *(VR_CALLTYPE *)(const char *, vr::EVRInitError *)>(
-		GetProcAddress(openvr_module, "VR_GetGenericInterface"));
-	if (get_interface == nullptr)
-		return 0.0f;
-	vr::EVRInitError error = vr::VRInitError_None;
-	auto *const system = static_cast<vr::IVRSystem *>(get_interface(vr::IVRSystem_Version, &error));
-	if (system == nullptr || error != vr::VRInitError_None)
+	vr::IVRSystem *const system = get_openvr_interface<vr::IVRSystem>(vr::IVRSystem_Version);
+	if (system == nullptr)
 		return 0.0f;
 	vr::ETrackedPropertyError property_error = vr::TrackedProp_Success;
 	const float frequency = system->GetFloatTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_DisplayFrequency_Float, &property_error);
 	return property_error == vr::TrackedProp_Success ? frequency : 0.0f;
+}
+
+float openvr_ui_get_cpu_ms()
+{
+	vr::IVRCompositor *const compositor = get_openvr_interface<vr::IVRCompositor>(vr::IVRCompositor_Version);
+	if (compositor == nullptr)
+		return -1.0f;
+	vr::Compositor_FrameTiming timings[45] = {};
+	timings[0].m_nSize = sizeof(vr::Compositor_FrameTiming);
+	const uint32_t count = compositor->GetFrameTimings(timings, 45);
+	float total_ms = 0.0f;
+	uint32_t frames = 0;
+	// The newest entry may still be in progress.
+	for (uint32_t index = 0; index + 1 < count && index < 45; ++index)
+	{
+		const vr::Compositor_FrameTiming &timing = timings[index];
+		if (timing.m_flClientFrameIntervalMs <= 0.0f)
+			continue;
+		const float wait_ms = (std::max)(0.0f, timing.m_flNewPosesReadyMs - timing.m_flWaitGetPosesCalledMs);
+		total_ms += (std::max)(0.0f, timing.m_flClientFrameIntervalMs - wait_ms);
+		++frames;
+	}
+	return frames != 0 ? total_ms / static_cast<float>(frames) : -1.0f;
 }

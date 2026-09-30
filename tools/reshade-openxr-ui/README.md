@@ -98,7 +98,8 @@ For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingV
 - Distinct diagnostics for a missing OpenXR effect runtime and an empty technique inventory
 - Compact and expanded panel layouts
 - Temporary disable and restore for all techniques
-- FPS counter with a 5-second frame-time graph and a full/half/third-rate FPS target
+- FPS counter with CPU time, a 5-second frame-time graph and a full/half/third-rate FPS target
+- Headset per-eye resolution shown next to the graphics API
 - Persistent UI preferences under `%LOCALAPPDATA%\ReShade VR UI Add-on`
 
 The project has these main implementation boundaries:

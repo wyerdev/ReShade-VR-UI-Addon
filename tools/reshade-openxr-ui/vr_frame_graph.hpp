@@ -19,6 +19,15 @@ namespace openxr_ui
 			std::snprintf(label, sizeof(label), "%.0f s, %.0f Hz%s", frame_graph_seconds, statistics.refresh_hz, unreported);
 	}
 
+	// For example "CPU 6.2 of 11.1 ms", where 11.1 ms is the time one frame may take at the FPS target.
+	inline void format_cpu_label(const frame_statistics &statistics, char (&label)[48])
+	{
+		if (statistics.revision == 0 || !statistics.cpu_reported)
+			std::snprintf(label, sizeof(label), "CPU -- ms");
+		else
+			std::snprintf(label, sizeof(label), "CPU %.1f of %.1f ms", statistics.cpu_ms, 1000.0f / statistics.target_hz());
+	}
+
 	// Bars show frame times, newest on the right. Horizontal guides mark one, two and three target frame times;
 	// vertical guides mark each second.
 	inline void draw_frame_graph(const frame_statistics &statistics, ImVec2 size)

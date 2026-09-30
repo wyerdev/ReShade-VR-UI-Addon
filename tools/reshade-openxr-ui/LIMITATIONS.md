@@ -15,6 +15,10 @@
   (reprojection, motion smoothing).
 - The FPS counter does not notice when the headset software runs the game at
   half rate. Pick **FPS target** yourself so the graph colours match.
+- The **CPU** line is the frame time minus the time the game spent waiting
+  for the headset software. It is not graphics card (GPU) time. If the game
+  waits for the graphics card inside its own work, that wait counts as CPU.
+  Low CPU with missed frames usually means the graphics card is the limit.
 
 ## SteamVR (OpenVR) Games
 

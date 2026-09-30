@@ -26,6 +26,9 @@ namespace openxr_ui
 	{
 		float average_fps = 0.0f;
 		float frame_time_ms = 0.0f;
+		// Frame time minus the time the game waited for the headset; only valid when cpu_reported.
+		float cpu_ms = 0.0f;
+		bool cpu_reported = false;
 		float refresh_hz = default_refresh_hz;
 		bool refresh_hz_reported = false;
 		uint32_t frame_rate_divisor = 1;
@@ -46,7 +49,8 @@ namespace openxr_ui
 		// A longer gap is a pause such as a loading screen or a removed headset, not a frame.
 		static constexpr double pause_seconds = 1.0;
 
-		void add_frame(std::chrono::steady_clock::time_point now)
+		// waited_seconds is how long the game was held back by the headset during this frame; negative when unknown.
+		void add_frame(std::chrono::steady_clock::time_point now, double waited_seconds = -1.0)
 		{
 			const bool has_previous = _has_previous_frame;
 			const std::chrono::duration<double> elapsed = now - _previous_frame;
@@ -62,15 +66,27 @@ namespace openxr_ui
 
 			++_interval_frames;
 			_interval_total += frame_seconds;
+			if (waited_seconds >= 0.0)
+			{
+				++_interval_cpu_frames;
+				_interval_cpu_total += (std::max)(0.0, frame_seconds - waited_seconds);
+			}
 			if (_interval_total < update_seconds)
 				return;
 
 			_statistics.average_fps = static_cast<float>(_interval_frames / _interval_total);
 			_statistics.frame_time_ms = static_cast<float>(_interval_total * 1000.0 / _interval_frames);
+			if (_interval_cpu_frames != 0)
+			{
+				_statistics.cpu_reported = true;
+				_statistics.cpu_ms = static_cast<float>(_interval_cpu_total * 1000.0 / _interval_cpu_frames);
+			}
 			update_graph(now);
 			++_statistics.revision;
 			_interval_frames = 0;
 			_interval_total = 0.0;
+			_interval_cpu_frames = 0;
+			_interval_cpu_total = 0.0;
 		}
 
 		const frame_statistics &statistics() const
@@ -91,6 +107,15 @@ namespace openxr_ui
 		{
 			if (divisor >= 1 && divisor <= max_frame_rate_divisor)
 				_statistics.frame_rate_divisor = divisor;
+		}
+
+		// For runtimes that report CPU time themselves (SteamVR); negative values are ignored.
+		void set_cpu_ms(float milliseconds)
+		{
+			if (milliseconds < 0.0f)
+				return;
+			_statistics.cpu_ms = milliseconds;
+			_statistics.cpu_reported = true;
 		}
 
 	private:
@@ -132,6 +157,8 @@ namespace openxr_ui
 		std::deque<recorded_frame> _frame_times;
 		uint32_t _interval_frames = 0;
 		double _interval_total = 0.0;
+		uint32_t _interval_cpu_frames = 0;
+		double _interval_cpu_total = 0.0;
 		frame_statistics _statistics;
 	};
 }

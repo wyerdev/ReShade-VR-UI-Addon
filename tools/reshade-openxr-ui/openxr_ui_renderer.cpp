@@ -433,8 +433,13 @@ namespace openxr_ui
 	render_result panel_renderer::render_ui(const technique_snapshot &snapshot, const render_input &input)
 	{
 		render_result result;
-		const char *const graphics_api_label = _implementation->api == implementation::graphics_api::d3d11 ? "DX11" :
+		const char *const graphics_api_name = _implementation->api == implementation::graphics_api::d3d11 ? "DX11" :
 			_implementation->api == implementation::graphics_api::d3d12 ? "DX12" : "Unknown";
+		char graphics_api_label[48];
+		if (input.eye_width != 0 && input.eye_height != 0)
+			std::snprintf(graphics_api_label, sizeof(graphics_api_label), "%s, %ux%u per eye", graphics_api_name, input.eye_width, input.eye_height);
+		else
+			std::snprintf(graphics_api_label, sizeof(graphics_api_label), "%s", graphics_api_name);
 		ImGuiIO &io = ImGui::GetIO();
 		const float display_height = input.expanded ? static_cast<float>(expanded_panel_height) : static_cast<float>(compact_panel_height);
 		io.DisplaySize = { static_cast<float>(_implementation->width), display_height };
@@ -580,8 +585,8 @@ namespace openxr_ui
 				_implementation->joystick_scroll_direction = 0;
 				_implementation->joystick_scroll_frame_count = 0;
 			}
-			char page_text[64];
-			std::snprintf(page_text, sizeof(page_text), "%zu shown  |  Graphics: %s", displayed_techniques.size(), graphics_api_label);
+			char page_text[96];
+			std::snprintf(page_text, sizeof(page_text), "%zu shown  |  %s", displayed_techniques.size(), graphics_api_label);
 			const ImVec2 header_origin = ImGui::GetCursorScreenPos();
 			ImGui::TextUnformatted("ReShade Techniques");
 			ImGui::SameLine();
@@ -1196,6 +1201,9 @@ namespace openxr_ui
 		openxr_ui::format_frame_graph_label(statistics, graph_label);
 		ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(graph_label).x);
 		ImGui::TextDisabled("%s", graph_label);
+		char cpu_label[48];
+		openxr_ui::format_cpu_label(statistics, cpu_label);
+		ImGui::TextUnformatted(cpu_label);
 		openxr_ui::draw_frame_graph(statistics, ImGui::GetContentRegionAvail());
 		ImGui::End();
 		ImGui::Render();

@@ -27,6 +27,18 @@ if not exist "%CENTRAL_APPS%" goto :missing_reshade
 fltmc >nul 2>&1
 if errorlevel 1 goto :administrator_required
 
+set "INSTALL_LOADER_CHOICE=0"
+if defined RESHADE_OPENXR_UI_NONINTERACTIVE (
+	if defined RESHADE_OPENXR_UI_INSTALL_LOADER set "INSTALL_LOADER_CHOICE=1"
+	goto :prepare_install
+)
+echo Optional: the automatic SteamVR loader starts with Windows and adds ReShade
+echo and this add-on to SteamVR games that have OpenXR enabled in ReShade Setup.
+echo Without it, copy ReShade-SteamVR-UI.addon64 into each SteamVR game's folder.
+choice /C YN /N /M "Install the automatic SteamVR loader? [Y/N] "
+if errorlevel 2 goto :prepare_install
+set "INSTALL_LOADER_CHOICE=1"
+
 :prepare_install
 set "LAYER_STATE=0"
 reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /t REG_DWORD /reg:64 2>nul | findstr /R /C:"REG_DWORD *0x1" >nul
@@ -50,14 +62,6 @@ set "FAILURE_STEP=copying the OpenXR add-on"
 set "FAILURE_PATH=%INSTALL_ADDON%"
 copy /Y "%SOURCE_ADDON%" "%INSTALL_ADDON%"
 if errorlevel 1 goto :failed
-set "FAILURE_STEP=copying the SteamVR add-on"
-set "FAILURE_PATH=%INSTALL_STEAMVR_ADDON%"
-copy /Y "%SOURCE_STEAMVR_ADDON%" "%INSTALL_STEAMVR_ADDON%"
-if errorlevel 1 goto :failed
-set "FAILURE_STEP=copying the loader"
-set "FAILURE_PATH=%INSTALL_LOADER%"
-copy /Y "%SOURCE_LOADER%" "%INSTALL_LOADER%"
-if errorlevel 1 goto :failed
 set "FAILURE_STEP=copying the OpenXR layer manifest"
 set "FAILURE_PATH=%INSTALL_MANIFEST%"
 copy /Y "%SOURCE_MANIFEST%" "%INSTALL_MANIFEST%"
@@ -69,6 +73,36 @@ reg add "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /t REG_DWORD /d %LAYER_STATE% /
 if errorlevel 1 goto :failed
 set "FAILURE_STEP=verifying the OpenXR API-layer registration"
 reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /t REG_DWORD /reg:64 >nul 2>&1
+if errorlevel 1 goto :failed
+
+if "%INSTALL_LOADER_CHOICE%"=="1" goto :install_loader
+set "FAILURE_STEP=removing loader startup"
+set "FAILURE_PATH=%INSTALL_LOADER%"
+reg delete "%RUN_KEY%" /v "%RUN_VALUE%" /f >nul 2>&1
+reg query "%RUN_KEY%" /v "%RUN_VALUE%" >nul 2>&1
+if not errorlevel 1 goto :failed
+set "FAILURE_STEP=removing the loader"
+del /F /Q "%INSTALL_LOADER%" >nul 2>&1
+if exist "%INSTALL_LOADER%" goto :failed
+set "FAILURE_STEP=removing the installed SteamVR add-on"
+set "FAILURE_PATH=%INSTALL_STEAMVR_ADDON%"
+del /F /Q "%INSTALL_STEAMVR_ADDON%" >nul 2>&1
+if exist "%INSTALL_STEAMVR_ADDON%" goto :failed
+
+echo ReShade VR UI Add-on installed successfully without the automatic SteamVR loader.
+echo It will start automatically in compatible ReShade OpenXR games.
+echo For SteamVR games, copy ReShade-SteamVR-UI.addon64 into each game's folder.
+if not defined RESHADE_OPENXR_UI_NONINTERACTIVE pause
+exit /b 0
+
+:install_loader
+set "FAILURE_STEP=copying the SteamVR add-on"
+set "FAILURE_PATH=%INSTALL_STEAMVR_ADDON%"
+copy /Y "%SOURCE_STEAMVR_ADDON%" "%INSTALL_STEAMVR_ADDON%"
+if errorlevel 1 goto :failed
+set "FAILURE_STEP=copying the loader"
+set "FAILURE_PATH=%INSTALL_LOADER%"
+copy /Y "%SOURCE_LOADER%" "%INSTALL_LOADER%"
 if errorlevel 1 goto :failed
 
 set "FAILURE_STEP=registering loader startup"

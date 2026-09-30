@@ -43,6 +43,9 @@ namespace openxr_ui
 		bool always_show_statistics = false;
 		uint32_t frame_rate_divisor = 1;
 		bool panel_locked = false;
+		// Per-eye resolution the headset asks for; zero when unknown.
+		uint32_t eye_width = 0;
+		uint32_t eye_height = 0;
 	};
 
 	struct render_result

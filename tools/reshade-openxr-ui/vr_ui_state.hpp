@@ -52,4 +52,6 @@ void openvr_ui_unregister_overlay();
 bool openvr_ui_show_dashboard();
 // Zero when SteamVR does not report the headset refresh rate.
 float openvr_ui_get_display_frequency();
+// Average CPU time over SteamVR's recent frame timings; negative when unavailable. Call rarely; it asks SteamVR.
+float openvr_ui_get_cpu_ms();
 openxr_ui::frame_statistics openvr_ui_get_frame_statistics();

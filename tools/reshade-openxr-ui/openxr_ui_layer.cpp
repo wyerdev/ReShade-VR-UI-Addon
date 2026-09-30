@@ -17,8 +17,10 @@
 #include "vr_ui_state.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -98,6 +100,7 @@ namespace
 		PFN_xrGetActionStateVector2f GetActionStateVector2f = nullptr;
 		PFN_xrWaitFrame WaitFrame = nullptr;
 		PFN_xrEndFrame EndFrame = nullptr;
+		PFN_xrEnumerateViewConfigurationViews EnumerateViewConfigurationViews = nullptr;
 		XrInstance instance = XR_NULL_HANDLE;
 		XrActionSet action_set = XR_NULL_HANDLE;
 		XrAction aim_action = XR_NULL_HANDLE;
@@ -159,6 +162,10 @@ namespace
 		quad_target panel;
 		quad_target statistics;
 		openxr_ui::frame_statistics_tracker frame_timing;
+		// Time spent inside the runtime's xrWaitFrame and xrEndFrame since the last xrEndFrame; lock-free because the calls may come from different threads.
+		std::atomic<int64_t> waited_nanoseconds = 0;
+		uint32_t eye_width = 0;
+		uint32_t eye_height = 0;
 		bool always_show_statistics = false;
 		bool statistics_image_ready = false;
 		uint64_t statistics_image_revision = 0;
@@ -247,7 +254,8 @@ namespace
 			load_proc(get_instance_proc, instance, "xrGetActionStateBoolean", dispatch.GetActionStateBoolean) &&
 			load_proc(get_instance_proc, instance, "xrGetActionStateVector2f", dispatch.GetActionStateVector2f) &&
 			load_proc(get_instance_proc, instance, "xrWaitFrame", dispatch.WaitFrame) &&
-			load_proc(get_instance_proc, instance, "xrEndFrame", dispatch.EndFrame);
+			load_proc(get_instance_proc, instance, "xrEndFrame", dispatch.EndFrame) &&
+			load_proc(get_instance_proc, instance, "xrEnumerateViewConfigurationViews", dispatch.EnumerateViewConfigurationViews);
 	}
 
 	std::shared_ptr<instance_dispatch> find_instance(XrInstance instance)
@@ -285,6 +293,34 @@ namespace
 			if (entry->type == XR_TYPE_GRAPHICS_BINDING_D3D12_KHR)
 				return reinterpret_cast<const XrGraphicsBindingD3D12KHR *>(entry);
 		return nullptr;
+	}
+
+	// Time inside the runtime's frame calls is time the headset software held the game back, not the game's own work.
+	template <typename Call>
+	XrResult time_runtime_call(session_state &state, Call call)
+	{
+		const auto start = std::chrono::steady_clock::now();
+		const XrResult result = call();
+		state.waited_nanoseconds.fetch_add(
+			std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count(), std::memory_order_relaxed);
+		return result;
+	}
+
+	void read_eye_resolution(session_state &state, XrSystemId system)
+	{
+		XrViewConfigurationView views[2] = { { XR_TYPE_VIEW_CONFIGURATION_VIEW }, { XR_TYPE_VIEW_CONFIGURATION_VIEW } };
+		uint32_t view_count = 0;
+		if (XR_FAILED(state.dispatch->EnumerateViewConfigurationViews(state.instance, system, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+			2, &view_count, views)) || view_count == 0)
+		{
+			openxr_ui_log_message("headset resolution unavailable: xrEnumerateViewConfigurationViews failed.", true);
+			return;
+		}
+		state.eye_width = views[0].recommendedImageRectWidth;
+		state.eye_height = views[0].recommendedImageRectHeight;
+		char message[96];
+		std::snprintf(message, sizeof(message), "headset resolution: %ux%u per eye.", state.eye_width, state.eye_height);
+		openxr_ui_log_message(message);
 	}
 
 	bool string_to_path(instance_dispatch &dispatch, const char *path_string, XrPath &path)
@@ -653,6 +689,8 @@ namespace
 				state.always_show_statistics,
 				state.frame_timing.statistics().frame_rate_divisor,
 				state.panel_locked,
+				state.eye_width,
+				state.eye_height,
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
@@ -1238,6 +1276,8 @@ extern "C" XrResult XRAPI_CALL xrCreateSession(XrInstance instance, const XrSess
 	state->always_show_statistics = openxr_ui_get_always_show_statistics();
 	state->frame_timing.set_frame_rate_divisor(openxr_ui_get_frame_rate_divisor());
 	state->panel_visible = state->ui_starts_open;
+	if (create_info != nullptr)
+		read_eye_resolution(*state, create_info->systemId);
 	if (state->dispatch->actions_ready)
 		initialize_quad(*state, create_info);
 	{
@@ -1411,7 +1451,7 @@ extern "C" XrResult XRAPI_CALL xrWaitFrame(XrSession session, const XrFrameWaitI
 	session_state *const state = find_session(session);
 	if (state == nullptr)
 		return XR_ERROR_HANDLE_INVALID;
-	const XrResult result = state->dispatch->WaitFrame(session, wait_info, frame_state);
+	const XrResult result = time_runtime_call(*state, [&] { return state->dispatch->WaitFrame(session, wait_info, frame_state); });
 	if (XR_SUCCEEDED(result) && frame_state != nullptr)
 	{
 		state->should_render = frame_state->shouldRender == XR_TRUE;
@@ -1426,7 +1466,8 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 	session_state *const state = find_session(session);
 	if (state == nullptr)
 		return XR_ERROR_HANDLE_INVALID;
-	state->frame_timing.add_frame(std::chrono::steady_clock::now());
+	state->frame_timing.add_frame(std::chrono::steady_clock::now(),
+		static_cast<double>(state->waited_nanoseconds.exchange(0, std::memory_order_relaxed)) * 1e-9);
 	const int preset_operation_result = openxr_ui_update_preset_operations();
 	if (preset_operation_result != 0 && state->panel.renderer != nullptr)
 		state->panel.renderer->notify_save_as_result(preset_operation_result > 0);
@@ -1435,7 +1476,7 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 	if (frame_end_info != nullptr && state->should_render)
 		record_effect_layout(*state, *frame_end_info);
 	if (frame_end_info == nullptr || !state->quad_ready || !state->should_render)
-		return state->dispatch->EndFrame(session, frame_end_info);
+		return time_runtime_call(*state, [&] { return state->dispatch->EndFrame(session, frame_end_info); });
 
 	update_head_pose(*state, frame_end_info->displayTime);
 	update_interaction(*state, frame_end_info->displayTime);
@@ -1482,11 +1523,11 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 	}
 
 	if (layers.size() == frame_end_info->layerCount)
-		return state->dispatch->EndFrame(session, frame_end_info);
+		return time_runtime_call(*state, [&] { return state->dispatch->EndFrame(session, frame_end_info); });
 	XrFrameEndInfo combined_info = *frame_end_info;
 	combined_info.layerCount = static_cast<uint32_t>(layers.size());
 	combined_info.layers = layers.data();
-	return state->dispatch->EndFrame(session, &combined_info);
+	return time_runtime_call(*state, [&] { return state->dispatch->EndFrame(session, &combined_info); });
 }
 
 extern "C" XrResult XRAPI_CALL xrCreateApiLayerInstance(const XrInstanceCreateInfo *create_info, const XrApiLayerCreateInfo *layer_info, XrInstance *instance)

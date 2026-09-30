@@ -594,6 +594,21 @@ int main()
 		return 1;
 	}
 
+	openxr_ui::frame_statistics_tracker cpu_tracker;
+	std::chrono::steady_clock::time_point cpu_frame_time;
+	for (int index = 0; index <= 100; ++index)
+	{
+		cpu_frame_time += std::chrono::milliseconds(10);
+		cpu_tracker.add_frame(cpu_frame_time, 0.004);
+	}
+	const openxr_ui::frame_statistics cpu_statistics = cpu_tracker.statistics();
+	if (statistics.cpu_reported || !cpu_statistics.cpu_reported || std::abs(cpu_statistics.cpu_ms - 6.0f) > 0.1f)
+	{
+		std::fprintf(stderr, "CPU time was %.2f ms (reported %d); frames without a wait time reported %d.\n",
+			cpu_statistics.cpu_ms, cpu_statistics.cpu_reported, statistics.cpu_reported);
+		return 1;
+	}
+
 	texture_desc.Width = openxr_ui::statistics_width;
 	texture_desc.Height = openxr_ui::statistics_height;
 	ComPtr<ID3D11Texture2D> statistics_texture;
@@ -608,6 +623,7 @@ int main()
 	}
 	statistics_renderer.render_statistics(statistics_target.Get(), openxr_ui::frame_statistics());
 	statistics_renderer.render_statistics(statistics_target.Get(), statistics);
+	statistics_renderer.render_statistics(statistics_target.Get(), cpu_statistics);
 
 	std::puts("Private ImGui named preset save/delete controls, sorting, shader hiding, global favourites, close control, full-row toggles, drag scrolling, sliders, expansion, parameter controls, and the FPS counter passed.");
 	return 0;

@@ -673,13 +673,16 @@ namespace
 #ifdef RESHADE_OPENVR_FRONTEND
 		bool show_dashboard = false;
 		bool query_refresh_rate = false;
+		bool query_cpu_time = false;
 		{
 			const std::lock_guard<std::mutex> lock(s_mutex);
 			if (runtime == s_effect_runtime)
 			{
 				s_openvr_frame_timing.add_frame(std::chrono::steady_clock::now());
-				// The headset rate rarely changes, so ask SteamVR about every five seconds instead of every frame.
-				query_refresh_rate = s_openvr_refresh_query_frame++ % 450 == 0;
+				// SteamVR calls can be slow, so ask about every five seconds for the rate and twice a second for CPU time.
+				query_refresh_rate = s_openvr_refresh_query_frame % 450 == 0;
+				query_cpu_time = s_openvr_refresh_query_frame % 45 == 0;
+				++s_openvr_refresh_query_frame;
 			}
 			show_dashboard = runtime == s_effect_runtime && s_openvr_dashboard_pending && !s_techniques->techniques.empty();
 			if (show_dashboard)
@@ -690,6 +693,12 @@ namespace
 			const float refresh_hz = openvr_ui_get_display_frequency();
 			const std::lock_guard<std::mutex> lock(s_mutex);
 			s_openvr_frame_timing.set_refresh_hz(refresh_hz);
+		}
+		if (query_cpu_time)
+		{
+			const float cpu_ms = openvr_ui_get_cpu_ms();
+			const std::lock_guard<std::mutex> lock(s_mutex);
+			s_openvr_frame_timing.set_cpu_ms(cpu_ms);
 		}
 		if (show_dashboard)
 		{
