@@ -176,9 +176,29 @@ namespace
 		ImGui::SameLine();
 		ImGui::Checkbox("Starred only", &s_favourites_only);
 
+		const bool performance_restart_pending = openxr_ui_performance_mode_restart_pending();
+		const bool depth_restart_pending = openxr_ui_depth_detection_restart_pending();
 		bool performance_mode = openxr_ui_get_performance_mode();
-		if (ImGui::Checkbox("Performance mode next start", &performance_mode))
+		if (ImGui::Checkbox("Performance mode (on = faster shaders)", &performance_mode))
 			openxr_ui_set_performance_mode(performance_mode);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("%sOn: ReShade builds the effects with their current settings fixed, so they run faster.\n"
+				"How much this helps depends on how many and how heavy the shaders you use are.\n"
+				"Shader settings can then not be changed. Applies after a game restart.",
+				performance_restart_pending ? "Restart the game to apply your change.\n\n" : "");
+		ImGui::SameLine();
+		bool depth_buffer = !openxr_ui_is_depth_detection_disabled();
+		if (ImGui::Checkbox("Depth buffer (off = faster in OpenGL)", &depth_buffer))
+			openxr_ui_set_depth_detection_disabled(!depth_buffer);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("%sOn: shaders that need depth (MXAO, depth of field, depth fog) work (ReShade's Generic Depth).\n"
+				"Off: those shaders stop working. In DirectX games ReShade costs only a few FPS in total,\n"
+				"so turning this off makes little difference there. Applies after a game restart.",
+				depth_restart_pending ? "Restart the game to apply your change.\n\n" : "");
+		if (performance_restart_pending || depth_restart_pending)
+			ImGui::TextColored({ 1.0f, 0.8f, 0.28f, 1.0f }, "Restart the game to apply your change.");
+		else
+			ImGui::TextDisabled("These two apply after a game restart.");
 
 		ImGui::Separator();
 		if (snapshot->techniques.empty())

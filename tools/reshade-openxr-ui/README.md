@@ -51,7 +51,7 @@ Data `0` means the layer is enabled. When a 64-bit OpenXR application starts:
 3. The manifest resolves `..\ReShade-OpenXR-UI.addon64` relative to its `openxr-layers` directory.
 4. The loader loads the DLL as an OpenXR API layer.
 5. The DLL checks whether official ReShade with full add-on support is loaded.
-6. If ReShade accepts `reshade::register_addon`, the add-on initializes its controller actions, D3D11 or D3D12 UI swapchain, and headset quad.
+6. If ReShade accepts `reshade::register_addon`, the add-on initializes its controller actions, D3D11, D3D12 or OpenGL UI swapchain, and headset quad.
 7. Without ReShade, the layer remains inert and forwards OpenXR normally. Pimax Home therefore does not display the UI.
 
 `Install.cmd` also creates a current-user startup entry for `ReShade-VR-Loader.exe`. The loader reads `C:\ProgramData\ReShade\ReShadeApps.ini`, which official ReShade Setup maintains when OpenXR is enabled, and waits for each allowlisted 64-bit process to select its VR API. If `openxr_loader.dll` appears, the loader leaves activation entirely to the registered OpenXR layers. If `openvr_api.dll` appears, it loads the exact central `ReShade64.dll` and then `ReShade-SteamVR-UI.addon64`. This requires no game-local proxy or add-on and prevents the SteamVR path from creating an extra desktop runtime in a native OpenXR launch.
@@ -61,7 +61,7 @@ The DLL has two simultaneous roles:
 - **OpenXR API layer:** creates and submits the headset-visible UI.
 - **ReShade add-on:** reads and changes techniques, parameters, ordering, and presets through ReShade's public API.
 
-Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. The loader deliberately reuses official ReShade's central application allowlist rather than maintaining another list. Install this package once as administrator and it becomes available to compatible 64-bit D3D11 and D3D12 OpenXR or OpenVR games enabled through official ReShade.
+Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. The loader deliberately reuses official ReShade's central application allowlist rather than maintaining another list. Install this package once as administrator and it becomes available to compatible 64-bit D3D11, D3D12 and OpenGL OpenXR games and D3D11 and D3D12 OpenVR games enabled through official ReShade.
 
 Run the packaged installer as administrator from the repository root after closing running OpenXR applications:
 
@@ -73,20 +73,22 @@ Run the packaged installer as administrator from the repository root after closi
 
 - Windows x64
 - 64-bit OpenXR or OpenVR applications
-- Direct3D 11 or Direct3D 12 renderer
+- Direct3D 11, Direct3D 12 or OpenGL renderer (OpenGL for OpenXR games)
 - Unreal games run through UEVR in OpenXR mode (the add-on creates its own effect runtime; no depth effects)
 - Oculus Touch-compatible controllers
 - Khronos simple-controller profile as a limited fallback
 
-Vulkan and OpenGL application sessions are not currently supported. SteamVR/OpenVR is supported for 64-bit D3D11 and D3D12 games through the packaged `ReShade-SteamVR-UI.addon64` companion.
+Vulkan application sessions are not currently supported. SteamVR/OpenVR is supported for 64-bit D3D11 and D3D12 games through the packaged `ReShade-SteamVR-UI.addon64` companion.
+
+OpenGL OpenXR sessions (tested with SOMA-VR) need one extra step. ReShade is loaded by its OpenXR layer only when the game starts OpenXR, after the game has made its OpenGL context current, so ReShade has never seen that context and would skip the headset session. During `xrCreateSession`, and only when the session's context is current on the calling thread, this layer releases and re-binds that context through ReShade's hooked `wglMakeCurrent`. ReShade's layer sits above this one and inspects the session after this layer returns, so it then registers the context and runs its normal OpenXR OpenGL path. The panel is drawn with Dear ImGui's OpenGL 3 backend in the game's context; OpenGL is resolved at run time, so the add-on has no `opengl32.dll` import. See `OPENGL_SUPPORT.md` for findings and performance notes, including ReShade's Generic Depth cost.
 
 SteamVR itself is not the compatibility boundary. The OpenXR frontend works when an application uses OpenXR and SteamVR is the active OpenXR runtime. An OpenVR application never loads the OpenXR API-layer chain, so the central loader recognizes `openvr_api.dll`, starts ReShade, and loads the companion. ReShade's existing SteamVR dashboard owns compositor texture submission and controller-to-mouse input; the companion registers its focused controls as the settings panel of **ReShade VR UI Add-on for SteamVR** on ReShade's **Add-ons** page. This avoids clipping in ReShade's fixed-width VR tab row. Once a non-empty VR effect inventory is available, the companion asks SteamVR to show the existing `reshade` dashboard overlay so launches made while SteamVR is already running do not depend on dashboard tile refresh.
 
-The companion disables ReShade's built-in Effect Runtime Sync for OpenVR-only processes before its first runtime initializes. The dashboard callback already receives the headset runtime directly, while synchronizing its changes through the simultaneous desktop runtime can recursively re-enter preset and uniform propagation. This setting is written to the enabled game's `ReShade.ini`. Native OpenXR processes retain their existing synchronization behavior.
+The companion disables ReShade's built-in Effect Runtime Sync for OpenVR-only processes before its first runtime initializes. The dashboard callback already receives the headset runtime directly, while synchronizing its changes through the simultaneous desktop runtime can recursively re-enter preset and uniform propagation. This setting is written to the enabled game's `ReShade.ini`. Native OpenXR processes retain their existing synchronization behavior. In any VR process, while a headset effect runtime exists the add-on switches off effects on ReShade's monitor-window runtimes (the monitor image never reaches the headset) and switches them back on when the last headset runtime goes away.
 
 The companion also performs a one-time density migration for ReShade's fixed 500-pixel SteamVR dashboard. When the OpenVR effect runtime still has the default font size and an automatic `1`, `1.5`, or `2` scale, it writes `STYLE/FontSize=12` and `STYLE/FontScale=1` to `ReShadeVR.ini`. A per-runtime marker prevents later user-selected font settings from being overwritten. The portable VR configuration generator uses the same baseline.
 
-For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingVulkanKHR` and Vulkan swapchain images. The current add-on accepts `XrGraphicsBindingD3D11KHR` and `XrGraphicsBindingD3D12KHR`, owns matching graphics resources, and renders Dear ImGui through the corresponding backend. It therefore leaves a Vulkan session running but skips native-quad initialization and logs `native quad skipped: the OpenXR session is not using D3D11 or D3D12.` SteamVR acting as the OpenXR runtime does not translate Vulkan images into a Direct3D graphics binding for API layers, so changing the runtime to SteamVR does not make the UI renderer compatible. Vulkan UI support still requires a Vulkan swapchain-image path and Vulkan ImGui renderer in this add-on.
+For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingVulkanKHR` and Vulkan swapchain images. The current add-on accepts `XrGraphicsBindingD3D11KHR`, `XrGraphicsBindingD3D12KHR` and `XrGraphicsBindingOpenGLWin32KHR`, owns matching graphics resources, and renders Dear ImGui through the corresponding backend. It therefore leaves a Vulkan session running but skips native-quad initialization and logs `native quad skipped: the OpenXR session is not using D3D11, D3D12 or OpenGL.` SteamVR acting as the OpenXR runtime does not translate Vulkan images into a Direct3D graphics binding for API layers, so changing the runtime to SteamVR does not make the UI renderer compatible. Vulkan UI support still requires a Vulkan swapchain-image path and Vulkan ImGui renderer in this add-on.
 ## Features
 
 - Technique enable/disable, ordering, favourites, and hiding
@@ -94,22 +96,24 @@ For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingV
 - Per-shader Revert to the last successful preset save and Restore to the captured live state
 - Preset navigation, save, named Save As, and delete
 - Controller pointer, trigger interaction, thumbstick scrolling, and `L3 + R3` visibility control
-- Active graphics API indicator for Direct3D 11 and Direct3D 12 sessions
+- Active graphics API indicator for Direct3D 11, Direct3D 12 and OpenGL sessions
 - Distinct diagnostics for a missing OpenXR effect runtime and an empty technique inventory
 - Compact and expanded panel layouts
 - Temporary disable and restore for all techniques
+- **Performance mode (on = faster shaders)** tick box: writes ReShade's own `GENERAL/PerformanceMode` for the headset runtime, applied at the next game start
+- **Depth buffer (off = faster in OpenGL)** tick box: unticking turns ReShade's built-in Generic Depth add-on off through ReShade's own `ADDON/DisabledAddons` setting in the game's `ReShade.ini`, applied at the next game start; other disabled add-ons in that list are kept
 - FPS counter with CPU time, a 5-second frame-time graph and a full/half/third-rate FPS target
 - Headset per-eye resolution shown next to the graphics API
 - Persistent UI preferences under `%LOCALAPPDATA%\ReShade VR UI Add-on`
 
 The project has these main implementation boundaries:
 
-- `openxr_ui_layer.cpp` owns OpenXR negotiation, sessions, controller actions, D3D11/D3D12 swapchain resources, and quad submission.
+- `openxr_ui_layer.cpp` owns OpenXR negotiation, sessions, controller actions, D3D11/D3D12/OpenGL swapchain resources, and quad submission.
 - `openvr_ui_overlay.cpp` owns the focused page rendered by ReShade's existing SteamVR dashboard.
 - `steamvr_loader.cpp` watches official ReShade's central allowlist and loads the central ReShade and SteamVR UI modules into matching processes.
 - `reshade_openxr_ui_addon.cpp` owns ReShade callbacks, runtime handles, and technique and uniform adaptation.
 - `openxr_ui_preset.cpp` owns preset state comparison, navigation, saving, copying, and deletion.
-- `openxr_ui_renderer.cpp` owns the private Dear ImGui context, interaction model, and D3D11/D3D12 rendering backends.
+- `openxr_ui_renderer.cpp` owns the private Dear ImGui context, interaction model, and D3D11/D3D12/OpenGL rendering backends.
 
 ReShade is the source of truth for live technique order, enabled state, parameters, and the current preset. The add-on publishes immutable snapshots for the renderer and reconciles them from ReShade's public API after relevant events and presents.
 

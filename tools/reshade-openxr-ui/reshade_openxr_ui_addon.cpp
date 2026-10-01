@@ -24,6 +24,10 @@ namespace
 {
 	std::mutex s_mutex;
 	std::unordered_set<effect_runtime *> s_vr_runtimes;
+	std::unordered_set<effect_runtime *> s_desktop_runtimes;
+	// Monitor runtimes whose effects this add-on switched off while the headset has its own effect runtime.
+	std::unordered_set<effect_runtime *> s_paused_desktop_runtimes;
+	bool s_default_values_pending = false;
 	HMODULE s_module = nullptr;
 	bool s_addon_registered = false;
 	effect_runtime *s_effect_runtime = nullptr;
@@ -37,6 +41,11 @@ namespace
 	uint32_t s_frame_rate_divisor = 1;
 	bool s_ui_settings_loaded = false;
 	bool s_performance_mode = false;
+	bool s_performance_mode_at_start = false;
+	constexpr char generic_depth_addon_name[] = "Generic Depth";
+	bool s_depth_detection_loaded = false;
+	bool s_depth_detection_disabled = false;
+	bool s_depth_detection_disabled_at_start = false;
 	bool s_openvr_runtime_sync_disabled = false;
 	bool s_openvr_dashboard_pending = false;
 	bool s_shaders_temporarily_disabled = false;
@@ -341,7 +350,18 @@ namespace
 			s_openvr_dashboard_pending = true;
 			log_runtime_message(reshade::log::level::info, "disabled cross-runtime synchronization for OpenVR to prevent recursive preset and uniform propagation.");
 		}
-		if ((!openxr_loaded && !openvr_loaded) || runtime->get_hwnd() != nullptr)
+		if (runtime->get_hwnd() != nullptr)
+		{
+			const std::lock_guard<std::mutex> lock(s_mutex);
+			s_desktop_runtimes.insert(runtime);
+			if (!s_vr_runtimes.empty() && runtime->get_effects_state())
+			{
+				runtime->set_effects_state(false);
+				s_paused_desktop_runtimes.insert(runtime);
+			}
+			return;
+		}
+		if (!openxr_loaded && !openvr_loaded)
 			return;
 
 #ifdef RESHADE_OPENVR_FRONTEND
@@ -353,23 +373,43 @@ namespace
 		uint32_t height = 0;
 		runtime->get_screenshot_width_and_height(&width, &height);
 
+		size_t paused_count = 0;
 		{
 			const std::lock_guard<std::mutex> lock(s_mutex);
 			s_vr_runtimes.insert(runtime);
+			// The monitor image never reaches the headset, so its effects would only cost performance.
+			for (effect_runtime *const desktop_runtime : s_desktop_runtimes)
+			{
+				if (!desktop_runtime->get_effects_state())
+					continue;
+				desktop_runtime->set_effects_state(false);
+				s_paused_desktop_runtimes.insert(desktop_runtime);
+				++paused_count;
+			}
 		}
 
 		char message[256];
 		std::snprintf(message, sizeof(message), "observed windowless %s effect runtime %p (%ux%u, %u back buffers).",
 			openxr_loaded ? "OpenXR" : "OpenVR", runtime, width, height, runtime->get_back_buffer_count());
 		log_runtime_message(reshade::log::level::info, message);
+		if (paused_count != 0)
+			log_runtime_message(reshade::log::level::info, "switched off ReShade effects on the monitor window while the headset shows them.");
 	}
 
 	void on_destroy_effect_runtime(effect_runtime *runtime)
 	{
 		const std::lock_guard<std::mutex> lock(s_mutex);
-		s_vr_runtimes.erase(runtime);
+		s_desktop_runtimes.erase(runtime);
+		s_paused_desktop_runtimes.erase(runtime);
+		if (s_vr_runtimes.erase(runtime) != 0 && s_vr_runtimes.empty())
+		{
+			for (effect_runtime *const desktop_runtime : s_paused_desktop_runtimes)
+				desktop_runtime->set_effects_state(true);
+			s_paused_desktop_runtimes.clear();
+		}
 		if (s_effect_runtime == runtime)
 		{
+			s_default_values_pending = false;
 			s_inherited_preset_copy.cancel(runtime);
 			s_pending_preset_delete.cancel(runtime);
 			s_techniques = std::make_shared<openxr_ui::technique_snapshot>();
@@ -512,14 +552,6 @@ namespace
 					entry.step = annotation;
 			}
 			read_parameter_values(current_runtime, variable, entry);
-			if (entry.resettable)
-			{
-				current_runtime->reset_uniform_value(variable);
-				openxr_ui::parameter defaults = entry;
-				read_parameter_values(current_runtime, variable, defaults);
-				entry.default_values = std::move(defaults.values);
-				write_parameter_values(current_runtime, variable, entry);
-			}
 			inventory.snapshot->parameters.push_back(std::move(entry));
 		});
 		openxr_ui::update_technique_default_states(*inventory.snapshot);
@@ -556,9 +588,24 @@ namespace
 				});
 				entry.has_restore_state = existing->has_restore_state;
 			}
+			for (openxr_ui::parameter &entry : inventory.snapshot->parameters)
+			{
+				const auto existing = std::find_if(s_techniques->parameters.begin(), s_techniques->parameters.end(), [&entry](const openxr_ui::parameter &candidate) {
+					return candidate.id == entry.id;
+				});
+				entry.default_values = existing->default_values;
+			}
+			openxr_ui::update_technique_default_states(*inventory.snapshot);
 		}
+		s_default_values_pending = std::any_of(inventory.snapshot->parameters.begin(), inventory.snapshot->parameters.end(), [](const openxr_ui::parameter &entry) {
+			return entry.resettable && entry.default_values.empty();
+		});
+		const bool runtime_changed = s_effect_runtime != runtime;
 		s_effect_runtime = runtime;
 		reshade::get_config_value(runtime, "GENERAL", "PerformanceMode", s_performance_mode);
+		// ReShade reads PerformanceMode only when it creates the effect runtime.
+		if (runtime_changed)
+			s_performance_mode_at_start = s_performance_mode;
 		s_observed_preset_path = current_preset_path(runtime);
 		if (!inventory.snapshot->techniques.empty())
 			s_empty_inventory_retry_frame = 0;
@@ -757,9 +804,47 @@ void openxr_ui_log_message(const char *message, bool error)
 		log_runtime_message(error ? reshade::log::level::error : reshade::log::level::info, message);
 }
 
+namespace
+{
+	// ReShade's desktop/headset effect sync stops its own echo only when a change starts outside
+	// another add-on's ReShade event. Resetting uniforms inside our callbacks bounced between the two
+	// runtimes until the stack overflowed, so defaults are captured here, from the menu path, instead.
+	void capture_pending_default_values()
+	{
+		if (!s_default_values_pending || s_effect_runtime == nullptr)
+			return;
+
+		constexpr size_t batch_size = 32;
+		auto updated = std::make_shared<openxr_ui::technique_snapshot>(*s_techniques);
+		size_t captured = 0;
+		for (openxr_ui::parameter &entry : updated->parameters)
+		{
+			if (!entry.resettable || !entry.default_values.empty())
+				continue;
+			if (captured == batch_size)
+				break;
+			const effect_uniform_variable variable = { entry.id };
+			openxr_ui::parameter current = entry;
+			read_parameter_values(s_effect_runtime, variable, current);
+			s_effect_runtime->reset_uniform_value(variable);
+			openxr_ui::parameter defaults = entry;
+			read_parameter_values(s_effect_runtime, variable, defaults);
+			entry.default_values = std::move(defaults.values);
+			write_parameter_values(s_effect_runtime, variable, current);
+			++captured;
+		}
+		s_default_values_pending = std::any_of(updated->parameters.begin(), updated->parameters.end(), [](const openxr_ui::parameter &entry) {
+			return entry.resettable && entry.default_values.empty();
+		});
+		openxr_ui::update_technique_default_states(*updated);
+		s_techniques = std::move(updated);
+	}
+}
+
 std::shared_ptr<const openxr_ui::technique_snapshot> openxr_ui_get_techniques()
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);
+	capture_pending_default_values();
 	return s_techniques;
 }
 
@@ -1051,6 +1136,12 @@ bool openxr_ui_get_performance_mode()
 	return s_performance_mode;
 }
 
+bool openxr_ui_performance_mode_restart_pending()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	return s_effect_runtime != nullptr && s_performance_mode != s_performance_mode_at_start;
+}
+
 bool openxr_ui_set_performance_mode(bool enabled)
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);
@@ -1066,6 +1157,94 @@ bool openxr_ui_set_performance_mode(bool enabled)
 	s_performance_mode = enabled;
 	log_runtime_message(reshade::log::level::info,
 		enabled ? "ReShade performance mode will be enabled on next start." : "ReShade performance mode will be disabled on next start.");
+	return true;
+}
+
+namespace
+{
+	// ReShade returns list values as names separated by '\0'.
+	std::vector<std::string> read_disabled_addons()
+	{
+		size_t size = 0;
+		if (!reshade::get_config_value(nullptr, "ADDON", "DisabledAddons", nullptr, &size) || size == 0)
+			return {};
+		std::string buffer(size, '\0');
+		if (!reshade::get_config_value(nullptr, "ADDON", "DisabledAddons", buffer.data(), &size))
+			return {};
+		buffer.resize(size);
+		std::vector<std::string> names;
+		size_t begin = 0;
+		while (begin < buffer.size())
+		{
+			const size_t end = (std::min)(buffer.find('\0', begin), buffer.size());
+			if (end > begin)
+				names.push_back(buffer.substr(begin, end - begin));
+			begin = end + 1;
+		}
+		return names;
+	}
+
+	bool is_generic_depth_entry(const std::string &name)
+	{
+		return name == generic_depth_addon_name || name.rfind(std::string(generic_depth_addon_name) + '@', 0) == 0;
+	}
+
+	void load_depth_detection_setting()
+	{
+		if (s_depth_detection_loaded || !s_addon_registered)
+			return;
+		const std::vector<std::string> names = read_disabled_addons();
+		s_depth_detection_disabled = std::any_of(names.begin(), names.end(), is_generic_depth_entry);
+		s_depth_detection_disabled_at_start = s_depth_detection_disabled;
+		s_depth_detection_loaded = true;
+	}
+}
+
+bool openxr_ui_is_depth_detection_disabled()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_depth_detection_setting();
+	return s_depth_detection_disabled;
+}
+
+bool openxr_ui_depth_detection_restart_pending()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_depth_detection_setting();
+	return s_depth_detection_disabled != s_depth_detection_disabled_at_start;
+}
+
+bool openxr_ui_set_depth_detection_disabled(bool disabled)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_depth_detection_setting();
+	if (!s_depth_detection_loaded)
+		return false;
+	std::vector<std::string> names = read_disabled_addons();
+	names.erase(std::remove_if(names.begin(), names.end(), is_generic_depth_entry), names.end());
+	if (disabled)
+		names.push_back(generic_depth_addon_name);
+	if (names.empty())
+	{
+		reshade::set_config_value(nullptr, "ADDON", "DisabledAddons", static_cast<const char *>(nullptr));
+	}
+	else
+	{
+		std::string joined;
+		for (const std::string &name : names)
+			joined.append(name).push_back('\0');
+		reshade::set_config_value(nullptr, "ADDON", "DisabledAddons", joined.c_str(), joined.size() - 1);
+	}
+	const std::vector<std::string> saved = read_disabled_addons();
+	if (std::any_of(saved.begin(), saved.end(), is_generic_depth_entry) != disabled)
+	{
+		log_runtime_message(reshade::log::level::error, "failed to save the ReShade depth detection setting.");
+		return false;
+	}
+	s_depth_detection_disabled = disabled;
+	log_runtime_message(reshade::log::level::info, disabled ?
+		"ReShade depth detection (Generic Depth) will be off from the next game start." :
+		"ReShade depth detection (Generic Depth) will be on from the next game start.");
 	return true;
 }
 

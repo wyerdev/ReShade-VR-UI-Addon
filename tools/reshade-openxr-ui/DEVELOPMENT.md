@@ -20,9 +20,11 @@ A small counter above the panel shows the frame rate, frame time, CPU time and a
 
 ## Performance mode
 
-`Performance next start` reads and writes ReShade's own `GENERAL/PerformanceMode` value for the active OpenXR effect runtime. The choice is saved immediately to `ReShadeVR.ini` through the official add-on configuration API and takes effect on the next application launch. ReShade then compiles preset values as constants for a more optimized effect representation.
+`Performance mode (on = faster shaders)` reads and writes ReShade's own `GENERAL/PerformanceMode` value for the active OpenXR effect runtime. The choice is saved immediately to `ReShadeVR.ini` through the official add-on configuration API and takes effect on the next application launch. ReShade then compiles preset values as constants for a more optimized effect representation.
 
-Performance mode intentionally removes editable uniform variables. Technique enable and disable controls remain available, but shader parameter controls are unavailable until `Performance next start` is unchecked and the application is restarted again.
+Performance mode intentionally removes editable uniform variables. Technique enable and disable controls remain available, but shader parameter controls are unavailable until performance mode is unchecked and the application is restarted again.
+
+Performance mode and `Depth buffer (off = faster in OpenGL)` sit together because ReShade reads both only at game start. The line below them reads "These two apply after a game restart." and turns amber ("Restart the game to apply your change.") while a saved value differs from the one the game started with.
 
 ## Temporary shader disable and saving
 
@@ -53,8 +55,11 @@ Activate/Deactivates a set of shaders
 The package shares one ReShade state core across two frontend DLLs:
 
 - A ReShade add-on core observes the windowless OpenXR or OpenVR effect runtime and publishes an immutable, thread-safe view-model snapshot. Effect reloads rebuild structural metadata; ReShade technique, uniform, and ordering events invalidate live state; and each present reconciles technique order, enabled states, and parameter values from the runtime's public getters. ReShade remains the single source of truth regardless of whether a change came from this UI, preset loading, another add-on, or another ReShade control surface.
-- `ReShade-OpenXR-UI.addon64` is both the core and an OpenXR API layer. It creates a D3D11 or D3D12 swapchain and submits it as an `XrCompositionLayerQuad` in VIEW space.
-- A private Dear ImGui context renders a vertically scrollable technique list into that swapchain with the matching vendored D3D11 or D3D12 backend. It does not use ReShade's `register_overlay` path or context.
+- `ReShade-OpenXR-UI.addon64` is both the core and an OpenXR API layer. It creates a D3D11, D3D12 or OpenGL swapchain and submits it as an `XrCompositionLayerQuad` in VIEW space.
+- A private Dear ImGui context renders a vertically scrollable technique list into that swapchain with the matching vendored D3D11, D3D12 or OpenGL 3 backend. It does not use ReShade's `register_overlay` path or context.
+- The panel never makes the game wait on the GPU: no GPU waits, fence waits or flushes per frame. D3D12 uses a ring of four command allocators and skips a menu frame if the next one is still in use; at session end busy D3D12 objects are freed later instead of waited for.
+- The add-on never changes effect values inside a ReShade event callback. ReShade's built-in desktop/headset Effect Runtime Sync only stops its own echo when a change starts outside another add-on's callback; a reset inside `reshade_reloaded_effects` bounced between the two runtimes until the stack overflowed. Default values are therefore captured from the menu path (`openxr_ui_get_techniques`), 32 uniforms per call.
+- While a windowless headset runtime exists, effects on windowed (monitor) runtimes are switched off with `set_effects_state(false)`, which fires no sync event, and switched back on when the last headset runtime is destroyed.
 - `ReShade-SteamVR-UI.addon64` compiles the same core with `openvr_ui_overlay.cpp` and no private ImGui implementation. It registers a settings callback through ReShade's exported ImGui function table, while ReShade's existing SteamVR dashboard handles texture submission and input. The controls appear by expanding **ReShade VR UI Add-on for SteamVR** on the **Add-ons** page, avoiding ReShade's fixed 500-pixel VR tab row entirely.
 - `ReShade-VR-Loader.exe` watches the application list maintained by official central ReShade Setup and classifies each enabled 64-bit process by loaded VR client module. It leaves `openxr_loader.dll` processes to the registered OpenXR layers and loads the exact central `ReShade64.dll` followed by the SteamVR UI companion only after `openvr_api.dll` appears. It maintains no second allowlist and writes `ReShade-VR-Loader.log` beside itself.
 
@@ -70,9 +75,9 @@ The main header uses three explicit rows so no text shares space with another co
 
 Expand doubles the panel height and visible entries from 10 to 20 techniques or from 5 to 10 parameter components. Collapse restores the compact panel. The detail view repeats `Pin UI` and `Expand`/`Collapse` at the right of its footer.
 
-Pressing both thumbsticks (`L3 + R3`) hides or reopens the panel; `Hide/show: hold L3 + R3 1.5s` optionally requires a sustained chord (the simple-controller fallback uses its menu click). The main footer uses four rows: `Performance next start` and `Always show FPS` share the first row, `UI starts open` and the FPS target share the second, the visibility gesture has the third, and temporary disable the fourth. `Pin UI` (session only) keeps the panel and FPS counter at a fixed world direction (yaw and pitch, no roll) at their usual distance around the head, submitted in LOCAL space. The pin survives closing the panel, so an always-shown FPS counter stays in place and the panel reopens where it was pinned. Hidden frames do not submit the quad. Free hover uses a six-pixel radial dead zone, 18% follow rate, and two-pixel output quantization; held select uses a responsive 35% low-pass. Each compact technique row keeps the technique and effect names on one line to avoid vertical clipping. Uniforms marked `hidden` or `noedit` are not exposed, and `noreset` values do not offer reset controls.
+Pressing both thumbsticks (`L3 + R3`) hides or reopens the panel; `Hide/show: hold L3 + R3 1.5s` optionally requires a sustained chord (the simple-controller fallback uses its menu click). The main footer uses four rows. Left: `Always show FPS`, `UI starts open`, the visibility gesture, then temporary disable. Right: the FPS target, `Performance mode (on = faster shaders)`, `Depth buffer (off = faster in OpenGL)`, then the restart note for those two. `Pin UI` (session only) keeps the panel and FPS counter at a fixed world direction (yaw and pitch, no roll) at their usual distance around the head, submitted in LOCAL space. The pin survives closing the panel, so an always-shown FPS counter stays in place and the panel reopens where it was pinned. Hidden frames do not submit the quad. Free hover uses a six-pixel radial dead zone, 18% follow rate, and two-pixel output quantization; held select uses a responsive 35% low-pass. Each compact technique row keeps the technique and effect names on one line to avoid vertical clipping. Uniforms marked `hidden` or `noedit` are not exposed, and `noreset` values do not offer reset controls.
 
-The source is split by responsibility: `openxr_ui_layer.cpp` owns OpenXR session, input, and D3D11/D3D12 swapchain flow; `reshade_openxr_ui_addon.cpp` owns ReShade callbacks, runtime handles, and technique state; `openxr_ui_preset.cpp` owns preset dirty-state comparison, sibling navigation, saving, pending inherited-copy, and pending deletion; and `openxr_ui_renderer.cpp` owns the private ImGui context and both rendering backends. Preset code is deliberately represented by bounded operation-specific types rather than a generic manager object.
+The source is split by responsibility: `openxr_ui_layer.cpp` owns OpenXR session, input, and D3D11/D3D12/OpenGL swapchain flow; `reshade_openxr_ui_addon.cpp` owns ReShade callbacks, runtime handles, and technique state; `openxr_ui_preset.cpp` owns preset dirty-state comparison, sibling navigation, saving, pending inherited-copy, and pending deletion; and `openxr_ui_renderer.cpp` owns the private ImGui context and its D3D11, D3D12 and OpenGL rendering backends. Preset code is deliberately represented by bounded operation-specific types rather than a generic manager object.
 
 ## Requirement
 
@@ -174,7 +179,7 @@ Data:  0
 
 The manifest resolves `..\ReShade-OpenXR-UI.addon64` relative to its own `openxr-layers` directory. The OpenXR loader can therefore discover it in every 64-bit OpenXR process for this user. The central process loader reads `C:\ProgramData\ReShade\ReShadeApps.ini` and waits for listed processes to load a VR client module. It leaves `openxr_loader.dll` processes to the existing OpenXR registration and injects `C:\ProgramData\ReShade\ReShade64.dll` plus the SteamVR companion only into `openvr_api.dll` processes. OpenXR and OpenVR therefore use distinct activation paths over the exact official ReShade module selected by Setup, with no game-local proxy or duplicate allowlist.
 
-Official ReShade still controls which games receive ReShade effects and OpenXR support. Install this add-on once, but continue using the official ReShade installer to enable ReShade and OpenXR for each game. The official **full add-on support** build is required; the standard limited build rejects standalone add-ons. The current UI renderer supports 64-bit D3D11 and D3D12 OpenXR sessions.
+Official ReShade still controls which games receive ReShade effects and OpenXR support. Install this add-on once, but continue using the official ReShade installer to enable ReShade and OpenXR for each game. The official **full add-on support** build is required; the standard limited build rejects standalone add-ons. The current UI renderer supports 64-bit D3D11, D3D12 and OpenGL OpenXR sessions.
 
 Close games and VR runtimes before installing or updating so they cannot retain previous files. Run `Install.cmd` as administrator. Re-running it updates all installed runtime files, preserves the OpenXR layer's On or Off value, refreshes the current-user loader startup entry, and starts the loader. Verify the installation from an elevated PowerShell window with:
 
@@ -221,7 +226,7 @@ ReShade VR UI Add-on: scrollable technique model ready for controller input.
 ReShade VR UI Add-on: controller enabled <effect>::<technique>.
 ```
 
-The current renderer supports D3D11 and D3D12 OpenXR sessions. The backend evidence line reports `D3D11` or `D3D12` for the active session. The quad stays visible while the targeted application is running for this static interaction milestone.
+The current renderer supports D3D11, D3D12 and OpenGL OpenXR sessions. The backend evidence line reports `D3D11`, `D3D12` or `OpenGL` for the active session. The quad stays visible while the targeted application is running for this static interaction milestone.
 
 ## Next Development Phase
 

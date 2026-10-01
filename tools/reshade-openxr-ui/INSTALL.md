@@ -1,13 +1,22 @@
 # Install ReShade VR UI Add-on
 
-Works with 64-bit DirectX 11 and 12 games. Vulkan and OpenGL are not supported.
+Works with 64-bit DirectX 11, DirectX 12 and OpenGL games that use OpenXR, and with DirectX 11 and 12 SteamVR (OpenVR) games. Vulkan is not supported.
 
-## Native OpenXR Games
+## Native OpenXR Games (DirectX 11, DirectX 12 and OpenGL)
 
 - Install **ReShade with full add-on support** from [reshade.me](https://reshade.me/).
-- In ReShade Setup, pick the game's main `.exe`, choose **DirectX 10/11/12**, and enable **OpenXR**.
+- In ReShade Setup, pick the game's main `.exe`, choose its graphics API (**DirectX 10/11/12** or **OpenGL**), and enable **OpenXR**.
 - Close games and SteamVR, then right-click `Install.cmd` and choose **Run as administrator** (once for all games).
 - Start the game normally. The panel appears in the headset; `L3 + R3` shows or hides it.
+
+## OpenGL Games: Depth Buffer And FPS
+
+OpenGL games (for example SOMA-VR) install and start the same way. Two things are different:
+
+- Effects appear once the game shows its normal 3D view. A flat title screen may show `ReShade effect runtime unavailable` until then.
+- ReShade's depth buffer helper (**Generic Depth**) costs much more FPS in OpenGL; in SOMA-VR about 30 FPS. It lets shaders know how far away things are.
+
+For more FPS, untick **Depth buffer (off = faster in OpenGL)** in the headset panel, then restart the game. Shaders that need depth (for example MXAO, depth of field, depth fog) then stop working; the game itself is not affected. Tick it again and restart to get them back. The setting is saved per game.
 
 ## SteamVR (OpenVR) Games
 

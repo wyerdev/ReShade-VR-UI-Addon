@@ -46,6 +46,10 @@ namespace openxr_ui
 		// Per-eye resolution the headset asks for; zero when unknown.
 		uint32_t eye_width = 0;
 		uint32_t eye_height = 0;
+		// ReShade's Generic Depth add-on is turned off in the saved settings.
+		bool depth_detection_disabled = false;
+		bool depth_detection_restart_pending = false;
+		bool performance_mode_restart_pending = false;
 	};
 
 	struct render_result
@@ -76,6 +80,7 @@ namespace openxr_ui
 			set_performance_mode,
 			set_always_show_statistics,
 			set_frame_rate_divisor,
+			set_depth_detection_disabled,
 			toggle_panel_lock,
 		};
 
@@ -98,11 +103,15 @@ namespace openxr_ui
 
 		bool initialize(ID3D11Device *device, ID3D11DeviceContext *context, uint32_t width, uint32_t height);
 		bool initialize(ID3D12Device *device, ID3D12CommandQueue *queue, uint32_t frame_count, int64_t format, uint32_t width, uint32_t height);
+		// OpenGL calls use the calling thread's current context, which must be the same context for every call and for destruction.
+		bool initialize_opengl(uint32_t width, uint32_t height);
 		render_result render(ID3D11RenderTargetView *render_target, const technique_snapshot &snapshot, const render_input &input);
 		render_result render(ID3D12GraphicsCommandList *command_list, D3D12_CPU_DESCRIPTOR_HANDLE render_target,
 			const technique_snapshot &snapshot, const render_input &input);
+		render_result render_opengl(uint32_t texture, const technique_snapshot &snapshot, const render_input &input);
 		void render_statistics(ID3D11RenderTargetView *render_target, const frame_statistics &statistics);
 		void render_statistics(ID3D12GraphicsCommandList *command_list, D3D12_CPU_DESCRIPTOR_HANDLE render_target, const frame_statistics &statistics);
+		void render_statistics_opengl(uint32_t texture, const frame_statistics &statistics);
 		void notify_save_result(bool succeeded);
 		void notify_save_as_started(bool started);
 		void notify_save_as_result(bool succeeded);
@@ -113,6 +122,7 @@ namespace openxr_ui
 		void render_statistics_ui(const frame_statistics &statistics);
 		void submit(ID3D11RenderTargetView *render_target);
 		void submit(ID3D12GraphicsCommandList *command_list, D3D12_CPU_DESCRIPTOR_HANDLE render_target);
+		void submit_opengl(uint32_t texture);
 
 		struct implementation;
 		std::unique_ptr<implementation> _implementation;

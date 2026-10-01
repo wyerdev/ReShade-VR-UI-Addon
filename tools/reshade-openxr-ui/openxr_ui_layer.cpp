@@ -2,6 +2,7 @@
 #define XR_USE_PLATFORM_WIN32
 #define XR_USE_GRAPHICS_API_D3D11
 #define XR_USE_GRAPHICS_API_D3D12
+#define XR_USE_GRAPHICS_API_OPENGL
 
 #include <Windows.h>
 #include <d3d11.h>
@@ -17,6 +18,7 @@
 #include "vr_ui_state.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -69,7 +71,16 @@ namespace
 		none,
 		d3d11,
 		d3d12,
+		opengl,
 	};
+
+	constexpr int64_t gl_rgba8 = 0x8058;
+	constexpr int64_t gl_srgb8_alpha8 = 0x8C43;
+
+	bool effect_fallback_supported(graphics_api api)
+	{
+		return api == graphics_api::d3d11 || api == graphics_api::d3d12;
+	}
 
 	struct instance_dispatch
 	{
@@ -129,7 +140,17 @@ namespace
 		std::vector<ComPtr<ID3D11RenderTargetView>> render_target_views;
 		ComPtr<ID3D12DescriptorHeap> render_target_heap12;
 		std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> render_target_views12;
+		std::vector<uint32_t> textures_gl;
 		std::unique_ptr<openxr_ui::panel_renderer> renderer;
+	};
+
+	// Menu submissions that may be in flight on the GPU before the next one has to wait.
+	constexpr uint32_t d3d12_frame_slot_count = 4;
+
+	struct d3d12_frame_slot
+	{
+		ComPtr<ID3D12CommandAllocator> allocator;
+		uint64_t fence_value = 0;
 	};
 
 	struct session_state
@@ -140,14 +161,14 @@ namespace
 		graphics_api api = graphics_api::none;
 		ComPtr<ID3D11Device> device;
 		ComPtr<ID3D11DeviceContext> context;
-		ComPtr<ID3D11Query> completion_query;
 		ComPtr<ID3D12Device> device12;
 		ComPtr<ID3D12CommandQueue> command_queue12;
-		ComPtr<ID3D12CommandAllocator> command_allocator12;
+		std::array<d3d12_frame_slot, d3d12_frame_slot_count> frame_slots12;
+		size_t next_frame_slot12 = 0;
 		ComPtr<ID3D12GraphicsCommandList> command_list12;
 		ComPtr<ID3D12Fence> completion_fence12;
-		HANDLE completion_event12 = nullptr;
 		uint64_t completion_value12 = 0;
+		HGLRC context_gl = nullptr;
 		XrSpace view_space = XR_NULL_HANDLE;
 		XrSpace local_space = XR_NULL_HANDLE;
 		bool head_valid = false;
@@ -168,9 +189,11 @@ namespace
 		uint32_t eye_height = 0;
 		bool always_show_statistics = false;
 		bool statistics_image_ready = false;
+		bool panel_image_ready = false;
 		uint64_t statistics_image_revision = 0;
 		XrSpace aim_space = XR_NULL_HANDLE;
 		bool actions_attached = false;
+		bool input_focused = true;
 		bool should_render = true;
 		bool pointer_visible = false;
 		LONG pointer_x = 0;
@@ -219,6 +242,27 @@ namespace
 	std::unordered_map<XrInstance, std::shared_ptr<instance_dispatch>> s_instances;
 	std::unordered_map<XrSession, std::unique_ptr<session_state>> s_sessions;
 	std::unordered_map<XrSwapchain, swapchain_state> s_swapchains;
+
+	// D3D12 menu objects the GPU may still use after their session ended; freed once its progress counter shows it is done.
+	struct retired_d3d12_objects
+	{
+		ComPtr<ID3D12Fence> fence;
+		uint64_t fence_value = 0;
+		std::vector<std::unique_ptr<openxr_ui::panel_renderer>> renderers;
+		std::vector<ComPtr<ID3D12DescriptorHeap>> heaps;
+		std::array<d3d12_frame_slot, d3d12_frame_slot_count> frame_slots;
+		ComPtr<ID3D12GraphicsCommandList> command_list;
+	};
+	std::mutex s_retired_mutex;
+	std::vector<retired_d3d12_objects> s_retired_d3d12;
+
+	void release_finished_d3d12_objects()
+	{
+		const std::lock_guard<std::mutex> lock(s_retired_mutex);
+		s_retired_d3d12.erase(std::remove_if(s_retired_d3d12.begin(), s_retired_d3d12.end(), [](const retired_d3d12_objects &objects) {
+			return objects.fence->GetCompletedValue() >= objects.fence_value;
+		}), s_retired_d3d12.end());
+	}
 
 	template <typename T>
 	bool load_proc(PFN_xrGetInstanceProcAddr get_instance_proc, XrInstance instance, const char *name, T &target)
@@ -293,6 +337,52 @@ namespace
 			if (entry->type == XR_TYPE_GRAPHICS_BINDING_D3D12_KHR)
 				return reinterpret_cast<const XrGraphicsBindingD3D12KHR *>(entry);
 		return nullptr;
+	}
+
+	const XrGraphicsBindingOpenGLWin32KHR *find_opengl_binding(const XrSessionCreateInfo *create_info)
+	{
+		for (const XrBaseInStructure *entry = reinterpret_cast<const XrBaseInStructure *>(create_info->next); entry != nullptr; entry = entry->next)
+			if (entry->type == XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR)
+				return reinterpret_cast<const XrGraphicsBindingOpenGLWin32KHR *>(entry);
+		return nullptr;
+	}
+
+	// Resolved at run time so Direct3D games never load opengl32.dll because of this layer.
+	HGLRC current_opengl_context()
+	{
+		static HGLRC(WINAPI *get_current_context)() = nullptr;
+		if (get_current_context == nullptr)
+			if (const HMODULE opengl = GetModuleHandleW(L"opengl32.dll"); opengl != nullptr)
+				get_current_context = reinterpret_cast<HGLRC(WINAPI *)()>(GetProcAddress(opengl, "wglGetCurrentContext"));
+		return get_current_context != nullptr ? get_current_context() : nullptr;
+	}
+
+	// A ReShade loaded after the context became current never saw it; its session check runs after this layer returns.
+	void announce_opengl_context(const XrSessionCreateInfo *create_info)
+	{
+		const XrGraphicsBindingOpenGLWin32KHR *const binding = create_info != nullptr ? find_opengl_binding(create_info) : nullptr;
+		if (binding == nullptr || binding->hGLRC == nullptr)
+			return;
+		const HMODULE opengl = GetModuleHandleW(L"opengl32.dll");
+		const auto make_current = opengl != nullptr ? reinterpret_cast<BOOL(WINAPI *)(HDC, HGLRC)>(GetProcAddress(opengl, "wglMakeCurrent")) : nullptr;
+		if (make_current == nullptr)
+			return;
+		if (current_opengl_context() != binding->hGLRC)
+		{
+			openxr_ui_log_message("OpenGL session context is not current on the creating thread; ReShade cannot bind it.", true);
+			return;
+		}
+		if (!make_current(nullptr, nullptr))
+		{
+			openxr_ui_log_message("OpenGL context re-bind failed: the context could not be released.", true);
+			return;
+		}
+		if (!make_current(binding->hDC, binding->hGLRC))
+		{
+			openxr_ui_log_message("OpenGL context re-bind failed: the game context could not be made current again.", true);
+			return;
+		}
+		openxr_ui_log_message("OpenGL session context re-bound so ReShade can register it.");
 	}
 
 	// Time inside the runtime's frame calls is time the headset software held the game back, not the game's own work.
@@ -489,6 +579,19 @@ namespace
 				target.render_target_views.push_back(std::move(view));
 			}
 		}
+		else if (state.api == graphics_api::opengl)
+		{
+			std::vector<XrSwapchainImageOpenGLKHR> images(image_count, { XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR });
+			if (XR_FAILED(state.dispatch->EnumerateSwapchainImages(target.swapchain, image_count, &image_count,
+				reinterpret_cast<XrSwapchainImageBaseHeader *>(images.data()))))
+				return false;
+			for (const XrSwapchainImageOpenGLKHR &image : images)
+			{
+				if (image.image == 0)
+					return false;
+				target.textures_gl.push_back(image.image);
+			}
+		}
 		else
 		{
 			std::vector<XrSwapchainImageD3D12KHR> images(image_count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR });
@@ -519,7 +622,9 @@ namespace
 		target.renderer = std::make_unique<openxr_ui::panel_renderer>();
 		const bool renderer_initialized = state.api == graphics_api::d3d11 ?
 			target.renderer->initialize(state.device.Get(), state.context.Get(), width, height) :
-			target.renderer->initialize(state.device12.Get(), state.command_queue12.Get(), image_count, state.quad_format, width, height);
+			state.api == graphics_api::opengl ? target.renderer->initialize_opengl(width, height) :
+			target.renderer->initialize(state.device12.Get(), state.command_queue12.Get(), (std::max)(image_count, d3d12_frame_slot_count),
+				state.quad_format, width, height);
 		if (!renderer_initialized)
 			target.renderer.reset();
 		return renderer_initialized;
@@ -538,10 +643,6 @@ namespace
 				openxr_ui_log_message("native quad initialization failed: D3D11 immediate context is unavailable.", true);
 				return false;
 			}
-
-			D3D11_QUERY_DESC query_desc = { D3D11_QUERY_EVENT, 0 };
-			if (FAILED(state.device->CreateQuery(&query_desc, &state.completion_query)))
-				return false;
 		}
 		else if (const XrGraphicsBindingD3D12KHR *const binding12 = find_d3d12_binding(create_info);
 			binding12 != nullptr && binding12->device != nullptr && binding12->queue != nullptr)
@@ -550,9 +651,21 @@ namespace
 			state.device12 = binding12->device;
 			state.command_queue12 = binding12->queue;
 		}
+		else if (const XrGraphicsBindingOpenGLWin32KHR *const binding_gl = find_opengl_binding(create_info);
+			binding_gl != nullptr && binding_gl->hGLRC != nullptr)
+		{
+			// The menu is drawn in the game's own context, so it must be current on the thread that creates the session.
+			if (current_opengl_context() != binding_gl->hGLRC)
+			{
+				openxr_ui_log_message("native quad skipped: the OpenGL session context is not current on the creating thread.", true);
+				return false;
+			}
+			state.api = graphics_api::opengl;
+			state.context_gl = binding_gl->hGLRC;
+		}
 		else
 		{
-			openxr_ui_log_message("native quad skipped: the OpenXR session is not using D3D11 or D3D12.", true);
+			openxr_ui_log_message("native quad skipped: the OpenXR session is not using D3D11, D3D12 or OpenGL.", true);
 			return false;
 		}
 
@@ -573,7 +686,9 @@ namespace
 		if (XR_FAILED(state.dispatch->EnumerateSwapchainFormats(state.session, format_count, &format_count, formats.data())))
 			return false;
 		for (const int64_t format : formats)
-			if (format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || (state.quad_format == 0 && format == DXGI_FORMAT_R8G8B8A8_UNORM))
+			if (state.api == graphics_api::opengl ?
+				format == gl_srgb8_alpha8 || (state.quad_format == 0 && format == gl_rgba8) :
+				format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || (state.quad_format == 0 && format == DXGI_FORMAT_R8G8B8A8_UNORM))
 				state.quad_format = format;
 		if (state.quad_format == 0)
 		{
@@ -583,13 +698,12 @@ namespace
 
 		if (state.api == graphics_api::d3d12)
 		{
-			if (FAILED(state.device12->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&state.command_allocator12))) ||
-				FAILED(state.device12->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, state.command_allocator12.Get(), nullptr,
+			for (d3d12_frame_slot &slot : state.frame_slots12)
+				if (FAILED(state.device12->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&slot.allocator))))
+					return false;
+			if (FAILED(state.device12->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, state.frame_slots12[0].allocator.Get(), nullptr,
 					IID_PPV_ARGS(&state.command_list12))) || FAILED(state.command_list12->Close()) ||
 				FAILED(state.device12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&state.completion_fence12))))
-				return false;
-			state.completion_event12 = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-			if (state.completion_event12 == nullptr)
 				return false;
 		}
 		if (!create_quad_target(state, openxr_ui::panel_width, openxr_ui::expanded_panel_height, state.panel))
@@ -610,36 +724,33 @@ namespace
 			state.dispatch->CreateActionSpace(state.session, &action_space_info, &state.aim_space);
 		}
 		openxr_ui_log_message("native VIEW-space quad initialized with private ImGui technique renderer.");
-		openxr_ui_log_message(state.api == graphics_api::d3d11 ?
-			"native quad graphics backend: D3D11." : "native quad graphics backend: D3D12.");
+		openxr_ui_log_message(state.api == graphics_api::d3d11 ? "native quad graphics backend: D3D11." :
+			state.api == graphics_api::opengl ? "native quad graphics backend: OpenGL." : "native quad graphics backend: D3D12.");
 		return true;
 	}
 
-	bool wait_for_d3d11_gpu(session_state &state)
+	// Only reads the GPU's progress counter; when the next allocator is still in use the menu skips a frame instead of waiting.
+	bool d3d12_slot_free(const session_state &state)
 	{
-		state.context->End(state.completion_query.Get());
-		state.context->Flush();
-		const ULONGLONG deadline = GetTickCount64() + 1000;
-		HRESULT result = S_FALSE;
-		while ((result = state.context->GetData(state.completion_query.Get(), nullptr, 0, 0)) == S_FALSE)
-		{
-			if (GetTickCount64() >= deadline)
-				return false;
-			SwitchToThread();
-		}
-		return result == S_OK;
+		return state.completion_fence12->GetCompletedValue() >= state.frame_slots12[state.next_frame_slot12].fence_value;
 	}
 
-	bool wait_for_d3d12_gpu(session_state &state)
+	bool begin_d3d12_commands(session_state &state)
 	{
-		const uint64_t completion_value = ++state.completion_value12;
-		if (FAILED(state.command_queue12->Signal(state.completion_fence12.Get(), completion_value)))
+		d3d12_frame_slot &slot = state.frame_slots12[state.next_frame_slot12];
+		return SUCCEEDED(slot.allocator->Reset()) && SUCCEEDED(state.command_list12->Reset(slot.allocator.Get(), nullptr));
+	}
+
+	bool submit_d3d12_commands(session_state &state)
+	{
+		if (FAILED(state.command_list12->Close()))
 			return false;
-		if (state.completion_fence12->GetCompletedValue() >= completion_value)
-			return true;
-		if (FAILED(state.completion_fence12->SetEventOnCompletion(completion_value, state.completion_event12)))
-			return false;
-		return WaitForSingleObject(state.completion_event12, 5000) == WAIT_OBJECT_0;
+		ID3D12CommandList *const command_lists[] = { state.command_list12.Get() };
+		state.command_queue12->ExecuteCommandLists(1, command_lists);
+		d3d12_frame_slot &slot = state.frame_slots12[state.next_frame_slot12];
+		state.next_frame_slot12 = (state.next_frame_slot12 + 1) % state.frame_slots12.size();
+		slot.fence_value = ++state.completion_value12;
+		return SUCCEEDED(state.command_queue12->Signal(state.completion_fence12.Get(), slot.fence_value));
 	}
 
 	bool render_quad(session_state &state)
@@ -647,6 +758,8 @@ namespace
 		quad_target &target = state.panel;
 		if (target.swapchain == XR_NULL_HANDLE)
 			return false;
+		if (state.api == graphics_api::d3d12 && !d3d12_slot_free(state))
+			return state.panel_image_ready;
 
 		uint32_t image_index = 0;
 		XrSwapchainImageAcquireInfo acquire_info = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
@@ -658,6 +771,7 @@ namespace
 			return false;
 
 		bool rendered = state.api == graphics_api::d3d11 ? image_index < target.render_target_views.size() :
+			state.api == graphics_api::opengl ? image_index < target.textures_gl.size() && current_opengl_context() == state.context_gl :
 			state.api == graphics_api::d3d12 && image_index < target.render_target_views12.size();
 		if (rendered)
 		{
@@ -691,27 +805,27 @@ namespace
 				state.panel_locked,
 				state.eye_width,
 				state.eye_height,
+				openxr_ui_is_depth_detection_disabled(),
+				openxr_ui_depth_detection_restart_pending(),
+				openxr_ui_performance_mode_restart_pending(),
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
 			{
 				render_result = target.renderer->render(target.render_target_views[image_index].Get(), *snapshot, input);
 			}
-			else if (FAILED(state.command_allocator12->Reset()) ||
-				FAILED(state.command_list12->Reset(state.command_allocator12.Get(), nullptr)))
+			else if (state.api == graphics_api::opengl)
+			{
+				render_result = target.renderer->render_opengl(target.textures_gl[image_index], *snapshot, input);
+			}
+			else if (!begin_d3d12_commands(state))
 			{
 				rendered = false;
 			}
 			else
 			{
 				render_result = target.renderer->render(state.command_list12.Get(), target.render_target_views12[image_index], *snapshot, input);
-				if (FAILED(state.command_list12->Close()))
-					rendered = false;
-				else
-				{
-					ID3D12CommandList *const command_lists[] = { state.command_list12.Get() };
-					state.command_queue12->ExecuteCommandLists(1, command_lists);
-				}
+				rendered = submit_d3d12_commands(state);
 			}
 			switch (render_result.action)
 			{
@@ -788,6 +902,9 @@ namespace
 				if (openxr_ui_set_frame_rate_divisor(static_cast<uint32_t>(render_result.value)))
 					state.frame_timing.set_frame_rate_divisor(static_cast<uint32_t>(render_result.value));
 				break;
+			case openxr_ui::render_result::command::set_depth_detection_disabled:
+				openxr_ui_set_depth_detection_disabled(render_result.state);
+				break;
 			case openxr_ui::render_result::command::toggle_panel_lock:
 				state.panel_locked = !state.panel_locked;
 				state.anchor_ready = false;
@@ -795,12 +912,11 @@ namespace
 			case openxr_ui::render_result::command::none:
 				break;
 			}
-			if (rendered)
-				rendered = state.api == graphics_api::d3d11 ? wait_for_d3d11_gpu(state) : wait_for_d3d12_gpu(state);
 		}
 
 		XrSwapchainImageReleaseInfo release_info = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-		return XR_SUCCEEDED(state.dispatch->ReleaseSwapchainImage(target.swapchain, &release_info)) && rendered;
+		state.panel_image_ready = XR_SUCCEEDED(state.dispatch->ReleaseSwapchainImage(target.swapchain, &release_info)) && rendered;
+		return state.panel_image_ready;
 	}
 
 	// The counter changes only twice per second; in between the runtime shows the last released image again.
@@ -812,6 +928,8 @@ namespace
 		const openxr_ui::frame_statistics &statistics = state.frame_timing.statistics();
 		if (state.statistics_image_ready && state.statistics_image_revision == statistics.revision)
 			return true;
+		if (state.api == graphics_api::d3d12 && !d3d12_slot_free(state))
+			return state.statistics_image_ready;
 
 		uint32_t image_index = 0;
 		XrSwapchainImageAcquireInfo acquire_info = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
@@ -826,18 +944,17 @@ namespace
 		if (state.api == graphics_api::d3d11 && image_index < target.render_target_views.size())
 		{
 			target.renderer->render_statistics(target.render_target_views[image_index].Get(), statistics);
-			rendered = wait_for_d3d11_gpu(state);
+			rendered = true;
 		}
-		else if (state.api == graphics_api::d3d12 && image_index < target.render_target_views12.size() &&
-			SUCCEEDED(state.command_allocator12->Reset()) && SUCCEEDED(state.command_list12->Reset(state.command_allocator12.Get(), nullptr)))
+		else if (state.api == graphics_api::opengl && image_index < target.textures_gl.size() && current_opengl_context() == state.context_gl)
+		{
+			target.renderer->render_statistics_opengl(target.textures_gl[image_index], statistics);
+			rendered = true;
+		}
+		else if (state.api == graphics_api::d3d12 && image_index < target.render_target_views12.size() && begin_d3d12_commands(state))
 		{
 			target.renderer->render_statistics(state.command_list12.Get(), target.render_target_views12[image_index], statistics);
-			if (SUCCEEDED(state.command_list12->Close()))
-			{
-				ID3D12CommandList *const command_lists[] = { state.command_list12.Get() };
-				state.command_queue12->ExecuteCommandLists(1, command_lists);
-				rendered = wait_for_d3d12_gpu(state);
-			}
+			rendered = submit_d3d12_commands(state);
 		}
 
 		XrSwapchainImageReleaseInfo release_info = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
@@ -938,6 +1055,13 @@ namespace
 		sync_info.countActiveActionSets = 1;
 		sync_info.activeActionSets = &active_set;
 		const XrResult sync_result = state.dispatch->SyncActions(state.session, &sync_info);
+		const bool focused = sync_result != XR_SESSION_NOT_FOCUSED;
+		if (focused != state.input_focused)
+		{
+			state.input_focused = focused;
+			openxr_ui_log_message(focused ? "controller input focus returned to the game." :
+				"controller input unavailable: the headset runtime reports the game is not focused.", !focused);
+		}
 		if (XR_FAILED(sync_result) && sync_result != XR_SESSION_NOT_FOCUSED)
 			return;
 
@@ -1084,13 +1208,25 @@ namespace
 	void destroy_session_resources(session_state &state)
 	{
 		state.effects.reset();
+		if (state.api == graphics_api::d3d12 && state.completion_fence12 != nullptr &&
+			state.completion_fence12->GetCompletedValue() < state.completion_value12)
+		{
+			retired_d3d12_objects retired;
+			retired.fence = state.completion_fence12;
+			retired.fence_value = state.completion_value12;
+			for (quad_target *const target : { &state.panel, &state.statistics })
+			{
+				retired.renderers.push_back(std::move(target->renderer));
+				retired.heaps.push_back(std::move(target->render_target_heap12));
+			}
+			retired.frame_slots = std::move(state.frame_slots12);
+			retired.command_list = std::move(state.command_list12);
+			const std::lock_guard<std::mutex> lock(s_retired_mutex);
+			s_retired_d3d12.push_back(std::move(retired));
+		}
+		release_finished_d3d12_objects();
 		destroy_quad_target(state, state.panel);
 		destroy_quad_target(state, state.statistics);
-		if (state.completion_event12 != nullptr)
-		{
-			CloseHandle(state.completion_event12);
-			state.completion_event12 = nullptr;
-		}
 		if (state.aim_space != XR_NULL_HANDLE)
 			state.dispatch->DestroySpace(state.aim_space);
 		if (state.local_space != XR_NULL_HANDLE)
@@ -1103,7 +1239,7 @@ namespace
 	{
 		if (state.effects != nullptr)
 			return true;
-		if (state.effects_decided || state.api == graphics_api::none)
+		if (state.effects_decided || !effect_fallback_supported(state.api))
 			return false;
 		if (openxr_ui_has_vr_runtime())
 		{
@@ -1266,6 +1402,8 @@ extern "C" XrResult XRAPI_CALL xrCreateSession(XrInstance instance, const XrSess
 	const XrResult result = dispatch->CreateSession(instance, create_info, session);
 	if (XR_FAILED(result))
 		return result;
+	release_finished_d3d12_objects();
+	announce_opengl_context(create_info);
 
 	auto state = std::make_unique<session_state>();
 	state->instance = instance;
@@ -1315,7 +1453,7 @@ extern "C" XrResult XRAPI_CALL xrCreateSwapchain(XrSession session, const XrSwap
 
 	XrSwapchainCreateInfo effect_info = *create_info;
 	// The effect fallback copies color images to and from its own texture, as official ReShade does.
-	if (state->api != graphics_api::none && (effect_info.usageFlags & XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT) != 0)
+	if (effect_fallback_supported(state->api) && (effect_info.usageFlags & XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT) != 0)
 		effect_info.usageFlags |= XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
 	const XrResult result = state->dispatch->CreateSwapchain(session, &effect_info, swapchain);
 	if (XR_FAILED(result))
@@ -1326,7 +1464,7 @@ extern "C" XrResult XRAPI_CALL xrCreateSwapchain(XrSession session, const XrSwap
 	tracked.dispatch = state->dispatch;
 	tracked.static_image = (create_info->createFlags & XR_SWAPCHAIN_CREATE_STATIC_IMAGE_BIT) != 0;
 	uint32_t image_count = 0;
-	if (state->api != graphics_api::none &&
+	if (effect_fallback_supported(state->api) &&
 		XR_SUCCEEDED(state->dispatch->EnumerateSwapchainImages(*swapchain, 0, &image_count, nullptr)) && image_count != 0)
 	{
 		if (state->api == graphics_api::d3d11)

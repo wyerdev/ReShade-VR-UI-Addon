@@ -1,6 +1,7 @@
 # ReShade build dependency
 /.deps/reshade/
 /.deps/openxr-simulator-test/
+/.deps/UEVR/
 
 # Generated build and release output
 /build/

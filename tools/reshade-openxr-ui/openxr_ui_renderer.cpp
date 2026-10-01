@@ -5,6 +5,7 @@
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_dx12.h>
+#include <imgui_impl_opengl3.h>
 
 #include "vr_frame_graph.hpp"
 
@@ -13,11 +14,68 @@
 #include <cmath>
 #include <cstdio>
 #include <mutex>
+#include <type_traits>
 #include <vector>
 
 namespace
 {
 	std::mutex s_imgui_mutex;
+
+	constexpr unsigned int gl_texture_2d = 0x0DE1;
+	constexpr unsigned int gl_scissor_test = 0x0C11;
+	constexpr unsigned int gl_color_clear_value = 0x0C22;
+	constexpr unsigned int gl_color_writemask = 0x0C23;
+	constexpr unsigned int gl_color_buffer_bit = 0x4000;
+	constexpr unsigned int gl_draw_framebuffer = 0x8CA9;
+	constexpr unsigned int gl_draw_framebuffer_binding = 0x8CA6;
+	constexpr unsigned int gl_color_attachment0 = 0x8CE0;
+	constexpr unsigned int gl_framebuffer_complete = 0x8CD5;
+	constexpr unsigned int gl_framebuffer_srgb = 0x8DB9;
+
+	// Loaded at run time so Direct3D processes never depend on OpenGL.
+	struct opengl_functions
+	{
+		HGLRC(WINAPI *GetCurrentContext)() = nullptr;
+		void(APIENTRY *GetIntegerv)(unsigned int, int *) = nullptr;
+		void(APIENTRY *GetFloatv)(unsigned int, float *) = nullptr;
+		void(APIENTRY *GetBooleanv)(unsigned int, unsigned char *) = nullptr;
+		unsigned char(APIENTRY *IsEnabled)(unsigned int) = nullptr;
+		void(APIENTRY *Enable)(unsigned int) = nullptr;
+		void(APIENTRY *Disable)(unsigned int) = nullptr;
+		void(APIENTRY *ColorMask)(unsigned char, unsigned char, unsigned char, unsigned char) = nullptr;
+		void(APIENTRY *ClearColor)(float, float, float, float) = nullptr;
+		void(APIENTRY *Clear)(unsigned int) = nullptr;
+		void(APIENTRY *GenFramebuffers)(int, unsigned int *) = nullptr;
+		void(APIENTRY *DeleteFramebuffers)(int, const unsigned int *) = nullptr;
+		void(APIENTRY *BindFramebuffer)(unsigned int, unsigned int) = nullptr;
+		void(APIENTRY *FramebufferTexture2D)(unsigned int, unsigned int, unsigned int, unsigned int, int) = nullptr;
+		unsigned int(APIENTRY *CheckFramebufferStatus)(unsigned int) = nullptr;
+
+		bool load()
+		{
+			const HMODULE module = GetModuleHandleW(L"opengl32.dll");
+			if (module == nullptr)
+				return false;
+			const auto get_extension = reinterpret_cast<PROC(WINAPI *)(LPCSTR)>(GetProcAddress(module, "wglGetProcAddress"));
+			if (get_extension == nullptr)
+				return false;
+			const auto core = [module](auto &function, const char *name) {
+				function = reinterpret_cast<std::remove_reference_t<decltype(function)>>(GetProcAddress(module, name));
+				return function != nullptr;
+			};
+			const auto extension = [get_extension](auto &function, const char *name) {
+				function = reinterpret_cast<std::remove_reference_t<decltype(function)>>(get_extension(name));
+				return function != nullptr;
+			};
+			return core(GetCurrentContext, "wglGetCurrentContext") && core(GetIntegerv, "glGetIntegerv") &&
+				core(GetFloatv, "glGetFloatv") && core(GetBooleanv, "glGetBooleanv") && core(IsEnabled, "glIsEnabled") &&
+				core(Enable, "glEnable") && core(Disable, "glDisable") && core(ColorMask, "glColorMask") &&
+				core(ClearColor, "glClearColor") && core(Clear, "glClear") &&
+				extension(GenFramebuffers, "glGenFramebuffers") && extension(DeleteFramebuffers, "glDeleteFramebuffers") &&
+				extension(BindFramebuffer, "glBindFramebuffer") && extension(FramebufferTexture2D, "glFramebufferTexture2D") &&
+				extension(CheckFramebufferStatus, "glCheckFramebufferStatus");
+		}
+	};
 
 	constexpr size_t compact_techniques_per_page = 10;
 	constexpr size_t compact_visible_parameters = 5;
@@ -238,6 +296,7 @@ namespace openxr_ui
 			none,
 			d3d11,
 			d3d12,
+			opengl,
 		};
 
 		enum class drag_target
@@ -254,6 +313,9 @@ namespace openxr_ui
 		ID3D12DescriptorHeap *srv_descriptor_heap = nullptr;
 		uint32_t srv_descriptor_increment = 0;
 		std::vector<bool> srv_descriptors_in_use;
+		opengl_functions gl;
+		HGLRC opengl_context = nullptr;
+		unsigned int opengl_framebuffer = 0;
 		uint32_t width = 0;
 		uint32_t height = 0;
 		size_t technique_scroll = 0;
@@ -289,7 +351,16 @@ namespace openxr_ui
 		if (_implementation->context == nullptr)
 			return;
 		ImGui::SetCurrentContext(_implementation->context);
-		if (_implementation->api == implementation::graphics_api::d3d11)
+		if (_implementation->api == implementation::graphics_api::opengl)
+		{
+			// Deleting OpenGL objects in another context would delete that context's objects instead; the owning context frees them when it is destroyed.
+			if (_implementation->gl.GetCurrentContext() != _implementation->opengl_context)
+				return;
+			if (_implementation->opengl_framebuffer != 0)
+				_implementation->gl.DeleteFramebuffers(1, &_implementation->opengl_framebuffer);
+			ImGui_ImplOpenGL3_Shutdown();
+		}
+		else if (_implementation->api == implementation::graphics_api::d3d11)
 			ImGui_ImplDX11_Shutdown();
 		else if (_implementation->api == implementation::graphics_api::d3d12)
 			ImGui_ImplDX12_Shutdown();
@@ -404,6 +475,25 @@ namespace openxr_ui
 		return true;
 	}
 
+	bool panel_renderer::initialize_opengl(uint32_t width, uint32_t height)
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		implementation &renderer = *_implementation;
+		if (!renderer.gl.load() || (renderer.opengl_context = renderer.gl.GetCurrentContext()) == nullptr ||
+			!initialize_context(width, height))
+			return false;
+
+		if (!ImGui_ImplOpenGL3_Init(nullptr))
+		{
+			ImGui::DestroyContext(renderer.context);
+			renderer.context = nullptr;
+			return false;
+		}
+		renderer.api = implementation::graphics_api::opengl;
+		renderer.gl.GenFramebuffers(1, &renderer.opengl_framebuffer);
+		return renderer.opengl_framebuffer != 0;
+	}
+
 	void panel_renderer::notify_save_result(bool succeeded)
 	{
 		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
@@ -434,7 +524,8 @@ namespace openxr_ui
 	{
 		render_result result;
 		const char *const graphics_api_name = _implementation->api == implementation::graphics_api::d3d11 ? "DX11" :
-			_implementation->api == implementation::graphics_api::d3d12 ? "DX12" : "Unknown";
+			_implementation->api == implementation::graphics_api::d3d12 ? "DX12" :
+			_implementation->api == implementation::graphics_api::opengl ? "OpenGL" : "Unknown";
 		char graphics_api_label[48];
 		if (input.eye_width != 0 && input.eye_height != 0)
 			std::snprintf(graphics_api_label, sizeof(graphics_api_label), "%s, %ux%u per eye", graphics_api_name, input.eye_width, input.eye_height);
@@ -788,13 +879,37 @@ namespace openxr_ui
 			}
 
 			ImGui::SetCursorScreenPos(footer_min);
-			const bool performance_hovered = draw_tick_box("performance_mode", "Performance next start", input.performance_mode, 310.0f);
-			ImGui::SetCursorScreenPos({ footer_min.x + 420.0f, footer_min.y });
 			const bool statistics_hovered = draw_tick_box("always_show_statistics", "Always show FPS", input.always_show_statistics, 230.0f);
-			ImGui::SetCursorScreenPos({ footer_min.x + 420.0f, footer_min.y + 39.0f });
+			ImGui::SetCursorScreenPos({ footer_min.x + 420.0f, footer_min.y + 2.0f });
 			char frame_rate_label[48];
 			std::snprintf(frame_rate_label, sizeof(frame_rate_label), "FPS target: %s", frame_rate_divisor_name(input.frame_rate_divisor));
 			const bool frame_rate_hovered = draw_text_button("frame_rate_divisor", frame_rate_label, { 290.0f, 30.0f });
+
+			// Both settings are read by ReShade only at game start, so they share one restart note.
+			const std::string restart_first = "Restart the game to apply your change.\n\n";
+			ImGui::SetCursorScreenPos({ footer_min.x + 420.0f, footer_min.y + 37.0f });
+			const char *const performance_label = "Performance mode (on = faster shaders)";
+			const bool performance_hovered = draw_tick_box("performance_mode", performance_label, input.performance_mode, 520.0f);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), performance_label,
+				((input.performance_mode_restart_pending ? restart_first : std::string()) +
+				"On: ReShade builds the effects with their current settings fixed, so they run faster. "
+				"How much this helps depends on how many and how heavy the shaders you use are. "
+				"Shader settings can then not be changed; shaders can still be switched on and off. "
+				"Applies after a game restart.").c_str());
+			ImGui::SetCursorScreenPos({ footer_min.x + 420.0f, footer_min.y + 74.0f });
+			const char *const depth_label = "Depth buffer (off = faster in OpenGL)";
+			const bool depth_hovered = draw_tick_box("depth_buffer", depth_label, !input.depth_detection_disabled, 520.0f);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), depth_label,
+				((input.depth_detection_restart_pending ? restart_first : std::string()) +
+				"On: ReShade gives the game's depth buffer to shaders (ReShade's Generic Depth helper), so shaders that need depth, "
+				"such as MXAO, depth of field and depth fog, work. Off: those shaders stop working; the game itself is not affected. "
+				"In SOMA-VR (OpenGL) turning it off gave about 30 FPS more. In DirectX games ReShade costs only a few FPS in total, "
+				"so turning this off makes little difference there. Applies after a game restart.").c_str());
+			const bool restart_pending = input.performance_mode_restart_pending || input.depth_detection_restart_pending;
+			ImGui::GetWindowDrawList()->AddText({ footer_min.x + 456.0f, footer_min.y + 111.0f + (34.0f - ImGui::GetFontSize()) * 0.5f },
+				restart_pending ? changed_value_color : IM_COL32(150, 170, 174, 255),
+				restart_pending ? "Restart the game to apply your change." : "These two apply after a game restart.");
+
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 37.0f });
 			const bool starts_open_hovered = draw_tick_box("starts_open", "UI starts open", input.ui_starts_open, 220.0f);
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 74.0f });
@@ -841,6 +956,11 @@ namespace openxr_ui
 			{
 				result.action = render_result::command::set_frame_rate_divisor;
 				result.value = input.frame_rate_divisor % max_frame_rate_divisor + 1;
+			}
+			else if (input.select_clicked && depth_hovered && _implementation->dragging == implementation::drag_target::none)
+			{
+				result.action = render_result::command::set_depth_detection_disabled;
+				result.state = !input.depth_detection_disabled;
 			}
 		}
 		else
@@ -1156,6 +1276,20 @@ namespace openxr_ui
 		return result;
 	}
 
+	render_result panel_renderer::render_opengl(uint32_t texture, const technique_snapshot &snapshot, const render_input &input)
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		if (_implementation->context == nullptr || _implementation->api != implementation::graphics_api::opengl || texture == 0 ||
+			_implementation->gl.GetCurrentContext() != _implementation->opengl_context)
+			return {};
+
+		ImGui::SetCurrentContext(_implementation->context);
+		ImGui_ImplOpenGL3_NewFrame();
+		const render_result result = render_ui(snapshot, input);
+		submit_opengl(texture);
+		return result;
+	}
+
 	void panel_renderer::render_statistics(ID3D11RenderTargetView *render_target, const frame_statistics &statistics)
 	{
 		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
@@ -1179,6 +1313,19 @@ namespace openxr_ui
 		ImGui_ImplDX12_NewFrame();
 		render_statistics_ui(statistics);
 		submit(command_list, render_target);
+	}
+
+	void panel_renderer::render_statistics_opengl(uint32_t texture, const frame_statistics &statistics)
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		if (_implementation->context == nullptr || _implementation->api != implementation::graphics_api::opengl || texture == 0 ||
+			_implementation->gl.GetCurrentContext() != _implementation->opengl_context)
+			return;
+
+		ImGui::SetCurrentContext(_implementation->context);
+		ImGui_ImplOpenGL3_NewFrame();
+		render_statistics_ui(statistics);
+		submit_opengl(texture);
 	}
 
 	void panel_renderer::render_statistics_ui(const frame_statistics &statistics)
@@ -1234,5 +1381,39 @@ namespace openxr_ui
 		ID3D12DescriptorHeap *const heaps[] = { _implementation->srv_descriptor_heap };
 		command_list->SetDescriptorHeaps(1, heaps);
 		ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), command_list);
+	}
+
+	// The Dear ImGui backend restores the state it changes; this restores the rest and the game's framebuffer.
+	void panel_renderer::submit_opengl(uint32_t texture)
+	{
+		const opengl_functions &gl = _implementation->gl;
+		int previous_framebuffer = 0;
+		gl.GetIntegerv(gl_draw_framebuffer_binding, &previous_framebuffer);
+		float previous_clear_color[4] = {};
+		gl.GetFloatv(gl_color_clear_value, previous_clear_color);
+		unsigned char previous_color_mask[4] = {};
+		gl.GetBooleanv(gl_color_writemask, previous_color_mask);
+		const bool scissor_enabled = gl.IsEnabled(gl_scissor_test) != 0;
+		const bool srgb_enabled = gl.IsEnabled(gl_framebuffer_srgb) != 0;
+
+		gl.BindFramebuffer(gl_draw_framebuffer, _implementation->opengl_framebuffer);
+		gl.FramebufferTexture2D(gl_draw_framebuffer, gl_color_attachment0, gl_texture_2d, texture, 0);
+		if (gl.CheckFramebufferStatus(gl_draw_framebuffer) == gl_framebuffer_complete)
+		{
+			gl.ColorMask(1, 1, 1, 1);
+			gl.Disable(gl_scissor_test);
+			gl.ClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+			gl.Clear(gl_color_buffer_bit);
+			// Matches the sRGB render target views of the Direct3D backends.
+			gl.Enable(gl_framebuffer_srgb);
+			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+		}
+		gl.FramebufferTexture2D(gl_draw_framebuffer, gl_color_attachment0, gl_texture_2d, 0, 0);
+
+		srgb_enabled ? gl.Enable(gl_framebuffer_srgb) : gl.Disable(gl_framebuffer_srgb);
+		scissor_enabled ? gl.Enable(gl_scissor_test) : gl.Disable(gl_scissor_test);
+		gl.ColorMask(previous_color_mask[0], previous_color_mask[1], previous_color_mask[2], previous_color_mask[3]);
+		gl.ClearColor(previous_clear_color[0], previous_clear_color[1], previous_clear_color[2], previous_clear_color[3]);
+		gl.BindFramebuffer(gl_draw_framebuffer, static_cast<unsigned int>(previous_framebuffer));
 	}
 }

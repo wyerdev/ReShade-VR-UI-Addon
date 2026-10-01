@@ -454,26 +454,33 @@ int main()
 		std::fputs("UI starts open checkbox did not produce its persisted closed-state command.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input performance_toggle = { true, 100.0f, 498.0f, true, false, false, false, 0.0f, false, true, false };
+	const openxr_ui::render_input performance_toggle = { true, 480.0f, 535.0f, true, false, false, false, 0.0f, false, true, false };
 	const openxr_ui::render_result performance_result = renderer.render(render_target.Get(), snapshot, performance_toggle);
 	if (performance_result.action != openxr_ui::render_result::command::set_performance_mode || !performance_result.state)
 	{
 		std::fputs("Performance mode checkbox did not produce its persisted next-start command.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input statistics_toggle = { true, 480.0f, 498.0f, true };
+	const openxr_ui::render_input statistics_toggle = { true, 100.0f, 498.0f, true };
 	const openxr_ui::render_result statistics_result = renderer.render(render_target.Get(), snapshot, statistics_toggle);
 	if (statistics_result.action != openxr_ui::render_result::command::set_always_show_statistics || !statistics_result.state)
 	{
 		std::fputs("Always show FPS checkbox did not produce its persisted command.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input frame_rate_toggle = { true, 480.0f, 535.0f, true };
+	openxr_ui::render_input frame_rate_toggle = { true, 480.0f, 498.0f, true };
 	frame_rate_toggle.frame_rate_divisor = 3;
 	const openxr_ui::render_result frame_rate_result = renderer.render(render_target.Get(), snapshot, frame_rate_toggle);
 	if (frame_rate_result.action != openxr_ui::render_result::command::set_frame_rate_divisor || frame_rate_result.value != 1.0)
 	{
 		std::fputs("FPS target button did not cycle from third rate back to full rate.\n", stderr);
+		return 1;
+	}
+	const openxr_ui::render_input depth_toggle = { true, 480.0f, 572.0f, true };
+	const openxr_ui::render_result depth_result = renderer.render(render_target.Get(), snapshot, depth_toggle);
+	if (depth_result.action != openxr_ui::render_result::command::set_depth_detection_disabled || !depth_result.state)
+	{
+		std::fputs("Depth detection checkbox did not produce its persisted command.\n", stderr);
 		return 1;
 	}
 	const openxr_ui::render_input lock_toggle = { true, 780.0f, 32.0f, true };

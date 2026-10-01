@@ -35,8 +35,14 @@ bool openxr_ui_set_always_show_statistics(bool enabled);
 // 1 = full headset rate, 2 = half, 3 = third; colours the FPS graph.
 uint32_t openxr_ui_get_frame_rate_divisor();
 bool openxr_ui_set_frame_rate_divisor(uint32_t divisor);
+// ReShade applies a performance mode change only when the game starts again.
 bool openxr_ui_get_performance_mode();
+bool openxr_ui_performance_mode_restart_pending();
 bool openxr_ui_set_performance_mode(bool enabled);
+// ReShade's built-in Generic Depth add-on; ReShade applies the change only when the game starts again.
+bool openxr_ui_is_depth_detection_disabled();
+bool openxr_ui_depth_detection_restart_pending();
+bool openxr_ui_set_depth_detection_disabled(bool disabled);
 bool openxr_ui_set_parameter(uint64_t parameter_id, uint32_t component, double value);
 bool openxr_ui_reset_parameter(uint64_t parameter_id);
 bool openxr_ui_reset_all_parameters(uint64_t technique_id);

@@ -3,7 +3,8 @@
 ## All Games
 
 - Windows and 64-bit games only.
-- DirectX 11 and 12 only. Vulkan and OpenGL games are not supported.
+- DirectX 11, DirectX 12 and OpenGL for OpenXR games; DirectX 11 and 12 for
+  SteamVR (OpenVR) games. Vulkan games are not supported.
 - Needs official ReShade with full add-on support, set up for the game with
   **OpenXR** enabled. Without it the add-on does nothing.
 - Installing, updating and uninstalling need an administrator window.
@@ -19,6 +20,27 @@
   for the headset software. It is not graphics card (GPU) time. If the game
   waits for the graphics card inside its own work, that wait counts as CPU.
   Low CPU with missed frames usually means the graphics card is the limit.
+
+## OpenGL Games
+
+- Tested with SOMA-VR. Other OpenGL OpenXR games should work the same way
+  but have not been tried.
+- ReShade must run only as the OpenXR layer. A ReShade `opengl32.dll` in the
+  game folder stops effects reaching the headset.
+- ReShade's built-in **Generic Depth** helper is expensive in OpenGL (about
+  30 FPS in SOMA-VR). Untick **Depth buffer (off = faster in OpenGL)** in the
+  panel and restart the game to save that; shaders that need depth then get
+  none.
+- The **Depth buffer** and **Performance mode** tick boxes take effect only
+  after a game restart, because ReShade reads them once at start.
+- With no effects switched on, ReShade itself still costs a few FPS in OpenGL
+  (about 5 in SOMA-VR). This is ReShade, not the add-on.
+- ReShade also runs on the game's desktop window, so its own menu (**Home**)
+  works there. While the headset shows effects, the add-on switches ReShade's
+  effects off on the monitor window to save performance; they come back if
+  the headset effects stop.
+- Effects apply to the game's 3D view only. Flat title or menu screens that a
+  mod shows as a floating panel get no effects.
 
 ## SteamVR (OpenVR) Games
 
