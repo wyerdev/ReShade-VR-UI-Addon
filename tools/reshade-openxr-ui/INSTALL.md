@@ -1,12 +1,12 @@
 # Install ReShade VR UI Add-on
 
-Works with 64-bit DirectX 11, DirectX 12 and OpenGL games that use OpenXR, and with DirectX 11 and 12 SteamVR (OpenVR) games. Vulkan is not supported.
+Works with 64-bit DirectX 11, DirectX 12 and OpenGL games that use OpenXR, and with DirectX 11 and 12 SteamVR (OpenVR) games. Vulkan OpenXR games are not supported. For 32-bit and Vulkan SteamVR games, see the tip below.
 
 ## Native OpenXR Games (DirectX 11, DirectX 12 and OpenGL)
 
 - Install **ReShade with full add-on support** from [reshade.me](https://reshade.me/).
 - In ReShade Setup, pick the game's main `.exe`, choose its graphics API (**DirectX 10/11/12** or **OpenGL**), and enable **OpenXR**.
-- Close games and SteamVR, then right-click `Install.cmd` and choose **Run as administrator** (once for all games).
+- Close games and SteamVR, then right-click `Install-OpenXR.cmd` and choose **Run as administrator** (once for all OpenXR games).
 - Start the game normally. The panel appears in the headset; `L3 + R3` shows or hides it.
 
 ## OpenGL Games: Depth Buffer And FPS
@@ -20,7 +20,7 @@ For more FPS, untick **Depth buffer (off = faster in OpenGL)** in the headset pa
 
 ## SteamVR (OpenVR) Games
 
-This is the normal way to install a ReShade add-on. `Install.cmd` is not needed.
+This is the normal way to install a ReShade add-on. The OpenXR installer is not needed.
 
 - Install **ReShade with full add-on support** from [reshade.me](https://reshade.me/).
 - In ReShade Setup, pick the game's main `.exe`, choose **DirectX 10/11/12**, and leave **OpenXR** unticked. ReShade Setup then puts ReShade next to the game's `.exe`.
@@ -29,37 +29,47 @@ This is the normal way to install a ReShade add-on. `Install.cmd` is not needed.
 - Start the game normally. ReShade's SteamVR dashboard opens after effects load.
 - Open **Add-ons** > **ReShade VR UI Add-on for SteamVR** for the controls.
 
-### Alternative: Automatic Loader
+### Optional: System-Wide SteamVR Listener
 
-Instead of the steps above, `Install.cmd` can also install a small loader program. It is installed only if you answer **Y** when `Install.cmd` asks. It starts with Windows and adds ReShade and the add-on to SteamVR games automatically, so nothing is copied into game folders.
+The listener is a separate download named `ReShade-System-Wide-SteamVR-Listener.zip`. It starts with Windows and automatically adds ReShade and this add-on to compatible SteamVR games selected in ReShade Setup. Use it only if you want system-wide operation without copying the add-on into each game folder.
 
 - In ReShade Setup, pick the game's main `.exe`, choose **DirectX 10/11/12**, and enable **OpenXR**.
-- Close games and SteamVR, then right-click `Install.cmd` and choose **Run as administrator** (once for all games). Answer **Y** when it asks to install the automatic SteamVR loader.
+- Extract the listener ZIP, close games and SteamVR, then right-click `Install-System-Wide-SteamVR-Listener.cmd` and choose **Run as administrator**.
 - Start the game normally, then open **Add-ons** > **ReShade VR UI Add-on for SteamVR**.
-- Loader log: `%LOCALAPPDATA%\ReShade VR UI Add-on\ReShade-VR-Loader.log`.
+- Listener log: `%LOCALAPPDATA%\ReShade VR UI Add-on\ReShade-System-Wide-SteamVR-Listener.log`.
+
+### Tip: 32-bit And Vulkan SteamVR Games
+
+This add-on has no 32-bit version, but ReShade on its own works in these games (tested with Half-Life 2 VR, which is 32-bit and uses Vulkan).
+
+- Install ReShade for the game as usual. This add-on is not needed.
+- Effects show in the headset.
+- Press the controller's menu button to open the SteamVR dashboard, then click the ReShade icon for ReShade's menu. This add-on's page is not there.
+- If the menu is zoomed in: close the game, open `ReShadeVR.ini` next to the game's `.exe` (the headset menu; `ReShade.ini` is the monitor menu), and under `[STYLE]` set `FontScale=1.000000` and `FontSize=12.000000`.
 
 ## UEVR (Unreal Games)
 
 - If ReShade is installed in the game folder (a normal desktop install), turn it off first. Either run ReShade Setup, pick the game and choose **Uninstall**, or rename ReShade's `dxgi.dll` next to the game's `.exe` (for example to `dxgi.dll.off`; rename it back for flat play). UEVR needs ReShade only as an OpenXR layer.
 - Install **ReShade with full add-on support** from [reshade.me](https://reshade.me/).
 - In ReShade Setup, pick the game's `...-Win64-Shipping.exe`, choose **DirectX 10/11/12**, and enable **OpenXR**.
-- Close games and SteamVR, then right-click `Install.cmd` and choose **Run as administrator** (once for all games).
+- Close games and SteamVR, then right-click `Install-OpenXR.cmd` and choose **Run as administrator** (once for all OpenXR games).
 - Start the game, then inject with UEVR set to **OpenXR** (not OpenVR).
 - The panel appears in the headset. `ReShade effect runtime unavailable` may show for a moment, then effects load.
 - Switch effects on in the panel. A new game starts with none enabled.
 
 ## Update Or Uninstall
 
-- Update: close games and SteamVR, extract the new release, then right-click its `Install.cmd` and choose **Run as administrator**. It asks about the loader again; answering **N** removes a loader installed earlier.
+- Update OpenXR: close games and SteamVR, extract the new normal release, then run `Install-OpenXR.cmd` as administrator.
 - For SteamVR games set up by copying, also replace `ReShade-SteamVR-UI.addon64` in each game folder with the new one.
-- Uninstall: close games and SteamVR, then right-click `Uninstall.cmd` and choose **Run as administrator**. Presets, logs and games are not touched.
+- Update the system-wide listener: extract its new separate ZIP, then run `Install-System-Wide-SteamVR-Listener.cmd` as administrator.
+- Uninstall OpenXR: run `Uninstall-OpenXR.cmd` as administrator.
+- Uninstall the listener: run `Uninstall-System-Wide-SteamVR-Listener.cmd` from the listener ZIP as administrator. Removing one does not remove the other.
 - For SteamVR games set up by copying, delete `ReShade-SteamVR-UI.addon64` from each game folder.
 - If no effects appear, check `ReShade.log` next to the game's `.exe`.
 
 ## Where It Installs And Why Admin Rights Are Needed
 
-- Files go to `C:\Program Files\ReShade VR UI Add-on`: the OpenXR add-on and the OpenXR layer file in `openxr-layers`. If you choose the automatic loader, the SteamVR add-on and the loader (`ReShade-VR-Loader.exe`) go there too.
-- Admin rights are needed for two things: writing to `C:\Program Files`, and registering the OpenXR layer for all users under `HKEY_LOCAL_MACHINE\Software\Khronos\OpenXR\1\ApiLayers\Implicit`. This is how OpenXR games find the add-on.
-- If you choose the automatic loader, it is set to start with Windows for your account (`HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`).
+- OpenXR files go to `C:\Program Files\ReShade VR UI Add-on`, with the layer file under `openxr-layers`. Admin rights are needed to write there and register the layer for all users under `HKEY_LOCAL_MACHINE\Software\Khronos\OpenXR\1\ApiLayers\Implicit`.
+- The separate listener installs `ReShade-System-Wide-SteamVR-Listener.exe` and the SteamVR add-on in the same program directory. It starts with Windows for your account through `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`.
 - Settings and logs are kept in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Uninstalling does not remove them.
-- `Install.cmd` and `Uninstall.cmd` never change game folders. The only file placed in a game folder is the SteamVR add-on you copy there yourself.
+- None of the installers change game folders. The only file placed in a game folder is the SteamVR add-on you copy there yourself.

@@ -12,7 +12,7 @@ The protected runtime files are installed machine-wide under:
 %ProgramFiles%\ReShade VR UI Add-on\
 ├── ReShade-OpenXR-UI.addon64
 ├── ReShade-SteamVR-UI.addon64
-├── ReShade-VR-Loader.exe
+├── ReShade-System-Wide-SteamVR-Listener.exe
 └── openxr-layers\
 	└── ReShade-OpenXR-UI-Layer.json
 ```
@@ -23,10 +23,10 @@ Preferences and logs remain per-user and are preserved by the uninstaller:
 %LOCALAPPDATA%\ReShade VR UI Add-on\settings.ini
 %LOCALAPPDATA%\ReShade VR UI Add-on\hidden-shaders.txt
 %LOCALAPPDATA%\ReShade VR UI Add-on\favourite-shaders.txt
-%LOCALAPPDATA%\ReShade VR UI Add-on\ReShade-VR-Loader.log
+%LOCALAPPDATA%\ReShade VR UI Add-on\ReShade-System-Wide-SteamVR-Listener.log
 ```
 
-`Install.cmd` creates this enabled machine-wide OpenXR API-layer registration:
+`Install-OpenXR.cmd` creates this enabled machine-wide OpenXR API-layer registration:
 
 ```text
 Key:
@@ -54,19 +54,19 @@ Data `0` means the layer is enabled. When a 64-bit OpenXR application starts:
 6. If ReShade accepts `reshade::register_addon`, the add-on initializes its controller actions, D3D11, D3D12 or OpenGL UI swapchain, and headset quad.
 7. Without ReShade, the layer remains inert and forwards OpenXR normally. Pimax Home therefore does not display the UI.
 
-`Install.cmd` also creates a current-user startup entry for `ReShade-VR-Loader.exe`. The loader reads `C:\ProgramData\ReShade\ReShadeApps.ini`, which official ReShade Setup maintains when OpenXR is enabled, and waits for each allowlisted 64-bit process to select its VR API. If `openxr_loader.dll` appears, the loader leaves activation entirely to the registered OpenXR layers. If `openvr_api.dll` appears, it loads the exact central `ReShade64.dll` and then `ReShade-SteamVR-UI.addon64`. This requires no game-local proxy or add-on and prevents the SteamVR path from creating an extra desktop runtime in a native OpenXR launch.
+The separate system-wide listener package creates a current-user startup entry for `ReShade-System-Wide-SteamVR-Listener.exe`. The listener reads `C:\ProgramData\ReShade\ReShadeApps.ini`, which official ReShade Setup maintains when OpenXR is enabled, and waits for each allowlisted 64-bit process to select its VR API. If `openxr_loader.dll` appears, the listener leaves activation entirely to the registered OpenXR layers. If `openvr_api.dll` appears, it loads the exact central `ReShade64.dll` and then `ReShade-SteamVR-UI.addon64`. This requires no game-local proxy or add-on and prevents the SteamVR path from creating an extra desktop runtime in a native OpenXR launch.
 
 The DLL has two simultaneous roles:
 
 - **OpenXR API layer:** creates and submits the headset-visible UI.
 - **ReShade add-on:** reads and changes techniques, parameters, ordering, and presets through ReShade's public API.
 
-Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. The loader deliberately reuses official ReShade's central application allowlist rather than maintaining another list. Install this package once as administrator and it becomes available to compatible 64-bit D3D11, D3D12 and OpenGL OpenXR games and D3D11 and D3D12 OpenVR games enabled through official ReShade.
+Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. The listener deliberately reuses official ReShade's central application allowlist rather than maintaining another list. Install the normal package once as administrator for compatible OpenXR games. SteamVR users can copy the companion add-on per game or install the separate system-wide listener package.
 
 Run the packaged installer as administrator from the repository root after closing running OpenXR applications:
 
 ```powershell
-.\build\reshade-openxr-ui-release\ReShade-VR-UI-Addon\Install.cmd
+.\build\reshade-openxr-ui-release\ReShade-VR-UI-Addon\Install-OpenXR.cmd
 ```
 
 ## Compatibility
@@ -78,7 +78,14 @@ Run the packaged installer as administrator from the repository root after closi
 - Oculus Touch-compatible controllers
 - Khronos simple-controller profile as a limited fallback
 
-Vulkan application sessions are not currently supported. SteamVR/OpenVR is supported for 64-bit D3D11 and D3D12 games through the packaged `ReShade-SteamVR-UI.addon64` companion.
+SteamVR/OpenVR is supported for 64-bit D3D11 and D3D12 games through the packaged `ReShade-SteamVR-UI.addon64` companion.
+
+Vulkan and 32-bit status (checked 2026-10-01):
+
+- Vulkan OpenXR games: ReShade runs the effects, but this add-on does not draw its headset panel yet. The work is planned in `VULKAN_SUPPORT_PLAN.md` and has not started.
+- Vulkan SteamVR (OpenVR) games: ReShade's own SteamVR dashboard already supports Vulkan, and the SteamVR companion has no graphics code of its own, so 64-bit Vulkan SteamVR games should work. This is untested.
+- 32-bit games: there is no 32-bit build of either add-on. 32-bit ReShade only loads `.addon32` files, so neither our page nor the automatic dashboard text-size fix below applies. ReShade's own SteamVR dashboard still works. If its text is too large, close the game and set `FontScale=1` and `FontSize=12` under `[STYLE]` in the game's `ReShadeVR.ini`.
+- Example: Half-Life 2 VR. `hl2vr.exe` starts the 32-bit `hl2.exe`, which draws through Vulkan (converted from Direct3D 9 by the mod) and uses SteamVR. Effects and ReShade's dashboard work in the headset; our page does not load.
 
 OpenGL OpenXR sessions (tested with SOMA-VR) need one extra step. ReShade is loaded by its OpenXR layer only when the game starts OpenXR, after the game has made its OpenGL context current, so ReShade has never seen that context and would skip the headset session. During `xrCreateSession`, and only when the session's context is current on the calling thread, this layer releases and re-binds that context through ReShade's hooked `wglMakeCurrent`. ReShade's layer sits above this one and inspects the session after this layer returns, so it then registers the context and runs its normal OpenXR OpenGL path. The panel is drawn with Dear ImGui's OpenGL 3 backend in the game's context; OpenGL is resolved at run time, so the add-on has no `opengl32.dll` import. See `OPENGL_SUPPORT.md` for findings and performance notes, including ReShade's Generic Depth cost.
 
@@ -214,15 +221,14 @@ Create the user-facing ZIP after the complete validation workflow:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\package.ps1
 ```
 
-The package is written to `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon.zip` with this layout:
+The normal package is written to `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon.zip` with this layout:
 
 ```text
 ReShade-OpenXR-UI.addon64
 ReShade-SteamVR-UI.addon64
-ReShade-VR-Loader.exe
 openxr-layers\ReShade-OpenXR-UI-Layer.json
-Install.cmd
-Uninstall.cmd
+Install-OpenXR.cmd
+Uninstall-OpenXR.cmd
 INSTALL.md
 LICENSE
 THIRD-PARTY-NOTICES.txt
@@ -230,14 +236,11 @@ THIRD-PARTY-NOTICES.txt
 
 Rename the build output's `layers` directory to `openxr-layers` when assembling the ZIP. Keep the manifest exactly one directory below the DLL because its relative `library_path` is `..\ReShade-OpenXR-UI.addon64`.
 
-The package script copies `Install.cmd`, `Uninstall.cmd`, and `INSTALL.md` from
-this directory, plus `LICENSE` and `THIRD-PARTY-NOTICES.txt` from the
-repository root, into the release root. The readable command scripts install
-or remove both add-ons, the loader, and the manifest under
-`%ProgramFiles%\ReShade VR UI Add-on`; they add or remove the machine-wide
-OpenXR registration and current-user loader startup entry. They require
-administrator access and preserve preferences and logs under
-`%LOCALAPPDATA%\ReShade VR UI Add-on` during uninstall.
+The separate `ReShade-System-Wide-SteamVR-Listener.zip` contains
+`ReShade-System-Wide-SteamVR-Listener.exe`, the SteamVR add-on, and dedicated
+listener install and uninstall scripts. The OpenXR and listener uninstallers
+remove only their own registrations and files. Both preserve preferences and
+logs under `%LOCALAPPDATA%\ReShade VR UI Add-on`.
 
 Do not ship the renderer test, PDB files, import libraries, object files, simulator captures, or ReShade itself.
 

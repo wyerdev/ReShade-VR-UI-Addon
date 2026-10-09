@@ -58,7 +58,7 @@ namespace
 		const std::filesystem::path directory = user_data_directory();
 		if (directory.empty())
 			return;
-		std::wofstream stream(directory / L"ReShade-VR-Loader.log", std::ios::app);
+		std::wofstream stream(directory / L"ReShade-System-Wide-SteamVR-Listener.log", std::ios::app);
 		if (!stream)
 			return;
 		SYSTEMTIME time = {};
