@@ -69,7 +69,7 @@
   Official ReShade VR behaves the same way.
 - ReShade's own VR menu is not shown. Use the add-on's panel instead.
 - A new game starts with no effects switched on.
-- "ReShade effect runtime unavailable" can show for a moment at start.
+- "Waiting for ReShade..." shows until the game draws its first 3D view.
 
 Not tested yet (may or may not work):
 

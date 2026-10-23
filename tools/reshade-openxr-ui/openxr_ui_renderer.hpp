@@ -52,6 +52,10 @@ namespace openxr_ui
 		bool performance_mode_restart_pending = false;
 		// Effects ReShade skips because their subfolders are not in EffectSearchPaths.
 		effect_subfolder_status effect_subfolders;
+		// False only when no ReShade is loaded, so effects can never start.
+		bool reshade_loaded = true;
+		// How long the panel has waited for ReShade's effects to start.
+		uint32_t effect_runtime_wait_seconds = 0;
 	};
 
 	struct render_result

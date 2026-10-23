@@ -13,6 +13,8 @@ namespace reshade::api
 }
 
 bool openxr_ui_ensure_addon_registered();
+// True once this add-on is registered with a loaded ReShade.
+bool openxr_ui_is_reshade_loaded();
 // True when the ReShade this add-on uses was loaded by the game or a mod, not as an OpenXR API layer.
 // The game's ReShade then draws the headset picture: the panel controls its window runtime, and the
 // add-on neither starts its effect fallback nor switches off that runtime's effects.

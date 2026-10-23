@@ -1234,6 +1234,12 @@ bool openxr_ui_ensure_addon_registered()
 	return try_register_addon();
 }
 
+bool openxr_ui_is_reshade_loaded()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	return s_addon_registered;
+}
+
 bool openxr_ui_game_brought_own_reshade()
 {
 #ifdef RESHADE_OPENVR_FRONTEND

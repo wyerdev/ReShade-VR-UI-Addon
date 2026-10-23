@@ -13,7 +13,7 @@ Works with 64-bit DirectX 11, DirectX 12 and OpenGL games that use OpenXR, and w
 
 OpenGL games (for example SOMA-VR) install and start the same way. Two things are different:
 
-- Effects appear once the game shows its normal 3D view. A flat title screen may show `ReShade effect runtime unavailable` until then.
+- Effects appear once the game shows its normal 3D view. A flat title screen may show `Waiting for ReShade...` until then.
 - ReShade's depth buffer helper (**Generic Depth**) costs much more FPS in OpenGL; in SOMA-VR about 30 FPS. It lets shaders know how far away things are.
 
 For more FPS, untick **Depth buffer (off = faster in OpenGL)** in the headset panel, then restart the game. Shaders that need depth (for example MXAO, depth of field, depth fog) then stop working; the game itself is not affected. Tick it again and restart to get them back. The setting is saved per game.
@@ -60,7 +60,7 @@ This add-on has no 32-bit version, but ReShade on its own works in these games (
 - In ReShade Setup, pick the game's `...-Win64-Shipping.exe`, choose **DirectX 10/11/12**, and enable **OpenXR**.
 - Close games and SteamVR, then right-click `Install-OpenXR.cmd` and choose **Run as administrator** (once for all OpenXR games).
 - Start the game, then inject with UEVR set to **OpenXR** (not OpenVR).
-- The panel appears in the headset. `ReShade effect runtime unavailable` may show for a moment, then effects load.
+- The panel appears in the headset. `Waiting for ReShade...` may show for a moment, then effects load.
 - Switch effects on in the panel. A new game starts with none enabled.
 
 ## Update Or Uninstall

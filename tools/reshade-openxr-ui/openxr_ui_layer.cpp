@@ -223,6 +223,7 @@ namespace
 		std::vector<XrSwapchain> effect_swapchains;
 		std::vector<XrSwapchain> pending_releases;
 		uint32_t frames_without_vr_runtime = 0;
+		std::chrono::steady_clock::time_point effect_runtime_wait_started{};
 		bool effects_decided = false;
 	};
 
@@ -780,6 +781,14 @@ namespace
 			state.performance_mode = openxr_ui_get_performance_mode();
 			state.shaders_temporarily_disabled = openxr_ui_are_shaders_temporarily_disabled();
 			state.preset_dirty = openxr_ui_is_preset_dirty();
+			const bool effect_runtime_available = openxr_ui_has_effect_runtime();
+			const auto now = std::chrono::steady_clock::now();
+			if (effect_runtime_available)
+				state.effect_runtime_wait_started = {};
+			else if (state.effect_runtime_wait_started == std::chrono::steady_clock::time_point{})
+				state.effect_runtime_wait_started = now;
+			const uint32_t effect_runtime_wait_seconds = effect_runtime_available ? 0 :
+				static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::seconds>(now - state.effect_runtime_wait_started).count());
 			const uint32_t panel_height = state.panel_expanded ? openxr_ui::expanded_panel_height : openxr_ui::compact_panel_height;
 			const LONG pointer_x = std::clamp(state.pointer_x,
 				pointer_margin, static_cast<LONG>(openxr_ui::panel_width) - pointer_margin - 1);
@@ -800,7 +809,7 @@ namespace
 				state.shaders_temporarily_disabled,
 				state.preset_dirty,
 				openxr_ui_get_preset_name(),
-				openxr_ui_has_effect_runtime(),
+				effect_runtime_available,
 				state.always_show_statistics,
 				state.frame_timing.statistics().frame_rate_divisor,
 				state.panel_locked,
@@ -810,6 +819,8 @@ namespace
 				openxr_ui_depth_detection_restart_pending(),
 				openxr_ui_performance_mode_restart_pending(),
 				openxr_ui_get_effect_subfolder_status(),
+				openxr_ui_is_reshade_loaded(),
+				effect_runtime_wait_seconds,
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)

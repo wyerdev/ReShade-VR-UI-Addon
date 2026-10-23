@@ -538,6 +538,20 @@ int main()
 		std::fputs("The loading notice with an empty effect list returned a command.\n", stderr);
 		return 1;
 	}
+	openxr_ui::render_input waiting_for_reshade = { true, 400.0f, 148.0f, true };
+	waiting_for_reshade.effect_runtime_available = false;
+	waiting_for_reshade.effect_runtime_wait_seconds = 7;
+	if (renderer.render(render_target.Get(), openxr_ui::technique_snapshot {}, waiting_for_reshade).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("The waiting-for-ReShade notice returned a command.\n", stderr);
+		return 1;
+	}
+	waiting_for_reshade.reshade_loaded = false;
+	if (renderer.render(render_target.Get(), openxr_ui::technique_snapshot {}, waiting_for_reshade).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("The ReShade-not-loaded notice returned a command.\n", stderr);
+		return 1;
+	}
 	if (!expect_command(renderer, render_target.Get(), snapshot, 587.0f, 102.0f,
 		openxr_ui::render_result::command::previous_preset, 0) ||
 		!expect_command(renderer, render_target.Get(), snapshot, 629.0f, 102.0f,

@@ -235,6 +235,33 @@ namespace
 		}
 	}
 
+	// Status strip above the effect list. `text_max_x` leaves room for buttons on the right.
+	void draw_notice(const ImVec2 notice_min, const ImVec2 notice_max, float text_max_x, ImU32 accent, bool busy,
+		const char *message, const char *details)
+	{
+		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+		draw_list->AddRectFilled(notice_min, notice_max, IM_COL32(13, 29, 38, 255), 3.0f);
+		draw_list->AddRectFilled(notice_min, { notice_min.x + 5.0f, notice_max.y }, accent, 3.0f, ImDrawFlags_RoundCornersLeft);
+		if (busy)
+		{
+			// A segment sliding along the bottom edge shows that loading is still in progress.
+			const float track_min = notice_min.x + 5.0f;
+			const float track_width = notice_max.x - track_min;
+			const float segment_width = track_width * 0.2f;
+			const float phase = static_cast<float>(std::fmod(ImGui::GetTime() * 0.5, 1.0));
+			const float segment_min = track_min + (track_width + segment_width) * phase - segment_width;
+			draw_list->AddRectFilled({ (std::max)(segment_min, track_min), notice_max.y - 4.0f },
+				{ (std::min)(segment_min + segment_width, notice_max.x), notice_max.y }, accent);
+		}
+
+		const ImVec2 text_min = { notice_min.x + 16.0f, notice_min.y };
+		const ImVec2 text_max = { text_max_x, notice_max.y };
+		const std::string fitted = fit_text(message, text_max.x - text_min.x);
+		draw_list->AddText({ text_min.x, notice_min.y + (notice_max.y - notice_min.y - ImGui::GetFontSize()) * 0.5f },
+			IM_COL32(222, 242, 245, 255), fitted.c_str());
+		draw_hover_details(text_min, text_max, message, details);
+	}
+
 	struct slider_interaction
 	{
 		bool hovered = false;
@@ -810,50 +837,29 @@ namespace openxr_ui
 				const float notice_height = 40.0f;
 				const ImVec2 notice_min = ImGui::GetCursorScreenPos();
 				const ImVec2 notice_max = { ImGui::GetWindowWidth() - outer_padding, notice_min.y + notice_height };
-				ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-				draw_list->AddRectFilled(notice_min, notice_max, IM_COL32(13, 29, 38, 255), 3.0f);
-				draw_list->AddRectFilled(notice_min, { notice_min.x + 5.0f, notice_max.y }, accent, 3.0f, ImDrawFlags_RoundCornersLeft);
-				if (busy)
-				{
-					// A segment sliding along the bottom edge shows that loading is still in progress.
-					const float track_min = notice_min.x + 5.0f;
-					const float track_width = notice_max.x - track_min;
-					const float segment_width = track_width * 0.2f;
-					const float phase = static_cast<float>(std::fmod(ImGui::GetTime() * 0.5, 1.0));
-					const float segment_min = track_min + (track_width + segment_width) * phase - segment_width;
-					draw_list->AddRectFilled({ (std::max)(segment_min, track_min), notice_max.y - 4.0f },
-						{ (std::min)(segment_min + segment_width, notice_max.x), notice_max.y }, accent);
-				}
+				const float buttons_width = offered ? 110.0f + 196.0f : busy ? 0.0f : 80.0f;
+				float buttons_x = notice_max.x - 5.0f - buttons_width;
+				draw_notice(notice_min, notice_max, buttons_x - 10.0f, accent, busy, message, details);
 
 				const float button_y = notice_min.y + 5.0f;
 				const ImVec2 button_size = { 0.0f, notice_height - 10.0f };
-				float buttons_x = notice_max.x - 5.0f;
 				bool primary_hovered = false;
 				bool dismiss_hovered = false;
 				if (offered)
 				{
-					buttons_x -= 110.0f;
-					ImGui::SetCursorScreenPos({ buttons_x, button_y });
-					dismiss_hovered = draw_text_button("subfolders_not_now", "Not now", { 110.0f, button_size.y });
-					buttons_x -= 196.0f;
 					ImGui::SetCursorScreenPos({ buttons_x, button_y });
 					primary_hovered = draw_text_button("subfolders_load", drops_unsaved_changes ? "Load anyway" : "Load subfolders",
 						{ 188.0f, button_size.y }, blocked_reason == nullptr,
 						drops_unsaved_changes ? IM_COL32(184, 138, 20, 255) : IM_COL32(22, 132, 72, 255));
+					buttons_x += 196.0f;
+					ImGui::SetCursorScreenPos({ buttons_x, button_y });
+					dismiss_hovered = draw_text_button("subfolders_not_now", "Not now", { 110.0f, button_size.y });
 				}
 				else if (!busy)
 				{
-					buttons_x -= 80.0f;
 					ImGui::SetCursorScreenPos({ buttons_x, button_y });
 					dismiss_hovered = draw_text_button("subfolders_ok", "OK", { 80.0f, button_size.y });
 				}
-
-				const ImVec2 text_min = { notice_min.x + 16.0f, notice_min.y };
-				const ImVec2 text_max = { buttons_x - 10.0f, notice_max.y };
-				const std::string fitted = fit_text(message, text_max.x - text_min.x);
-				draw_list->AddText({ text_min.x, notice_min.y + (notice_height - ImGui::GetFontSize()) * 0.5f },
-					IM_COL32(222, 242, 245, 255), fitted.c_str());
-				draw_hover_details(text_min, text_max, message, details);
 
 				const bool can_click = input.select_clicked && _implementation->dragging == implementation::drag_target::none;
 				if (can_click && primary_hovered)
@@ -864,9 +870,28 @@ namespace openxr_ui
 			}
 			if (!input.effect_runtime_available)
 			{
-				ImGui::TextColored(ImVec4(1.0f, 0.62f, 0.22f, 1.0f), "ReShade effect runtime unavailable");
-				ImGui::TextWrapped("ReShade did not initialize OpenXR effects. Check ReShade.log for an unproxied graphics device.");
-				ImGui::Separator();
+				char message[160];
+				const char *details = nullptr;
+				if (input.reshade_loaded)
+				{
+					std::snprintf(message, sizeof(message), "Waiting for ReShade... %u s. Effects start when the game shows its 3D view.",
+						input.effect_runtime_wait_seconds);
+					details = "ReShade starts its effects when the game first draws the picture for the headset. "
+						"A flat title screen or a loading screen can keep this waiting; that is normal.\n\n"
+						"If this keeps counting after the game shows its 3D world in the headset, ReShade could not attach to the "
+						"game's graphics. ReShade.log next to the game explains why.";
+				}
+				else
+				{
+					std::snprintf(message, sizeof(message), "ReShade is not loaded in this game. Effects cannot start.");
+					details = "This panel found no ReShade in the game, so there are no effects to control.\n\n"
+						"Install ReShade for this game with OpenXR support turned on, then restart the game.";
+				}
+				const ImVec2 notice_min = ImGui::GetCursorScreenPos();
+				const ImVec2 notice_max = { ImGui::GetWindowWidth() - outer_padding, notice_min.y + 40.0f };
+				draw_notice(notice_min, notice_max, notice_max.x - 10.0f,
+					input.reshade_loaded ? IM_COL32(0, 174, 197, 255) : IM_COL32(220, 70, 70, 255), input.reshade_loaded, message, details);
+				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + 6.0f });
 			}
 			else if (snapshot.techniques.empty() && (input.effect_subfolders.state == effect_subfolder_state::saving ||
 				input.effect_subfolders.state == effect_subfolder_state::loading))
