@@ -30,7 +30,7 @@ Performance mode and `Depth buffer (off = faster in OpenGL)` sit together becaus
 
 `Disable all` turns every technique off without saving the preset. It captures the exact live technique state first, including changes that have not been saved; `Restore shaders` restores that captured state. Technique editing and Save are unavailable while the temporary all-off state is active, preventing it from being written to the preset.
 
-Save is green when the current live technique and parameter state matches the last successful preset save. It turns amber after either a technique toggle or a parameter change/reset. A successful Save briefly changes the label to `Saved`; a failed save is red. Parameter changes remain live but unsaved until Save is pressed.
+Save is green when the current live technique and parameter state matches the last successful preset save. It turns amber after either a technique toggle or a parameter change/reset. A successful Save briefly changes the label to `Saved`; a failed save is red. Parameter changes remain live but unsaved until Save is pressed. Values the game itself keeps writing (for example a VR mod driving fog settings every frame) are ignored: a value written by something other than the panel in 60 or more frames while ReShade's own menu is closed counts as set by the game and no longer makes Save amber. Uniforms with a `source` annotation (timer, frame count and similar) are not listed.
 
 ## Per-shader revert and restore
 
@@ -39,6 +39,12 @@ Each technique detail view has one toggle control labeled `Revert` or `Restore`.
 ## Cursor stabilization
 
 Free pointer movement uses a six-pixel radial dead zone followed by continuous low-pass motion and two-pixel output quantization. This avoids converting gradual controller drift into delayed cursor jumps. Holding select uses a faster low-pass response instead of raw pose coordinates, keeping sliders and drag controls responsive without exposing every tracking sample.
+
+## Effects in subfolders
+
+ReShade searches each `EffectSearchPaths` folder only at the top level unless the entry ends in `\**`. Some setups (for example the D2R-PCVR mod: `.\reshade-shaders\Shaders`) therefore skip effect packs in subfolders such as `SweetFX`. Once per effect runtime, after its first inventory, the add-on reads the list through the add-on configuration API, resolves relative entries from ReShade's base folder (`ReShadeGetBasePath`), and walks each non-recursive folder (at most 20,000 entries; entries with `${...}` macros are skipped). If `.fx` or `.addonfx` files sit in subfolders ReShade does not search, the panel shows a notice under the header, for example "42 effects in 8 subfolders are not loaded.", with `Load subfolders` and `Not now`; hovering the text explains it.
+
+`Load subfolders` is disabled only while `Disable all` is active. A reload re-reads the preset from disk, so with unsaved changes the notice warns that they will be dropped and the button reads `Load anyway` (amber). It appends `\**` to the affected entries, saves them with `set_config_value` (verified by reading back) and asks ReShade to reload all effects on its own thread. While ReShade rebuilds every effect, all effects are off and the list is empty; the notice shows "Loading effects... N s. Effects are off until it finishes." with a seconds counter and a sliding bar, and the empty list says "ReShade is loading effects" instead of "No ReShade techniques found". In D2R this took roughly 10 to 30 seconds the first time; the add-on log records the duration. The notice finally shows either "Effects from subfolders loaded. No restart needed." (a reloaded technique comes from one of the found files) or "Subfolders saved. Restart the game to load their effects." (the reload found none, or did not start within 900 frames). If saving fails it says "Could not change ReShade.ini." and the hover text explains the manual fix. `OK` or `Not now` hide the notice until the next game start. The SteamVR page shows the same notice with plain buttons.
 
 ## TODO Features:
 

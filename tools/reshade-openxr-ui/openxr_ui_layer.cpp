@@ -77,9 +77,10 @@ namespace
 	constexpr int64_t gl_rgba8 = 0x8058;
 	constexpr int64_t gl_srgb8_alpha8 = 0x8C43;
 
+	// Never inside a game's own ReShade: a second effect runtime on top of it crashed D2R-PCVR.
 	bool effect_fallback_supported(graphics_api api)
 	{
-		return api == graphics_api::d3d11 || api == graphics_api::d3d12;
+		return (api == graphics_api::d3d11 || api == graphics_api::d3d12) && !openxr_ui_game_brought_own_reshade();
 	}
 
 	struct instance_dispatch
@@ -808,6 +809,7 @@ namespace
 				openxr_ui_is_depth_detection_disabled(),
 				openxr_ui_depth_detection_restart_pending(),
 				openxr_ui_performance_mode_restart_pending(),
+				openxr_ui_get_effect_subfolder_status(),
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
@@ -904,6 +906,12 @@ namespace
 				break;
 			case openxr_ui::render_result::command::set_depth_detection_disabled:
 				openxr_ui_set_depth_detection_disabled(render_result.state);
+				break;
+			case openxr_ui::render_result::command::include_effect_subfolders:
+				openxr_ui_include_effect_subfolders();
+				break;
+			case openxr_ui::render_result::command::dismiss_effect_subfolder_notice:
+				openxr_ui_dismiss_effect_subfolder_notice();
 				break;
 			case openxr_ui::render_result::command::toggle_panel_lock:
 				state.panel_locked = !state.panel_locked;
@@ -1696,7 +1704,10 @@ extern "C" XrResult XRAPI_CALL xrCreateApiLayerInstance(const XrInstanceCreateIn
 		return XR_ERROR_INITIALIZATION_FAILED;
 	}
 	if (openxr_ui_ensure_addon_registered())
+	{
+		openxr_ui_game_brought_own_reshade();
 		initialize_actions(*dispatch, *instance);
+	}
 	{
 		const std::lock_guard<std::mutex> lock(s_layer_mutex);
 		s_instances.emplace(*instance, std::move(dispatch));

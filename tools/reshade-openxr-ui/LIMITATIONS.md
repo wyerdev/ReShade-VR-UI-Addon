@@ -8,6 +8,11 @@
 - Needs official ReShade with full add-on support, set up for the game with
   **OpenXR** enabled. Without it the add-on does nothing.
 - Installing, updating and uninstalling need an administrator window.
+- Games or mods that bring their own ReShade (for example the D2R-PCVR mod for
+  Diablo II: Resurrected): the add-on notices this by itself. Its panel then
+  controls the game's ReShade, and it adds no headset effects of its own. Tested
+  in D2R-PCVR. See
+  [MOD_OWN_RESHADE_CONFLICT.md](MOD_OWN_RESHADE_CONFLICT.md).
 - Controllers: Oculus Touch style controllers work best. Other controllers use
   a basic fallback with fewer controls.
 - The **UI starts open** setting applies from the next game start.

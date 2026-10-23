@@ -11,12 +11,14 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 using namespace reshade::api;
 
@@ -62,10 +64,182 @@ namespace
 	std::atomic<bool> s_runtime_state_dirty = false;
 	std::string s_observed_preset_path;
 	uint32_t s_empty_inventory_retry_frame = 0;
+	struct effect_subfolder_scan
+	{
+		// EffectSearchPaths with "\**" added to every folder that hides effects.
+		std::vector<std::string> search_paths;
+		std::vector<std::string> effect_names;
+		uint32_t folder_count = 0;
+	};
+	openxr_ui::effect_subfolder_state s_effect_subfolder_state = openxr_ui::effect_subfolder_state::none;
+	effect_subfolder_scan s_effect_subfolder_scan;
+	effect_runtime *s_effect_subfolder_scanned_runtime = nullptr;
+	bool s_effect_subfolder_notice_dismissed = false;
+	bool s_effect_subfolder_reload_started = false;
+	uint32_t s_effect_subfolder_wait_frames = 0;
+	std::chrono::steady_clock::time_point s_effect_subfolder_requested_at;
+	std::atomic<bool> s_effect_subfolder_scan_pending = false;
+
+	// Values written by something other than this panel (a mod, ReShade's own clock) are counted per frame.
+	// A value written in this many separate frames is treated as set by the game.
+	constexpr uint32_t set_by_game_frame_threshold = 60;
+	struct external_write_count
+	{
+		uint64_t last_frame = 0;
+		uint32_t frames = 0;
+	};
+	// Separate from s_mutex: ReShade reports writes synchronously, also while the panel holds s_mutex.
+	std::mutex s_external_write_mutex;
+	std::unordered_map<uint64_t, external_write_count> s_external_writes;
+	std::atomic<uint64_t> s_present_frame = 0;
+	std::atomic<bool> s_reshade_overlay_open = false;
+	thread_local uint32_t t_panel_write_depth = 0;
+	struct panel_write_scope
+	{
+		panel_write_scope() { ++t_panel_write_depth; }
+		~panel_write_scope() { --t_panel_write_depth; }
+		panel_write_scope(const panel_write_scope &) = delete;
+		panel_write_scope &operator=(const panel_write_scope &) = delete;
+	};
+
+	bool is_set_by_game(uint64_t parameter_id)
+	{
+		const std::lock_guard<std::mutex> lock(s_external_write_mutex);
+		const auto it = s_external_writes.find(parameter_id);
+		return it != s_external_writes.end() && it->second.frames >= set_by_game_frame_threshold;
+	}
+
+	bool mark_parameters_set_by_game(openxr_ui::technique_snapshot &snapshot)
+	{
+		bool changed = false;
+		for (openxr_ui::parameter &entry : snapshot.parameters)
+		{
+			const bool set_by_game = is_set_by_game(entry.id);
+			changed = changed || set_by_game != entry.set_by_game;
+			entry.set_by_game = set_by_game;
+		}
+		return changed;
+	}
 #ifdef RESHADE_OPENVR_FRONTEND
 	// ReShade presents its OpenVR runtime once per frame, after the right eye.
 	openxr_ui::frame_statistics_tracker s_openvr_frame_timing;
 	uint32_t s_openvr_refresh_query_frame = 0;
+#endif
+
+#ifndef RESHADE_OPENVR_FRONTEND
+#pragma comment(lib, "advapi32.lib")
+
+	constexpr int own_reshade_unknown = 0;
+	constexpr int own_reshade_no = 1;
+	constexpr int own_reshade_yes = 2;
+	std::atomic<int> s_own_reshade_state = own_reshade_unknown;
+	std::mutex s_own_reshade_mutex;
+
+	std::filesystem::path module_path(HMODULE module)
+	{
+		std::wstring path(32768, L'\0');
+		const DWORD length = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
+		if (length == 0 || length >= path.size())
+			return {};
+		path.resize(length);
+		return path;
+	}
+
+	// The "library_path" of an OpenXR API-layer manifest; the loader resolves a relative path from the manifest's folder.
+	std::filesystem::path read_layer_library_path(const std::filesystem::path &manifest)
+	{
+		std::ifstream file(manifest, std::ios::binary);
+		if (!file)
+			return {};
+		const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+		const size_t key = text.find("\"library_path\"");
+		if (key == std::string::npos)
+			return {};
+		const size_t colon = text.find(':', key + 14);
+		if (colon == std::string::npos)
+			return {};
+		size_t position = text.find('"', colon + 1);
+		if (position == std::string::npos)
+			return {};
+		std::string value;
+		for (++position; position < text.size() && text[position] != '"'; ++position)
+		{
+			if (text[position] == '\\' && position + 1 < text.size())
+				++position;
+			value += text[position];
+		}
+		if (position >= text.size() || value.empty())
+			return {};
+
+		std::filesystem::path library = std::filesystem::u8path(value);
+		if (library.is_relative())
+			library = manifest.parent_path() / library;
+		return library;
+	}
+
+	void add_registered_layer_manifests(HKEY root, const wchar_t *subkey, std::vector<std::filesystem::path> &manifests)
+	{
+		HKEY key = nullptr;
+		if (RegOpenKeyExW(root, subkey, 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
+			return;
+		for (DWORD index = 0;; ++index)
+		{
+			wchar_t name[2048] = {};
+			DWORD name_length = static_cast<DWORD>(std::size(name));
+			DWORD type = 0;
+			DWORD disabled = 1;
+			DWORD data_size = sizeof(disabled);
+			const LSTATUS status = RegEnumValueW(key, index, name, &name_length, nullptr, &type, reinterpret_cast<BYTE *>(&disabled), &data_size);
+			if (status == ERROR_NO_MORE_ITEMS)
+				break;
+			// The OpenXR loader uses a manifest whose value is the DWORD 0.
+			if (status == ERROR_SUCCESS && type == REG_DWORD && disabled == 0)
+				manifests.emplace_back(name);
+		}
+		RegCloseKey(key);
+	}
+
+	// True when the DLL is the library of an OpenXR API layer known to the loader: a registered
+	// layer, or one found through XR_API_LAYER_PATH, which test setups use for their ReShade layer.
+	bool is_openxr_layer_library(const std::filesystem::path &library)
+	{
+		std::vector<std::filesystem::path> manifests;
+		for (const HKEY root : { HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER })
+		{
+			add_registered_layer_manifests(root, L"SOFTWARE\\Khronos\\OpenXR\\1\\ApiLayers\\Implicit", manifests);
+			add_registered_layer_manifests(root, L"SOFTWARE\\Khronos\\OpenXR\\1\\ApiLayers\\Explicit", manifests);
+		}
+
+		std::wstring layer_path(32768, L'\0');
+		const DWORD layer_path_length = GetEnvironmentVariableW(L"XR_API_LAYER_PATH", layer_path.data(), static_cast<DWORD>(layer_path.size()));
+		layer_path.resize(layer_path_length < layer_path.size() ? layer_path_length : 0);
+		for (size_t start = 0; start < layer_path.size();)
+		{
+			const size_t end = (std::min)(layer_path.find(L';', start), layer_path.size());
+			const std::filesystem::path entry = layer_path.substr(start, end - start);
+			start = end + 1;
+			std::error_code error;
+			if (entry.empty())
+				continue;
+			if (std::filesystem::is_regular_file(entry, error))
+			{
+				manifests.push_back(entry);
+				continue;
+			}
+			for (std::filesystem::directory_iterator it(entry, error), end_it; !error && it != end_it; it.increment(error))
+				if (it->path().extension() == L".json")
+					manifests.push_back(it->path());
+		}
+
+		for (const std::filesystem::path &manifest : manifests)
+		{
+			const std::filesystem::path layer_library = read_layer_library_path(manifest);
+			std::error_code error;
+			if (!layer_library.empty() && std::filesystem::equivalent(layer_library, library, error))
+				return true;
+		}
+		return false;
+	}
 #endif
 
 	std::filesystem::path configuration_directory()
@@ -240,6 +414,7 @@ namespace
 
 	void write_parameter_values(effect_runtime *runtime, effect_uniform_variable variable, const openxr_ui::parameter &entry)
 	{
+		const panel_write_scope panel_write;
 		for (uint32_t array_index = 0; array_index < entry.array_length; ++array_index)
 		{
 			const size_t offset = static_cast<size_t>(array_index) * entry.component_count;
@@ -339,8 +514,208 @@ namespace
 	}
 #endif
 
+	// ReShade returns list values as entries separated by '\0'.
+	std::vector<std::string> read_config_list(effect_runtime *runtime, const char *section, const char *key)
+	{
+		size_t size = 0;
+		if (!reshade::get_config_value(runtime, section, key, nullptr, &size) || size == 0)
+			return {};
+		std::string buffer(size, '\0');
+		if (!reshade::get_config_value(runtime, section, key, buffer.data(), &size))
+			return {};
+		buffer.resize(size);
+		std::vector<std::string> entries;
+		for (size_t begin = 0; begin < buffer.size();)
+		{
+			const size_t end = (std::min)(buffer.find('\0', begin), buffer.size());
+			if (end > begin)
+				entries.push_back(buffer.substr(begin, end - begin));
+			begin = end + 1;
+		}
+		return entries;
+	}
+
+	// ReShade resolves relative EffectSearchPaths from this folder.
+	std::filesystem::path reshade_base_path()
+	{
+		using get_base_path_function = void (*)(char *, size_t *);
+		const auto get_base_path = reinterpret_cast<get_base_path_function>(
+			GetProcAddress(reshade::internal::get_reshade_module_handle(), "ReShadeGetBasePath"));
+		if (get_base_path == nullptr)
+			return {};
+		size_t size = 0;
+		get_base_path(nullptr, &size);
+		if (size <= 1)
+			return {};
+		std::string path(size, '\0');
+		get_base_path(path.data(), &size);
+		path.resize(size);
+		return std::filesystem::u8path(path);
+	}
+
+	bool is_inside_folder(const std::filesystem::path &path, const std::filesystem::path &folder)
+	{
+		return std::mismatch(folder.begin(), folder.end(), path.begin(), path.end()).first == folder.end();
+	}
+
+	// Finds effect files that ReShade skips: they sit in a subfolder of a search folder listed without "\**".
+	effect_subfolder_scan scan_effect_subfolders(const std::vector<std::string> &entries, const std::filesystem::path &base_path)
+	{
+		struct search_folder
+		{
+			std::filesystem::path path;
+			bool recursive = false;
+		};
+		std::vector<search_folder> folders(entries.size());
+		for (size_t index = 0; index < entries.size(); ++index)
+		{
+			// Leave folders that use ReShade's ${...} macros alone.
+			if (entries[index].find("${") != std::string::npos)
+				continue;
+			std::filesystem::path path = std::filesystem::u8path(entries[index]);
+			folders[index].recursive = path.filename() == L"**";
+			if (folders[index].recursive)
+				path = path.parent_path();
+			if (path.is_relative())
+			{
+				if (base_path.empty())
+					continue;
+				path = base_path / path;
+			}
+			std::error_code error;
+			std::filesystem::path canonical = std::filesystem::canonical(path, error);
+			if (!error)
+				folders[index].path = std::move(canonical);
+		}
+		const auto searched_by_reshade = [&folders](const std::filesystem::path &directory) {
+			return std::any_of(folders.begin(), folders.end(), [&directory](const search_folder &folder) {
+				return !folder.path.empty() && (folder.recursive ? is_inside_folder(directory, folder.path) : directory == folder.path);
+			});
+		};
+
+		effect_subfolder_scan result;
+		result.search_paths = entries;
+		std::unordered_set<std::wstring> hidden_folders;
+		// Keeps a huge or looping folder tree from stalling the frame that runs the scan.
+		size_t remaining_entries = 20000;
+		for (size_t index = 0; index < folders.size(); ++index)
+		{
+			const search_folder &folder = folders[index];
+			if (folder.path.empty() || folder.recursive)
+				continue;
+			bool hides_effects = false;
+			std::error_code error;
+			for (std::filesystem::recursive_directory_iterator it(folder.path, std::filesystem::directory_options::skip_permission_denied, error), end;
+				!error && it != end && remaining_entries != 0; it.increment(error), --remaining_entries)
+			{
+				std::error_code type_error;
+				if (it.depth() == 0 || !it->is_regular_file(type_error))
+					continue;
+				const std::wstring extension = it->path().extension().native();
+				if (_wcsicmp(extension.c_str(), L".fx") != 0 && _wcsicmp(extension.c_str(), L".addonfx") != 0)
+					continue;
+				const std::filesystem::path directory = it->path().parent_path();
+				if (searched_by_reshade(directory))
+					continue;
+				hides_effects = true;
+				hidden_folders.insert(directory.native());
+				result.effect_names.push_back(it->path().filename().u8string());
+			}
+			if (hides_effects)
+			{
+				std::string &entry = result.search_paths[index];
+				if (entry.back() != '\\' && entry.back() != '/')
+					entry += '\\';
+				entry += "**";
+			}
+		}
+		result.folder_count = static_cast<uint32_t>(hidden_folders.size());
+		return result;
+	}
+
+	// Runs on ReShade's thread; disk access happens outside s_mutex so the headset panel never waits for it.
+	void refresh_effect_subfolder_scan(effect_runtime *runtime)
+	{
+		effect_subfolder_scan scan = scan_effect_subfolders(read_config_list(runtime, "GENERAL", "EffectSearchPaths"), reshade_base_path());
+		const std::lock_guard<std::mutex> lock(s_mutex);
+		if (runtime != s_effect_runtime || s_effect_subfolder_notice_dismissed ||
+			s_effect_subfolder_state != openxr_ui::effect_subfolder_state::none || scan.effect_names.empty())
+			return;
+		char message[256];
+		std::snprintf(message, sizeof(message),
+			"%zu effect files in %u subfolders are not loaded because EffectSearchPaths does not include subfolders; the panel offers to include them.",
+			scan.effect_names.size(), scan.folder_count);
+		log_runtime_message(reshade::log::level::info, message);
+		s_effect_subfolder_scan = std::move(scan);
+		s_effect_subfolder_state = openxr_ui::effect_subfolder_state::offered;
+	}
+
+	// Runs on ReShade's thread, because saving the setting makes ReShade re-read its whole configuration.
+	void apply_effect_subfolder_fix(effect_runtime *runtime)
+	{
+		std::vector<std::string> search_paths;
+		{
+			const std::lock_guard<std::mutex> lock(s_mutex);
+			if (runtime != s_effect_runtime || s_effect_subfolder_state != openxr_ui::effect_subfolder_state::saving)
+				return;
+			search_paths = s_effect_subfolder_scan.search_paths;
+		}
+		std::string joined;
+		for (const std::string &path : search_paths)
+			joined.append(path).push_back('\0');
+		if (!joined.empty())
+			reshade::set_config_value(runtime, "GENERAL", "EffectSearchPaths", joined.c_str(), joined.size() - 1);
+		const bool saved = !search_paths.empty() && read_config_list(runtime, "GENERAL", "EffectSearchPaths") == search_paths;
+		if (saved)
+			runtime->reload_effect_next_frame(nullptr);
+
+		const std::lock_guard<std::mutex> lock(s_mutex);
+		s_effect_subfolder_state = saved ? openxr_ui::effect_subfolder_state::loading : openxr_ui::effect_subfolder_state::failed;
+		s_effect_subfolder_reload_started = false;
+		s_effect_subfolder_wait_frames = 0;
+		log_runtime_message(saved ? reshade::log::level::info : reshade::log::level::error, saved ?
+			"EffectSearchPaths now includes subfolders; ReShade is reloading all effects." :
+			"failed to save EffectSearchPaths with subfolders.");
+	}
+
+	// Called with s_mutex held after each inventory of the panel's runtime.
+	void note_effect_subfolder_inventory(effect_runtime *runtime)
+	{
+		if (s_effect_subfolder_state == openxr_ui::effect_subfolder_state::loading)
+		{
+			// ReShade empties the list when a reload starts and fills it again when the reload is done.
+			if (s_techniques->techniques.empty())
+			{
+				s_effect_subfolder_reload_started = true;
+				return;
+			}
+			if (!s_effect_subfolder_reload_started)
+				return;
+			const std::vector<std::string> &names = s_effect_subfolder_scan.effect_names;
+			const bool loaded = std::any_of(s_techniques->techniques.begin(), s_techniques->techniques.end(), [&names](const openxr_ui::technique &entry) {
+				return std::any_of(names.begin(), names.end(), [&entry](const std::string &name) {
+					return _stricmp(name.c_str(), entry.effect_name.c_str()) == 0;
+				});
+			});
+			s_effect_subfolder_state = loaded ? openxr_ui::effect_subfolder_state::loaded : openxr_ui::effect_subfolder_state::restart_needed;
+			char message[192];
+			std::snprintf(message, sizeof(message), loaded ?
+				"effects from the subfolders are loaded after %lld s." :
+				"the reload found no effects from the subfolders after %lld s; they load after a game restart.",
+				static_cast<long long>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - s_effect_subfolder_requested_at).count()));
+			log_runtime_message(reshade::log::level::info, message);
+			return;
+		}
+		if (s_effect_subfolder_scanned_runtime != runtime)
+		{
+			s_effect_subfolder_scanned_runtime = runtime;
+			s_effect_subfolder_scan_pending.store(true, std::memory_order_release);
+		}
+	}
+
 	void on_init_effect_runtime(effect_runtime *runtime)
 	{
+		const bool own_reshade = openxr_ui_game_brought_own_reshade();
 		const bool openxr_loaded = GetModuleHandleW(L"openxr_loader.dll") != nullptr;
 		const bool openvr_loaded = GetModuleHandleW(L"openvr_api.dll") != nullptr;
 		if (openvr_loaded && !openxr_loaded && !s_openvr_runtime_sync_disabled)
@@ -353,6 +728,13 @@ namespace
 		if (runtime->get_hwnd() != nullptr)
 		{
 			const std::lock_guard<std::mutex> lock(s_mutex);
+			// The game's own ReShade draws the headset picture through its window, so its effects stay on.
+			if (own_reshade)
+			{
+				if (s_vr_runtimes.empty())
+					s_vr_runtimes.insert(runtime);
+				return;
+			}
 			s_desktop_runtimes.insert(runtime);
 			if (!s_vr_runtimes.empty() && runtime->get_effects_state())
 			{
@@ -380,7 +762,7 @@ namespace
 			// The monitor image never reaches the headset, so its effects would only cost performance.
 			for (effect_runtime *const desktop_runtime : s_desktop_runtimes)
 			{
-				if (!desktop_runtime->get_effects_state())
+				if (own_reshade || !desktop_runtime->get_effects_state())
 					continue;
 				desktop_runtime->set_effects_state(false);
 				s_paused_desktop_runtimes.insert(desktop_runtime);
@@ -477,6 +859,10 @@ namespace
 			current_runtime->get_annotation_uint_from_uniform_variable(variable, "noedit", &no_edit, 1);
 			if (hidden != 0 || no_edit != 0)
 				return;
+			// ReShade fills "source" values (timer, frame count, ...) itself every frame; its own menu hides them too.
+			char source[32] = {};
+			if (current_runtime->get_annotation_string_from_uniform_variable(variable, "source", source))
+				return;
 
 			format base_type = format::unknown;
 			uint32_t rows = 0, columns = 0, array_length = 0;
@@ -565,6 +951,13 @@ namespace
 			inventory.enabled_technique_count,
 			inventory.uniform_count);
 		log_runtime_message(reshade::log::level::info, message);
+		// A reload starts with no effects; the old value handles are gone and may be reused by new values.
+		if (inventory.snapshot->techniques.empty())
+		{
+			const std::lock_guard<std::mutex> external_lock(s_external_write_mutex);
+			s_external_writes.clear();
+		}
+		mark_parameters_set_by_game(*inventory.snapshot);
 
 		const bool inventory_changed = s_effect_runtime != runtime ||
 			s_techniques->techniques.size() != inventory.snapshot->techniques.size() ||
@@ -624,6 +1017,7 @@ namespace
 		}
 		s_techniques = std::move(inventory.snapshot);
 		s_runtime_state_dirty.store(false, std::memory_order_release);
+		note_effect_subfolder_inventory(runtime);
 		log_runtime_message(reshade::log::level::info, "scrollable technique model ready for controller input.");
 	}
 
@@ -653,7 +1047,8 @@ namespace
 			return false;
 
 		auto updated = std::make_shared<openxr_ui::technique_snapshot>(*s_techniques);
-		const bool changed = openxr_ui::reconcile_runtime_state(*updated, technique_states, parameter_states);
+		const bool values_changed = openxr_ui::reconcile_runtime_state(*updated, technique_states, parameter_states);
+		const bool changed = mark_parameters_set_by_game(*updated) || values_changed;
 		if (preset_path != s_observed_preset_path)
 		{
 			s_observed_preset_path = preset_path;
@@ -680,9 +1075,27 @@ namespace
 		s_runtime_state_dirty.store(true, std::memory_order_release);
 	}
 
-	bool on_reshade_set_uniform_value(effect_runtime *, effect_uniform_variable, const void *, size_t)
+	bool on_reshade_set_uniform_value(effect_runtime *, effect_uniform_variable variable, const void *, size_t)
 	{
 		s_runtime_state_dirty.store(true, std::memory_order_release);
+		// Writes while ReShade's own menu is open may be the user's, so they are not counted.
+		if (t_panel_write_depth == 0 && !s_reshade_overlay_open.load(std::memory_order_relaxed))
+		{
+			const uint64_t frame = s_present_frame.load(std::memory_order_relaxed);
+			const std::lock_guard<std::mutex> lock(s_external_write_mutex);
+			external_write_count &count = s_external_writes[variable.handle];
+			if (count.last_frame != frame)
+			{
+				count.last_frame = frame;
+				count.frames = (std::min)(count.frames + 1, set_by_game_frame_threshold);
+			}
+		}
+		return false;
+	}
+
+	bool on_reshade_open_overlay(effect_runtime *, bool open, reshade::api::input_source)
+	{
+		s_reshade_overlay_open.store(open, std::memory_order_relaxed);
 		return false;
 	}
 
@@ -702,20 +1115,44 @@ namespace
 	{
 		const std::string preset_path = current_preset_path(runtime);
 		bool synchronize_model = s_runtime_state_dirty.exchange(false, std::memory_order_acq_rel);
+		s_present_frame.fetch_add(1, std::memory_order_relaxed);
 		bool retry_inventory = false;
+		bool scan_effect_subfolders_now = false;
+		bool apply_effect_subfolders_now = false;
+		// ReShade does not repeat init_effect_runtime for an add-on that registers late, and the
+		// game's own ReShade usually runs before the OpenXR loader loads this add-on.
+		const bool adopt_game_runtime = openxr_ui_game_brought_own_reshade() && runtime->get_hwnd() != nullptr;
 		{
 			const std::lock_guard<std::mutex> lock(s_mutex);
+			if (adopt_game_runtime && s_vr_runtimes.empty())
+			{
+				s_vr_runtimes.insert(runtime);
+				retry_inventory = true;
+			}
 			if (runtime == s_effect_runtime)
 			{
 				synchronize_model = synchronize_model || preset_path != s_observed_preset_path;
 				if (s_techniques->techniques.empty() && s_empty_inventory_retry_frame < 600)
 					retry_inventory = ++s_empty_inventory_retry_frame % 10 == 0;
+				scan_effect_subfolders_now = s_effect_subfolder_scan_pending.exchange(false, std::memory_order_acq_rel);
+				apply_effect_subfolders_now = s_effect_subfolder_state == openxr_ui::effect_subfolder_state::saving;
+				// A ReShade that ignores the reload request loads the new folders only at the next game start.
+				if (s_effect_subfolder_state == openxr_ui::effect_subfolder_state::loading && !s_effect_subfolder_reload_started &&
+					++s_effect_subfolder_wait_frames > 900)
+				{
+					s_effect_subfolder_state = openxr_ui::effect_subfolder_state::restart_needed;
+					log_runtime_message(reshade::log::level::info, "ReShade did not reload the effects; the subfolders load after a game restart.");
+				}
 			}
 		}
 		if (retry_inventory)
 			on_reshade_reloaded_effects(runtime);
 		else if (synchronize_model && !synchronize_runtime_model(runtime, preset_path))
 			s_runtime_state_dirty.store(true, std::memory_order_release);
+		if (scan_effect_subfolders_now)
+			refresh_effect_subfolder_scan(runtime);
+		if (apply_effect_subfolders_now)
+			apply_effect_subfolder_fix(runtime);
 
 #ifdef RESHADE_OPENVR_FRONTEND
 		bool show_dashboard = false;
@@ -774,6 +1211,7 @@ namespace
 		reshade::register_event<reshade::addon_event::destroy_effect_runtime>(on_destroy_effect_runtime);
 		reshade::register_event<reshade::addon_event::reshade_reloaded_effects>(on_reshade_reloaded_effects);
 		reshade::register_event<reshade::addon_event::reshade_set_uniform_value>(on_reshade_set_uniform_value);
+		reshade::register_event<reshade::addon_event::reshade_open_overlay>(on_reshade_open_overlay);
 		reshade::register_event<reshade::addon_event::reshade_set_technique_state>(on_reshade_set_technique_state);
 		reshade::register_event<reshade::addon_event::reshade_reorder_techniques>(on_reshade_reorder_techniques);
 		reshade::register_event<reshade::addon_event::reshade_set_current_preset_path>(on_reshade_set_current_preset_path);
@@ -796,6 +1234,37 @@ bool openxr_ui_ensure_addon_registered()
 	return try_register_addon();
 }
 
+bool openxr_ui_game_brought_own_reshade()
+{
+#ifdef RESHADE_OPENVR_FRONTEND
+	return false;
+#else
+	const int known = s_own_reshade_state.load(std::memory_order_acquire);
+	if (known != own_reshade_unknown)
+		return known == own_reshade_yes;
+
+	const std::lock_guard<std::mutex> lock(s_own_reshade_mutex);
+	if (const int decided = s_own_reshade_state.load(std::memory_order_relaxed); decided != own_reshade_unknown)
+		return decided == own_reshade_yes;
+	// Without ReShade there is nothing to decide yet; a game may still load its own later.
+	const HMODULE reshade_module = reshade::internal::get_reshade_module_handle();
+	if (reshade_module == nullptr)
+		return false;
+
+	const std::filesystem::path reshade_path = module_path(reshade_module);
+	const bool own = !reshade_path.empty() && !is_openxr_layer_library(reshade_path);
+	s_own_reshade_state.store(own ? own_reshade_yes : own_reshade_no, std::memory_order_release);
+	if (own)
+	{
+		const std::string message = "this game loaded its own ReShade (" + reshade_path.u8string() +
+			"), not ReShade's OpenXR layer. The panel controls that ReShade; this add-on does not start its own "
+			"headset effects and does not switch off the game's ReShade effects.";
+		openxr_ui_log_message(message.c_str());
+	}
+	return own;
+#endif
+}
+
 void openxr_ui_log_message(const char *message, bool error)
 {
 	OutputDebugStringA(message);
@@ -811,6 +1280,7 @@ namespace
 	// runtimes until the stack overflowed, so defaults are captured here, from the menu path, instead.
 	void capture_pending_default_values()
 	{
+		const panel_write_scope panel_write;
 		if (!s_default_values_pending || s_effect_runtime == nullptr)
 			return;
 
@@ -1162,26 +1632,9 @@ bool openxr_ui_set_performance_mode(bool enabled)
 
 namespace
 {
-	// ReShade returns list values as names separated by '\0'.
 	std::vector<std::string> read_disabled_addons()
 	{
-		size_t size = 0;
-		if (!reshade::get_config_value(nullptr, "ADDON", "DisabledAddons", nullptr, &size) || size == 0)
-			return {};
-		std::string buffer(size, '\0');
-		if (!reshade::get_config_value(nullptr, "ADDON", "DisabledAddons", buffer.data(), &size))
-			return {};
-		buffer.resize(size);
-		std::vector<std::string> names;
-		size_t begin = 0;
-		while (begin < buffer.size())
-		{
-			const size_t end = (std::min)(buffer.find('\0', begin), buffer.size());
-			if (end > begin)
-				names.push_back(buffer.substr(begin, end - begin));
-			begin = end + 1;
-		}
-		return names;
+		return read_config_list(nullptr, "ADDON", "DisabledAddons");
 	}
 
 	bool is_generic_depth_entry(const std::string &name)
@@ -1248,8 +1701,42 @@ bool openxr_ui_set_depth_detection_disabled(bool disabled)
 	return true;
 }
 
+openxr_ui::effect_subfolder_status openxr_ui_get_effect_subfolder_status()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	const bool busy = s_effect_subfolder_state == openxr_ui::effect_subfolder_state::saving ||
+		s_effect_subfolder_state == openxr_ui::effect_subfolder_state::loading;
+	const uint32_t seconds = busy ? static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::seconds>(
+		std::chrono::steady_clock::now() - s_effect_subfolder_requested_at).count()) : 0;
+	return { s_effect_subfolder_state, static_cast<uint32_t>(s_effect_subfolder_scan.effect_names.size()), s_effect_subfolder_scan.folder_count, seconds };
+}
+
+bool openxr_ui_include_effect_subfolders()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	// Unsaved preset changes are not a blocker: mods such as D2R-PCVR change their shader values every frame,
+	// so the preset never stays saved there. The panel warns that a reload drops them instead.
+	if (s_effect_runtime == nullptr || s_effect_subfolder_state != openxr_ui::effect_subfolder_state::offered ||
+		s_shaders_temporarily_disabled)
+		return false;
+	s_effect_subfolder_state = openxr_ui::effect_subfolder_state::saving;
+	s_effect_subfolder_requested_at = std::chrono::steady_clock::now();
+	log_runtime_message(reshade::log::level::info, "controller asked to load the effects in subfolders.");
+	return true;
+}
+
+void openxr_ui_dismiss_effect_subfolder_notice()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	if (s_effect_subfolder_state == openxr_ui::effect_subfolder_state::saving || s_effect_subfolder_state == openxr_ui::effect_subfolder_state::loading)
+		return;
+	s_effect_subfolder_state = openxr_ui::effect_subfolder_state::none;
+	s_effect_subfolder_notice_dismissed = true;
+}
+
 bool openxr_ui_set_parameter(uint64_t parameter_id, uint32_t component, double value)
 {
+	const panel_write_scope panel_write;
 	const std::lock_guard<std::mutex> lock(s_mutex);
 	if (s_effect_runtime == nullptr || parameter_id == 0)
 		return false;
@@ -1310,6 +1797,7 @@ bool openxr_ui_set_parameter(uint64_t parameter_id, uint32_t component, double v
 
 bool openxr_ui_reset_parameter(uint64_t parameter_id)
 {
+	const panel_write_scope panel_write;
 	const std::lock_guard<std::mutex> lock(s_mutex);
 	if (s_effect_runtime == nullptr || parameter_id == 0)
 		return false;
@@ -1331,6 +1819,7 @@ bool openxr_ui_reset_parameter(uint64_t parameter_id)
 
 bool openxr_ui_reset_all_parameters(uint64_t technique_id)
 {
+	const panel_write_scope panel_write;
 	const std::lock_guard<std::mutex> lock(s_mutex);
 	if (s_effect_runtime == nullptr || technique_id == 0)
 		return false;
@@ -1543,6 +2032,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
 			reshade::unregister_event<reshade::addon_event::destroy_effect_runtime>(on_destroy_effect_runtime);
 			reshade::unregister_event<reshade::addon_event::reshade_reloaded_effects>(on_reshade_reloaded_effects);
 			reshade::unregister_event<reshade::addon_event::reshade_set_uniform_value>(on_reshade_set_uniform_value);
+			reshade::unregister_event<reshade::addon_event::reshade_open_overlay>(on_reshade_open_overlay);
 			reshade::unregister_event<reshade::addon_event::reshade_set_technique_state>(on_reshade_set_technique_state);
 			reshade::unregister_event<reshade::addon_event::reshade_reorder_techniques>(on_reshade_reorder_techniques);
 			reshade::unregister_event<reshade::addon_event::reshade_set_current_preset_path>(on_reshade_set_current_preset_path);

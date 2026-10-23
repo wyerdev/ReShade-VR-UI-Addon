@@ -751,10 +751,128 @@ namespace openxr_ui
 				_implementation->technique_scroll = 0;
 			}
 			ImGui::Separator();
+			if (input.effect_subfolders.state != effect_subfolder_state::none)
+			{
+				const effect_subfolder_status &subfolders = input.effect_subfolders;
+				const bool offered = subfolders.state == effect_subfolder_state::offered;
+				const bool busy = subfolders.state == effect_subfolder_state::saving || subfolders.state == effect_subfolder_state::loading;
+				const char *blocked_reason = offered && input.shaders_temporarily_disabled ? "Turn shaders back on first." : nullptr;
+				const bool drops_unsaved_changes = offered && blocked_reason == nullptr && input.preset_dirty;
+				char message[160];
+				ImU32 accent = IM_COL32(184, 138, 20, 255);
+				const char *details = nullptr;
+				switch (subfolders.state)
+				{
+				case effect_subfolder_state::offered:
+					if (drops_unsaved_changes)
+						std::snprintf(message, sizeof(message), "Loading %u %s from %u %s drops unsaved changes.", subfolders.effect_count,
+							subfolders.effect_count == 1 ? "effect" : "effects", subfolders.folder_count,
+							subfolders.folder_count == 1 ? "subfolder" : "subfolders");
+					else
+						std::snprintf(message, sizeof(message), "%u %s in %u %s not loaded.%s%s", subfolders.effect_count,
+							subfolders.effect_count == 1 ? "effect" : "effects", subfolders.folder_count,
+							subfolders.folder_count == 1 ? "subfolder is" : "subfolders are",
+							blocked_reason != nullptr ? " " : "", blocked_reason != nullptr ? blocked_reason : "");
+					details = "ReShade only looks for effects directly inside the folders listed under EffectSearchPaths in ReShade.ini, "
+						"not in the folders inside them.\n\n"
+						"Load subfolders adds \\** to those folders in ReShade.ini, which tells ReShade to look inside every subfolder, "
+						"and then reloads all effects. Loading can take a moment and the game may stutter while it happens.\n\n"
+						"Reloading re-reads the preset from disk, so unsaved shader changes are lost. Press Save first to keep them.";
+					break;
+				case effect_subfolder_state::saving:
+				case effect_subfolder_state::loading:
+					std::snprintf(message, sizeof(message), "Loading effects... %u s. Effects are off until it finishes.", subfolders.loading_seconds);
+					accent = IM_COL32(0, 174, 197, 255);
+					details = "ReShade is building every effect again, including the ones from the subfolders. "
+						"All effects are switched off until it is done, and the list is empty meanwhile.\n\n"
+						"The first time this can take up to a minute, because the new effects have never been built before. "
+						"The game keeps running; you do not need to do anything.";
+					break;
+				case effect_subfolder_state::loaded:
+					std::snprintf(message, sizeof(message), "Effects from subfolders loaded. No restart needed.");
+					accent = IM_COL32(26, 196, 100, 255);
+					details = "ReShade.ini now includes the subfolders, so they also load at the next game start.";
+					break;
+				case effect_subfolder_state::restart_needed:
+					std::snprintf(message, sizeof(message), "Subfolders saved. Restart the game to load their effects.");
+					details = "ReShade.ini now includes the subfolders, but this ReShade did not load them yet. "
+						"They load the next time the game starts.";
+					break;
+				default:
+					std::snprintf(message, sizeof(message), "Could not change ReShade.ini.");
+					accent = IM_COL32(220, 70, 70, 255);
+					details = "ReShade did not save the setting, for example because ReShade.ini is read-only.\n\n"
+						"To fix it by hand, open ReShade.ini, find EffectSearchPaths and add \\** to the end of each folder, "
+						"for example .\\reshade-shaders\\Shaders\\**. Then restart the game.";
+					break;
+				}
+
+				const float notice_height = 40.0f;
+				const ImVec2 notice_min = ImGui::GetCursorScreenPos();
+				const ImVec2 notice_max = { ImGui::GetWindowWidth() - outer_padding, notice_min.y + notice_height };
+				ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+				draw_list->AddRectFilled(notice_min, notice_max, IM_COL32(13, 29, 38, 255), 3.0f);
+				draw_list->AddRectFilled(notice_min, { notice_min.x + 5.0f, notice_max.y }, accent, 3.0f, ImDrawFlags_RoundCornersLeft);
+				if (busy)
+				{
+					// A segment sliding along the bottom edge shows that loading is still in progress.
+					const float track_min = notice_min.x + 5.0f;
+					const float track_width = notice_max.x - track_min;
+					const float segment_width = track_width * 0.2f;
+					const float phase = static_cast<float>(std::fmod(ImGui::GetTime() * 0.5, 1.0));
+					const float segment_min = track_min + (track_width + segment_width) * phase - segment_width;
+					draw_list->AddRectFilled({ (std::max)(segment_min, track_min), notice_max.y - 4.0f },
+						{ (std::min)(segment_min + segment_width, notice_max.x), notice_max.y }, accent);
+				}
+
+				const float button_y = notice_min.y + 5.0f;
+				const ImVec2 button_size = { 0.0f, notice_height - 10.0f };
+				float buttons_x = notice_max.x - 5.0f;
+				bool primary_hovered = false;
+				bool dismiss_hovered = false;
+				if (offered)
+				{
+					buttons_x -= 110.0f;
+					ImGui::SetCursorScreenPos({ buttons_x, button_y });
+					dismiss_hovered = draw_text_button("subfolders_not_now", "Not now", { 110.0f, button_size.y });
+					buttons_x -= 196.0f;
+					ImGui::SetCursorScreenPos({ buttons_x, button_y });
+					primary_hovered = draw_text_button("subfolders_load", drops_unsaved_changes ? "Load anyway" : "Load subfolders",
+						{ 188.0f, button_size.y }, blocked_reason == nullptr,
+						drops_unsaved_changes ? IM_COL32(184, 138, 20, 255) : IM_COL32(22, 132, 72, 255));
+				}
+				else if (!busy)
+				{
+					buttons_x -= 80.0f;
+					ImGui::SetCursorScreenPos({ buttons_x, button_y });
+					dismiss_hovered = draw_text_button("subfolders_ok", "OK", { 80.0f, button_size.y });
+				}
+
+				const ImVec2 text_min = { notice_min.x + 16.0f, notice_min.y };
+				const ImVec2 text_max = { buttons_x - 10.0f, notice_max.y };
+				const std::string fitted = fit_text(message, text_max.x - text_min.x);
+				draw_list->AddText({ text_min.x, notice_min.y + (notice_height - ImGui::GetFontSize()) * 0.5f },
+					IM_COL32(222, 242, 245, 255), fitted.c_str());
+				draw_hover_details(text_min, text_max, message, details);
+
+				const bool can_click = input.select_clicked && _implementation->dragging == implementation::drag_target::none;
+				if (can_click && primary_hovered)
+					result.action = render_result::command::include_effect_subfolders;
+				else if (can_click && dismiss_hovered)
+					result.action = render_result::command::dismiss_effect_subfolder_notice;
+				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + 6.0f });
+			}
 			if (!input.effect_runtime_available)
 			{
 				ImGui::TextColored(ImVec4(1.0f, 0.62f, 0.22f, 1.0f), "ReShade effect runtime unavailable");
 				ImGui::TextWrapped("ReShade did not initialize OpenXR effects. Check ReShade.log for an unproxied graphics device.");
+				ImGui::Separator();
+			}
+			else if (snapshot.techniques.empty() && (input.effect_subfolders.state == effect_subfolder_state::saving ||
+				input.effect_subfolders.state == effect_subfolder_state::loading))
+			{
+				ImGui::TextColored(ImVec4(0.0f, 0.68f, 0.77f, 1.0f), "ReShade is loading effects");
+				ImGui::TextWrapped("The list and all effects come back when loading finishes.");
 				ImGui::Separator();
 			}
 			else if (snapshot.techniques.empty())

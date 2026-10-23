@@ -201,6 +201,64 @@ namespace
 			ImGui::TextDisabled("These two apply after a game restart.");
 
 		ImGui::Separator();
+		const openxr_ui::effect_subfolder_status subfolders = openxr_ui_get_effect_subfolder_status();
+		switch (subfolders.state)
+		{
+		case openxr_ui::effect_subfolder_state::offered:
+		{
+			const bool preset_dirty = openxr_ui_is_preset_dirty();
+			const bool shaders_disabled = openxr_ui_are_shaders_temporarily_disabled();
+			ImGui::TextColored({ 1.0f, 0.8f, 0.28f, 1.0f }, "%u %s in %u %s not loaded.", subfolders.effect_count,
+				subfolders.effect_count == 1 ? "effect" : "effects", subfolders.folder_count,
+				subfolders.folder_count == 1 ? "subfolder is" : "subfolders are");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("ReShade only looks for effects directly inside the folders listed under EffectSearchPaths,\n"
+					"not in the folders inside them. Load subfolders adds \\** to those folders in ReShade.ini\n"
+					"and reloads all effects. The game may stutter for a moment.");
+			ImGui::BeginDisabled(shaders_disabled);
+			if (ImGui::Button(preset_dirty ? "Load anyway" : "Load subfolders"))
+				openxr_ui_include_effect_subfolders();
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			if (ImGui::Button("Not now"))
+				openxr_ui_dismiss_effect_subfolder_notice();
+			if (shaders_disabled || preset_dirty)
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled(shaders_disabled ? "Turn shaders back on first." : "Loading drops unsaved shader changes.");
+			}
+			ImGui::Separator();
+			break;
+		}
+		case openxr_ui::effect_subfolder_state::saving:
+		case openxr_ui::effect_subfolder_state::loading:
+			ImGui::Text("Loading effects... %u s. Effects are off until it finishes.", subfolders.loading_seconds);
+			ImGui::ProgressBar(-1.0f * static_cast<float>(ImGui::GetTime()), { -1.0f, 6.0f }, "");
+			ImGui::Separator();
+			break;
+		case openxr_ui::effect_subfolder_state::loaded:
+		case openxr_ui::effect_subfolder_state::restart_needed:
+		case openxr_ui::effect_subfolder_state::failed:
+			if (subfolders.state == openxr_ui::effect_subfolder_state::loaded)
+				ImGui::TextColored({ 0.3f, 0.85f, 0.45f, 1.0f }, "Effects from subfolders loaded. No restart needed.");
+			else if (subfolders.state == openxr_ui::effect_subfolder_state::restart_needed)
+				ImGui::TextColored({ 1.0f, 0.8f, 0.28f, 1.0f }, "Subfolders saved. Restart the game to load their effects.");
+			else
+				ImGui::TextColored({ 1.0f, 0.4f, 0.4f, 1.0f }, "Could not change ReShade.ini. Add \\** to each EffectSearchPaths folder by hand.");
+			ImGui::SameLine();
+			if (ImGui::Button("OK"))
+				openxr_ui_dismiss_effect_subfolder_notice();
+			ImGui::Separator();
+			break;
+		default:
+			break;
+		}
+		if (snapshot->techniques.empty() && (subfolders.state == openxr_ui::effect_subfolder_state::saving ||
+			subfolders.state == openxr_ui::effect_subfolder_state::loading))
+		{
+			ImGui::TextWrapped("ReShade is loading effects. The list and all effects come back when loading finishes.");
+			return;
+		}
 		if (snapshot->techniques.empty())
 		{
 			ImGui::TextWrapped("No ReShade techniques found. Check EffectSearchPaths in ReShadeVR.ini or ReShade.ini.");

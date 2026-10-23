@@ -24,6 +24,29 @@ namespace openxr_ui
 		bool has_restore_state = false;
 	};
 
+	// Effect files inside subfolders of an EffectSearchPaths folder that ReShade does not search recursively.
+	enum class effect_subfolder_state
+	{
+		none,
+		offered,
+		// The user chose to include the subfolders; ReShade's own thread saves the change.
+		saving,
+		loading,
+		loaded,
+		// Saved, but this ReShade loads the new effects only when the game starts again.
+		restart_needed,
+		failed,
+	};
+
+	struct effect_subfolder_status
+	{
+		effect_subfolder_state state = effect_subfolder_state::none;
+		uint32_t effect_count = 0;
+		uint32_t folder_count = 0;
+		// Whole seconds since the user pressed the button, while saving or loading.
+		uint32_t loading_seconds = 0;
+	};
+
 	enum class parameter_type
 	{
 		boolean,
@@ -47,6 +70,8 @@ namespace openxr_ui
 		double maximum = (std::numeric_limits<double>::max)();
 		double step = 0.001;
 		bool resettable = true;
+		// Another add-on (for example a VR mod) keeps writing this value, so it does not count as an unsaved change.
+		bool set_by_game = false;
 	};
 
 	struct technique_snapshot

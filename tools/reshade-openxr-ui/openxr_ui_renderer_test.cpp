@@ -489,6 +489,55 @@ int main()
 		std::fputs("Pin UI button did not produce its command.\n", stderr);
 		return 1;
 	}
+	openxr_ui::render_input subfolders_load = { true, 783.0f, 148.0f, true };
+	subfolders_load.effect_subfolders = { openxr_ui::effect_subfolder_state::offered, 42, 8 };
+	if (renderer.render(render_target.Get(), snapshot, subfolders_load).action != openxr_ui::render_result::command::include_effect_subfolders)
+	{
+		std::fputs("Load subfolders button did not produce its command.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input subfolders_unsaved = subfolders_load;
+	subfolders_unsaved.preset_dirty = true;
+	if (renderer.render(render_target.Get(), snapshot, subfolders_unsaved).action != openxr_ui::render_result::command::include_effect_subfolders)
+	{
+		std::fputs("Load anyway did not work while the preset had unsaved changes.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input subfolders_disabled = subfolders_load;
+	subfolders_disabled.shaders_temporarily_disabled = true;
+	if (renderer.render(render_target.Get(), snapshot, subfolders_disabled).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("Load subfolders button worked while all shaders were temporarily disabled.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input subfolders_not_now = subfolders_load;
+	subfolders_not_now.pointer_x = 940.0f;
+	if (renderer.render(render_target.Get(), snapshot, subfolders_not_now).action != openxr_ui::render_result::command::dismiss_effect_subfolder_notice)
+	{
+		std::fputs("Not now button did not dismiss the subfolder notice.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input subfolders_ok = subfolders_load;
+	subfolders_ok.pointer_x = 955.0f;
+	subfolders_ok.effect_subfolders.state = openxr_ui::effect_subfolder_state::loaded;
+	if (renderer.render(render_target.Get(), snapshot, subfolders_ok).action != openxr_ui::render_result::command::dismiss_effect_subfolder_notice)
+	{
+		std::fputs("OK button did not close the subfolder result notice.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input subfolders_loading = subfolders_ok;
+	subfolders_loading.effect_subfolders.state = openxr_ui::effect_subfolder_state::loading;
+	if (renderer.render(render_target.Get(), snapshot, subfolders_loading).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("The subfolder notice offered a button while effects were loading.\n", stderr);
+		return 1;
+	}
+	subfolders_loading.effect_subfolders.loading_seconds = 12;
+	if (renderer.render(render_target.Get(), openxr_ui::technique_snapshot {}, subfolders_loading).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("The loading notice with an empty effect list returned a command.\n", stderr);
+		return 1;
+	}
 	if (!expect_command(renderer, render_target.Get(), snapshot, 587.0f, 102.0f,
 		openxr_ui::render_result::command::previous_preset, 0) ||
 		!expect_command(renderer, render_target.Get(), snapshot, 629.0f, 102.0f,

@@ -46,7 +46,7 @@
 
 - Treat every game directory and its ReShade configuration, effects, presets, logs, DLLs, and manifests as read-only evidence. Never edit, generate, copy, delete, or replace files there unless the user explicitly requests that exact target-side change.
 - Never modify a game-local `ReShade.ini` or `ReShadeVR.ini`, copy an add-on into a game directory, or change a game's launch configuration to make a test pass or to compensate for missing product behavior.
-- Never launch a game on the user's behalf, except the approved test cycles below (UEVR and SOMA-VR).
+- Never launch a game on the user's behalf, except the approved test cycles below (UEVR and SOMA-VR). The user allows launching the games we work on with the OpenXR Simulator, selected per process only, but only when the agent can carry out the whole test itself; each such game still needs its own test cycle section and script here before it is launched. A game the agent cannot fully test (for example one that needs clicks in its window to reach gameplay) is tested by the user instead.
 - A per-game workaround is not an implementation of global add-on activation and must not be reported as a fix. Solve activation in this repository's add-on, installer, or supported machine-wide registration while preserving the no-loader and no-injection architecture.
 - After a user-controlled game test, inspect game-local logs and configuration read-only. Ask the user only for headset observations that cannot be obtained from artifacts.
 
@@ -73,6 +73,16 @@
 - Every wait step has a 30 second limit. If the expected result is not seen in time, stop the game. The limit is for waiting, not testing: use `-KeepRunning` for live checks, then close the game. Never leave it running at the end of a task.
 - When a headset observation is needed, leave the game running with `-KeepRunning`, stop and ask the user in the chat message, then close the game after the answer. The user is always available; a question-tool reply saying otherwise is not a reason to skip the check.
 - Verify each run yourself from `build\soma-vr\last-run`: the headset capture (inspect it with the image viewer), `ReShade.log` (includes the add-on log), `hpl3vr.log` and the simulator log. Ask the user only for headset observations that the artifacts cannot show.
+
+## D2R-PCVR Tests (User Runs Them)
+
+- Current scope: games that bring their own ReShade, tested with the D2R-PCVR mod. Record findings in `tools/reshade-openxr-ui/MOD_OWN_RESHADE_CONFLICT.md` and keep it short and current.
+- Test game: Diablo II: Resurrected (Battle.net edition, `C:\Progs\Diablo II Resurrected`) with the D2R-PCVR mod already installed in `mods\D2R-PCVR`. The mod source is in `.deps\d2r-pcvr` (read-only reference).
+- Never launch D2R, `D2RLoader.exe` or `tools/test_d2r_pcvr.ps1 -Action Run`. Reaching the game world needs clicks in the game window (focus the window, press a key, click Play), which the agent cannot do, and a run that stops at the start screen tests nothing that matters. The user runs every D2R test.
+- To request a test: run `build.bat`, then give the user the exact command (a new PowerShell window: the per-process `XR_API_LAYER_PATH`, `XR_ENABLE_API_LAYERS`, `DISABLE_XR_APILAYER_reshade_vr_ui=1` and `XR_RUNTIME_JSON` settings, then `.\D2RLoader.exe -mod D2R-PCVR` from the game folder) or `tools/test_d2r_pcvr.ps1 -Action Run -KeepRunning` for the user to run, and list exactly what to check in the headset.
+- After the user's test, read the logs read-only: the mod's `ReShade.log` (includes the add-on log), `d2r-vr-frame.log`, `d2r-pcvr-vrcam.log`. `tools/test_d2r_pcvr.ps1 -Action Status` (it starts nothing) shows whether the game is still running.
+- The game folder is read-only evidence: never edit, add or remove files there, including the mod's settings (`d2r_pcvr.ini`), its ReShade files and its plugin DLL, unless the user asks for that exact change.
+- Never change the machine-wide OpenXR runtime.
 
 ## Edit And Validation Discipline
 

@@ -13,6 +13,11 @@ namespace reshade::api
 }
 
 bool openxr_ui_ensure_addon_registered();
+// True when the ReShade this add-on uses was loaded by the game or a mod, not as an OpenXR API layer.
+// The game's ReShade then draws the headset picture: the panel controls its window runtime, and the
+// add-on neither starts its effect fallback nor switches off that runtime's effects.
+// Do not call from DllMain: the first answer reads the OpenXR layer manifests.
+bool openxr_ui_game_brought_own_reshade();
 void openxr_ui_log_message(const char *message, bool error = false);
 std::shared_ptr<const openxr_ui::technique_snapshot> openxr_ui_get_techniques();
 bool openxr_ui_has_effect_runtime();
@@ -43,6 +48,12 @@ bool openxr_ui_set_performance_mode(bool enabled);
 bool openxr_ui_is_depth_detection_disabled();
 bool openxr_ui_depth_detection_restart_pending();
 bool openxr_ui_set_depth_detection_disabled(bool disabled);
+// Effect files that ReShade skips because an EffectSearchPaths folder does not include its subfolders.
+openxr_ui::effect_subfolder_status openxr_ui_get_effect_subfolder_status();
+// Adds "\**" to those folders; ReShade's thread saves the change and reloads all effects.
+bool openxr_ui_include_effect_subfolders();
+// Hides the notice until the game starts again.
+void openxr_ui_dismiss_effect_subfolder_notice();
 bool openxr_ui_set_parameter(uint64_t parameter_id, uint32_t component, double value);
 bool openxr_ui_reset_parameter(uint64_t parameter_id);
 bool openxr_ui_reset_all_parameters(uint64_t technique_id);

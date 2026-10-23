@@ -69,7 +69,7 @@ void openxr_ui::preset_dirty_state::update(technique_snapshot &snapshot)
 		const auto saved_technique = _saved_technique_states.find(entry.id);
 		entry.differs_from_saved = saved_technique == _saved_technique_states.end() || saved_technique->second != entry.enabled ||
 			std::any_of(snapshot.parameters.begin(), snapshot.parameters.end(), [this, &entry](const parameter &parameter_entry) {
-				if (parameter_entry.effect_name != entry.effect_name)
+				if (parameter_entry.effect_name != entry.effect_name || parameter_entry.set_by_game)
 					return false;
 				const auto saved_parameter = _saved_parameter_values.find(parameter_entry.id);
 				return saved_parameter == _saved_parameter_values.end() || saved_parameter->second != parameter_entry.values;

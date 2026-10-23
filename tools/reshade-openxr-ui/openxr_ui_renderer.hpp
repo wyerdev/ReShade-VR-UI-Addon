@@ -50,6 +50,8 @@ namespace openxr_ui
 		bool depth_detection_disabled = false;
 		bool depth_detection_restart_pending = false;
 		bool performance_mode_restart_pending = false;
+		// Effects ReShade skips because their subfolders are not in EffectSearchPaths.
+		effect_subfolder_status effect_subfolders;
 	};
 
 	struct render_result
@@ -82,6 +84,8 @@ namespace openxr_ui
 			set_frame_rate_divisor,
 			set_depth_detection_disabled,
 			toggle_panel_lock,
+			include_effect_subfolders,
+			dismiss_effect_subfolder_notice,
 		};
 
 		command action = command::none;
