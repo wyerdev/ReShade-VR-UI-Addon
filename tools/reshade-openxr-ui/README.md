@@ -2,7 +2,7 @@
 
 ReShade VR UI Add-on is a controller-driven, headset-native interface for managing ReShade effects in OpenXR and SteamVR/OpenVR applications. The package has two frontends over the same ReShade state model: an OpenXR API-layer quad and a lightweight ReShade add-on page in the existing SteamVR dashboard.
 
-This README is for developers. See [INSTALL.md](INSTALL.md) to install a prebuilt release.
+This README is for developers. To install a prebuilt release, see [INSTALL.md](INSTALL.md) (OpenXR games and UEVR) or [INSTALL-SteamVR.md](INSTALL-SteamVR.md) (SteamVR games).
 
 ## Install And Load Model
 
@@ -58,12 +58,12 @@ The DLL has two simultaneous roles:
 - **OpenXR API layer:** creates and submits the headset-visible UI.
 - **ReShade add-on:** reads and changes techniques, parameters, ordering, and presets through ReShade's public API.
 
-Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. Install the normal package once as administrator for compatible OpenXR games. SteamVR users copy the companion add-on per game.
+Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. Install the OpenXR package once as administrator for compatible OpenXR games. SteamVR users download the separate SteamVR package and copy its add-on per game.
 
 Run the packaged installer as administrator from the repository root after closing running OpenXR applications:
 
 ```powershell
-.\build\reshade-openxr-ui-release\ReShade-VR-UI-Addon\Install-OpenXR.cmd
+.\build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR\Install-OpenXR.cmd
 ```
 
 ## Compatibility
@@ -213,20 +213,30 @@ Only the user launches a game for headset validation. A release candidate still 
 
 ## Release Package
 
-Create the user-facing ZIP after the complete validation workflow:
+Create the user-facing ZIPs after the complete validation workflow:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\package.ps1
 ```
 
-The normal package is written to `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon.zip` with this layout:
+Both ZIPs go into one GitHub release, whose page text is [RELEASE_NOTES.md](RELEASE_NOTES.md). Each ZIP holds only its own guide, renamed to `INSTALL.md`.
+
+`build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip` (OpenXR games and UEVR; guide: [INSTALL.md](INSTALL.md)):
 
 ```text
 ReShade-OpenXR-UI.addon64
-ReShade-SteamVR-UI.addon64
 openxr-layers\ReShade-OpenXR-UI-Layer.json
 Install-OpenXR.cmd
 Uninstall-OpenXR.cmd
+INSTALL.md
+LICENSE
+THIRD-PARTY-NOTICES.txt
+```
+
+`build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-SteamVR.zip` (SteamVR games; guide: [INSTALL-SteamVR.md](INSTALL-SteamVR.md)):
+
+```text
+ReShade-SteamVR-UI.addon64
 INSTALL.md
 LICENSE
 THIRD-PARTY-NOTICES.txt

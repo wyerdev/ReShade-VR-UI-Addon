@@ -127,6 +127,8 @@ build\reshade-openxr-ui\layers\ReShade-OpenXR-UI-Layer.json
 ```
 
 The manifest expects the OpenXR DLL one directory above its `layers` directory. Its `api_layer.name` value, `XR_APILAYER_reshade_vr_ui`, is a stable external identifier used by SteamVR's API-layer toggle and must not be renamed; `build.ps1` enforces it. The user-facing label belongs in `api_layer.description`. The SteamVR DLL has no OpenXR negotiation export. The OpenXR DLL is installed centrally; the SteamVR DLL is copied by the user into each SteamVR game folder.
+To test a SteamVR game with the local build, double-click `install_steamvr_addon.bat` in the repository root (default game: Propagation: Paradise Hotel). Run it with `uninstall` to remove the add-on or `status` to check; a second argument picks another game's `.exe`. It only copies or deletes the add-on file; ReShade itself must be installed for the game with ReShade Setup first. `status` also reports settings that an earlier add-on run left in the game's `ReShade.ini` and `ReShadeVR.ini`; they keep ReShade's own SteamVR menu readable even after the add-on is removed, so delete them to test plain ReShade (see `INSTALL-SteamVR.md`).
+
 The build executes the D3D11 WARP interaction test after compiling. It fails if the test fails.
 
 Verify the artifact size, SHA-256, and required exports with:
@@ -165,7 +167,7 @@ build.bat
 install.bat
 ```
 
-`package.ps1` creates both `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon.zip` and an unpacked `ReShade-VR-UI-Addon` directory. `Install-OpenXR.cmd` must run from that complete release layout because it expects the DLL beside the script and the manifest under `openxr-layers`.
+`package.ps1` creates `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip` and `ReShade-VR-UI-Addon-SteamVR.zip`, each with an unpacked directory of the same name. `Install-OpenXR.cmd` must run from the complete OpenXR layout because it expects the DLL beside the script and the manifest under `openxr-layers`.
 
 Installation copies exactly these runtime files:
 

@@ -64,7 +64,9 @@ the effects reload (retested in D2R: works, under a second with ReShade's cache)
 - The user runs every D2R test; the agent never starts D2R (see "D2R-PCVR
   Tests" in `.github\copilot-instructions.md`). Reaching the game world needs
   clicks in the game window, which the agent cannot do.
-- `tools\test_d2r_pcvr.ps1` is a test run for the user. It starts
+- `test_d2r_pcvr.bat` in the repository root is the user's test run (options:
+  `simulator`, `noaddon`, `stop`, `status`); it calls `tools\test_d2r_pcvr.ps1`,
+  which starts
   `D2RLoader.exe -mod D2R-PCVR` with per-process settings (simulator or headset
   runtime, the build's add-on layer, the installed layer turned off) and saves
   logs to `build\d2r-pcvr\last-run`. Never change the machine-wide OpenXR

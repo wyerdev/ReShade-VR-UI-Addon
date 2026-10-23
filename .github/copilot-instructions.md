@@ -79,10 +79,22 @@
 - Current scope: games that bring their own ReShade, tested with the D2R-PCVR mod. Record findings in `tools/reshade-openxr-ui/MOD_OWN_RESHADE_CONFLICT.md` and keep it short and current.
 - Test game: Diablo II: Resurrected (Battle.net edition, `C:\Progs\Diablo II Resurrected`) with the D2R-PCVR mod already installed in `mods\D2R-PCVR`. The mod source is in `.deps\d2r-pcvr` (read-only reference).
 - Never launch D2R, `D2RLoader.exe` or `tools/test_d2r_pcvr.ps1 -Action Run`. Reaching the game world needs clicks in the game window (focus the window, press a key, click Play), which the agent cannot do, and a run that stops at the start screen tests nothing that matters. The user runs every D2R test.
-- To request a test: run `build.bat`, then give the user the exact command (a new PowerShell window: the per-process `XR_API_LAYER_PATH`, `XR_ENABLE_API_LAYERS`, `DISABLE_XR_APILAYER_reshade_vr_ui=1` and `XR_RUNTIME_JSON` settings, then `.\D2RLoader.exe -mod D2R-PCVR` from the game folder) or `tools/test_d2r_pcvr.ps1 -Action Run -KeepRunning` for the user to run, and list exactly what to check in the headset.
+- To request a test: run `build.bat`, then tell the user to double-click `test_d2r_pcvr.bat` in the repository root (`simulator`, `noaddon`, `stop` and `status` are its options), and list exactly what to check in the headset.
 - After the user's test, read the logs read-only: the mod's `ReShade.log` (includes the add-on log), `d2r-vr-frame.log`, `d2r-pcvr-vrcam.log`. `tools/test_d2r_pcvr.ps1 -Action Status` (it starts nothing) shows whether the game is still running.
 - The game folder is read-only evidence: never edit, add or remove files there, including the mod's settings (`d2r_pcvr.ini`), its ReShade files and its plugin DLL, unless the user asks for that exact change.
 - Never change the machine-wide OpenXR runtime.
+
+## Scripts The User Runs
+
+- Everything the user runs is a `.bat` file in the repository root, next to `build.bat`. Never put a `.bat` in `tools` or another subfolder.
+- Never ask the user to type a PowerShell command line or remember script parameters. If a task needs a user-run step and no root `.bat` exists for it, add one that calls the `.ps1` in `tools` and takes at most one or two plain words (for example `uninstall` or `status`) instead of parameters.
+- When telling the user what to run, name the root `.bat` and its plain-word options only.
+
+## Keep Findings Documented
+
+- Write down every finding the user would otherwise have to remember (setup steps, settings that make something work, side effects such as settings an add-on leaves in a game folder) in the user-facing guide it belongs to (`INSTALL.md`, `INSTALL-SteamVR.md`, `LIMITATIONS.md`) in the same task, not only in developer notes.
+- Before answering a question about how something works, read the existing docs, and answer from what was already found. Do not reason it out again from scratch if not needed.
+- When the user asks to fix the instructions or docs, change the files in the same turn and say which lines changed.
 
 ## Edit And Validation Discipline
 

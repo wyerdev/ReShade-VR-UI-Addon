@@ -23,7 +23,7 @@ build.bat
 ```
 
 `build.bat` sets up the local ReShade dependency when it is missing, builds the
-add-ons and the System-Wide SteamVR Listener, and creates both installable
+add-ons and the System-Wide SteamVR Listener, and creates the installable
 packages. The setup script requires Git and
 initializes ReShade's required submodules. The ReShade checkout must contain
 its public headers plus the Dear ImGui, OpenXR SDK, and OpenVR dependency
@@ -131,13 +131,31 @@ After validation:
 build.bat
 ```
 
-`build.bat` creates the release package after building the add-ons. For a clean
-release build, use `clean.bat` first.
+`build.bat` creates the release packages after building the add-ons. For a
+clean release build, use `clean.bat` first.
 
-The package contains only the plugin artifacts, installer, uninstaller,
-manifest, install guide, project license, and third-party notices. It does not
+One GitHub release holds two ZIPs. Each ZIP contains only its own add-on and
+its own install guide, renamed to `INSTALL.md`:
+
+| ZIP (in `build\reshade-openxr-ui-release`) | For | Install guide |
+| --- | --- | --- |
+| `ReShade-VR-UI-Addon-OpenXR.zip` | OpenXR games and UEVR | `tools\reshade-openxr-ui\INSTALL.md` |
+| `ReShade-VR-UI-Addon-SteamVR.zip` | SteamVR games, set up per game | `tools\reshade-openxr-ui\INSTALL-SteamVR.md` |
+
+The release page text is `tools\reshade-openxr-ui\RELEASE_NOTES.md`. It only
+says which ZIP to download and links to the two guides, so the install steps
+are written in one place. The System-Wide SteamVR Listener is not part of the
+release for now.
+
+```powershell
+gh release create <tag> build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-SteamVR.zip --draft --title "<title>" --notes-file tools\reshade-openxr-ui\RELEASE_NOTES.md
+```
+
+The packages contain only the plugin artifacts, installer, uninstaller,
+manifest, install guide, project license, and third-party notices. They do not
 contain ReShade source, the local ReShade checkout, build products, simulator
-captures, or game test state.
+captures, or game test state. Keep the guides free of links relative to the
+repository, because they are also read inside the ZIP.
 
 ## License
 
@@ -150,5 +168,8 @@ included with the release package.
 
 ## Installation
 
-For end-user installation, see [tools/reshade-openxr-ui/INSTALL.md](tools/reshade-openxr-ui/INSTALL.md).
+For end-user installation, see [tools/reshade-openxr-ui/INSTALL.md](tools/reshade-openxr-ui/INSTALL.md)
+(OpenXR games and UEVR) or
+[tools/reshade-openxr-ui/INSTALL-SteamVR.md](tools/reshade-openxr-ui/INSTALL-SteamVR.md)
+(SteamVR games).
 Official ReShade with full add-on support remains a separate prerequisite.
