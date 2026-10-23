@@ -32,6 +32,7 @@ For more FPS, untick **Depth buffer (off = faster in OpenGL)** in the panel and 
 ## Where It Installs And Why It Needs Admin Rights
 
 - Files go to `C:\Program Files\ReShade VR UI Add-on`. Admin rights are needed to write there and to switch the add-on on for all OpenXR games (registry key `HKEY_LOCAL_MACHINE\Software\Khronos\OpenXR\1\ApiLayers\Implicit`).
+- Admin rights are also what makes it work in games that run as administrator, such as SOMA with the SOMA-VR mod. Windows ignores add-ons installed only for your account in those games.
 - Settings and logs are kept in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Uninstalling keeps them.
 - The installer does not change game folders.
 

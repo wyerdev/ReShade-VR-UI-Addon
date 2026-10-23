@@ -159,6 +159,8 @@ Captures are written under `build\reshade-openxr-ui\simulator-captures\d3d11` an
 
 "Global" means one protected machine-wide OpenXR runtime installation with per-user preferences. Installation requires administrator access so SteamVR's elevated OpenXR API-layer control can change the layer state. It does not replace, uninstall, or modify the official ReShade files under `C:\ProgramData\ReShade`, and it does not copy files into individual game directories.
 
+Admin is also required for games that run as administrator, such as SOMA with the SOMA-VR mod (`Launch-SOMA-VR.cmd` always restarts itself and the game as administrator). The OpenXR loader ignores per-user (`HKCU`) layer registrations in elevated processes (`manifest_file.cpp`, `IsHighIntegrityLevel`), so only the `HKLM` registration loads there. A no-admin per-user install (`%LOCALAPPDATA%` plus `HKCU`) was tried again on 2026-10-23. It worked in Resident Evil 9, Paradise Hotel and Gothic Remake (UEVR), but not in SOMA-VR, so it was reverted. Do not reintroduce it without solving elevated games.
+
 The supported developer flow starts from the repository root and creates the
 same layout shipped to users:
 
