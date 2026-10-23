@@ -3,11 +3,11 @@ setlocal EnableExtensions
 
 set "ROOT=%~dp0"
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%clean-build.ps1" %*
-if errorlevel 1 exit /b %ERRORLEVEL%
+call "%ROOT%clean-addon.bat" %*
+if errorlevel 1 exit /b 1
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\reshade-openxr-ui\package.ps1"
-if errorlevel 1 exit /b %ERRORLEVEL%
+call "%ROOT%clean-listener.bat"
+if errorlevel 1 exit /b 1
 
-echo Clean rebuild and package completed.
+echo Clean rebuild and package of the add-on and SteamVR listener completed.
 exit /b 0

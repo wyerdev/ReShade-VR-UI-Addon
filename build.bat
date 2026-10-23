@@ -3,18 +3,11 @@ setlocal EnableExtensions
 
 set "ROOT=%~dp0"
 
-if not exist "%ROOT%.deps\reshade\include\reshade.hpp" (
-    echo ReShade dependency checkout is missing. Setting it up now...
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%setup-reshade.ps1" -Action Setup
-    if errorlevel 1 exit /b 1
-)
-
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%build-openxr-ui.ps1" %*
+call "%ROOT%build-addon.bat" %*
 if errorlevel 1 exit /b 1
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%tools\reshade-openxr-ui\package.ps1"
+call "%ROOT%build-listener.bat"
 if errorlevel 1 exit /b 1
 
-echo Build and package completed.
-echo Install with: "%ROOT%install.bat"
+echo Add-on and SteamVR listener build and package completed.
 exit /b 0

@@ -20,6 +20,17 @@ For more FPS, untick **Depth buffer (off = faster in OpenGL)** in the headset pa
 
 ## SteamVR (OpenVR) Games
 
+There are two ways. Pick one per game; do not use both for the same game.
+
+| | Way 1: Copy into each game (normal) | Way 2: System-Wide SteamVR Listener (optional) |
+| --- | --- | --- |
+| Download | This release | Separate download `ReShade-System-Wide-SteamVR-Listener.zip` |
+| ReShade Setup | **OpenXR** unticked; ReShade goes next to the game | **OpenXR** ticked; ReShade stays central |
+| Per game | Copy one file into the game folder | Nothing; pick the game in ReShade Setup |
+| Background program | None | Starts with Windows and uses a little processor time |
+
+### Way 1: Copy Into Each Game
+
 This is the normal way to install a ReShade add-on. The OpenXR installer is not needed.
 
 - Install **ReShade with full add-on support** from [reshade.me](https://reshade.me/).
@@ -29,14 +40,9 @@ This is the normal way to install a ReShade add-on. The OpenXR installer is not 
 - Start the game normally. ReShade's SteamVR dashboard opens after effects load.
 - Open **Add-ons** > **ReShade VR UI Add-on for SteamVR** for the controls.
 
-### Optional: System-Wide SteamVR Listener
+### Way 2: System-Wide SteamVR Listener
 
-The listener is a separate download named `ReShade-System-Wide-SteamVR-Listener.zip`. It starts with Windows and automatically adds ReShade and this add-on to compatible SteamVR games selected in ReShade Setup. Use it only if you want system-wide operation without copying the add-on into each game folder.
-
-- In ReShade Setup, pick the game's main `.exe`, choose **DirectX 10/11/12**, and enable **OpenXR**.
-- Extract the listener ZIP, close games and SteamVR, then right-click `Install-System-Wide-SteamVR-Listener.cmd` and choose **Run as administrator**.
-- Start the game normally, then open **Add-ons** > **ReShade VR UI Add-on for SteamVR**.
-- Listener log: `%LOCALAPPDATA%\ReShade VR UI Add-on\ReShade-System-Wide-SteamVR-Listener.log`.
+A separate program that adds ReShade and this add-on to the SteamVR games you pick in ReShade Setup when they start, so nothing is copied into game folders. Download `ReShade-System-Wide-SteamVR-Listener.zip` and follow the `INSTALL.md` inside it. It installs and uninstalls on its own and does not change this add-on's install.
 
 ### Tip: 32-bit And Vulkan SteamVR Games
 
@@ -61,15 +67,13 @@ This add-on has no 32-bit version, but ReShade on its own works in these games (
 
 - Update OpenXR: close games and SteamVR, extract the new normal release, then run `Install-OpenXR.cmd` as administrator.
 - For SteamVR games set up by copying, also replace `ReShade-SteamVR-UI.addon64` in each game folder with the new one.
-- Update the system-wide listener: extract its new separate ZIP, then run `Install-System-Wide-SteamVR-Listener.cmd` as administrator.
 - Uninstall OpenXR: run `Uninstall-OpenXR.cmd` as administrator.
-- Uninstall the listener: run `Uninstall-System-Wide-SteamVR-Listener.cmd` from the listener ZIP as administrator. Removing one does not remove the other.
 - For SteamVR games set up by copying, delete `ReShade-SteamVR-UI.addon64` from each game folder.
+- For the System-Wide SteamVR Listener, use the update and uninstall steps in its own `INSTALL.md`.
 - If no effects appear, check `ReShade.log` next to the game's `.exe`.
 
 ## Where It Installs And Why Admin Rights Are Needed
 
 - OpenXR files go to `C:\Program Files\ReShade VR UI Add-on`, with the layer file under `openxr-layers`. Admin rights are needed to write there and register the layer for all users under `HKEY_LOCAL_MACHINE\Software\Khronos\OpenXR\1\ApiLayers\Implicit`.
-- The separate listener installs `ReShade-System-Wide-SteamVR-Listener.exe` and the SteamVR add-on in the same program directory. It starts with Windows for your account through `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`.
 - Settings and logs are kept in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Uninstalling does not remove them.
-- None of the installers change game folders. The only file placed in a game folder is the SteamVR add-on you copy there yourself.
+- The installer does not change game folders. The only file placed in a game folder is the SteamVR add-on you copy there yourself.

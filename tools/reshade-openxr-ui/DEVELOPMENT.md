@@ -61,7 +61,7 @@ The package shares one ReShade state core across two frontend DLLs:
 - The add-on never changes effect values inside a ReShade event callback. ReShade's built-in desktop/headset Effect Runtime Sync only stops its own echo when a change starts outside another add-on's callback; a reset inside `reshade_reloaded_effects` bounced between the two runtimes until the stack overflowed. Default values are therefore captured from the menu path (`openxr_ui_get_techniques`), 32 uniforms per call.
 - While a windowless headset runtime exists, effects on windowed (monitor) runtimes are switched off with `set_effects_state(false)`, which fires no sync event, and switched back on when the last headset runtime is destroyed.
 - `ReShade-SteamVR-UI.addon64` compiles the same core with `openvr_ui_overlay.cpp` and no private ImGui implementation. It registers a settings callback through ReShade's exported ImGui function table, while ReShade's existing SteamVR dashboard handles texture submission and input. The controls appear by expanding **ReShade VR UI Add-on for SteamVR** on the **Add-ons** page, avoiding ReShade's fixed 500-pixel VR tab row entirely.
-- `ReShade-VR-Loader.exe` watches the application list maintained by official central ReShade Setup and classifies each enabled 64-bit process by loaded VR client module. It leaves `openxr_loader.dll` processes to the registered OpenXR layers and loads the exact central `ReShade64.dll` followed by the SteamVR UI companion only after `openvr_api.dll` appears. It maintains no second allowlist and writes `ReShade-VR-Loader.log` beside itself.
+- The optional System-Wide SteamVR Listener is a separate program in `tools\steamvr-listener` with its own build (`build-listener.bat`, also run by `build.bat`), package and installer. It is not part of this add-on's package or install.
 
 In an OpenVR-only process, the companion writes `ADDON/SyncEffectRuntimes=0` before ReShade's built-in Effect Runtime Sync receives its first runtime initialization event. ReShade's dashboard operates on the OpenVR runtime directly. This prevents desktop-to-headset preset and uniform feedback while leaving native OpenXR behavior unchanged. When the windowless OpenVR runtime first appears, the companion also checks `ADDON/SteamVROverlayScaleNormalized`. If the marker is absent and the runtime still has ReShade's default font size and an automatic `1`, `1.5`, or `2` scale, it writes `STYLE/FontSize=12` and `STYLE/FontScale=1` to that runtime's `ReShadeVR.ini` before recording the marker. Custom sizing and subsequent user changes are preserved. Empty asynchronous inventories are retried for up to 600 presents. Once the inventory is non-empty, the companion calls `IVROverlay::ShowDashboard("reshade")` once so an already-running SteamVR dashboard surfaces the process-created ReShade overlay. ReShade persists collapsed add-on entries in `ADDON/OverlayCollapsed`; users expand the companion entry to invoke its settings callback.
 
@@ -100,7 +100,9 @@ clean.bat
 ```
 
 `build.bat` sets up the local ReShade dependency when needed, builds the
-add-ons, and creates the release package. `clean.bat` removes only
+add-ons and the separate SteamVR listener, and creates both release packages.
+`build-addon.bat` builds and packages only the add-ons. `clean.bat` runs
+`clean-addon.bat` and `clean-listener.bat`. `clean-addon.bat` removes only
 `build\reshade-openxr-ui`, including simulator captures stored there, then runs
 the normal build, package step, and enforced D3D11 WARP interaction test. The
 clean command assumes the ReShade dependency checkout already exists.
@@ -114,13 +116,12 @@ Output:
 ```text
 build\reshade-openxr-ui\ReShade-OpenXR-UI.addon64
 build\reshade-openxr-ui\ReShade-SteamVR-UI.addon64
-build\reshade-openxr-ui\ReShade-VR-Loader.exe
 build\reshade-openxr-ui\ReShade-OpenXR-UI-Renderer-Test.exe
 build\reshade-openxr-ui\layers\ReShade-OpenXR-UI-Layer.json
 ```
 
-The manifest expects the OpenXR DLL one directory above its `layers` directory. Its `api_layer.name` value, `XR_APILAYER_reshade_vr_ui`, is a stable external identifier used by SteamVR's API-layer toggle and must not be renamed; `build.ps1` enforces it. The user-facing label belongs in `api_layer.description`. The SteamVR DLL has no OpenXR negotiation export. Both frontend DLLs and the loader are installed centrally; nothing is copied into game directories.
-The build executes a synthetic allowlisted-process injection test and the D3D11 WARP interaction test after compiling. It fails if either test fails.
+The manifest expects the OpenXR DLL one directory above its `layers` directory. Its `api_layer.name` value, `XR_APILAYER_reshade_vr_ui`, is a stable external identifier used by SteamVR's API-layer toggle and must not be renamed; `build.ps1` enforces it. The user-facing label belongs in `api_layer.description`. The SteamVR DLL has no OpenXR negotiation export. The OpenXR DLL is installed centrally; the SteamVR DLL is copied by the user into each SteamVR game folder.
+The build executes the D3D11 WARP interaction test after compiling. It fails if the test fails.
 
 Verify the artifact size, SHA-256, and required exports with:
 
@@ -148,7 +149,7 @@ Captures are written under `build\reshade-openxr-ui\simulator-captures\d3d11` an
 
 ## Global Installation
 
-"Global" means one protected machine-wide runtime installation with a current-user loader startup entry and per-user preferences. Installation requires administrator access so SteamVR's elevated OpenXR API-layer control can change the layer state. It does not replace, uninstall, or modify the official ReShade files under `C:\ProgramData\ReShade`, and it does not copy files into individual game directories.
+"Global" means one protected machine-wide OpenXR runtime installation with per-user preferences. Installation requires administrator access so SteamVR's elevated OpenXR API-layer control can change the layer state. It does not replace, uninstall, or modify the official ReShade files under `C:\ProgramData\ReShade`, and it does not copy files into individual game directories.
 
 The supported developer flow starts from the repository root and creates the
 same layout shipped to users:
@@ -158,14 +159,12 @@ build.bat
 install.bat
 ```
 
-`package.ps1` creates both `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon.zip` and an unpacked `ReShade-VR-UI-Addon` directory. `Install.cmd` must run from that complete release layout because it expects the DLL beside the script and the manifest under `openxr-layers`.
+`package.ps1` creates both `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon.zip` and an unpacked `ReShade-VR-UI-Addon` directory. `Install-OpenXR.cmd` must run from that complete release layout because it expects the DLL beside the script and the manifest under `openxr-layers`.
 
 Installation copies exactly these runtime files:
 
 ```text
 %ProgramFiles%\ReShade VR UI Add-on\ReShade-OpenXR-UI.addon64
-%ProgramFiles%\ReShade VR UI Add-on\ReShade-SteamVR-UI.addon64
-%ProgramFiles%\ReShade VR UI Add-on\ReShade-VR-Loader.exe
 %ProgramFiles%\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer.json
 ```
 
@@ -177,31 +176,26 @@ Value: %ProgramFiles%\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer
 Data:  0
 ```
 
-The manifest resolves `..\ReShade-OpenXR-UI.addon64` relative to its own `openxr-layers` directory. The OpenXR loader can therefore discover it in every 64-bit OpenXR process for this user. The central process loader reads `C:\ProgramData\ReShade\ReShadeApps.ini` and waits for listed processes to load a VR client module. It leaves `openxr_loader.dll` processes to the existing OpenXR registration and injects `C:\ProgramData\ReShade\ReShade64.dll` plus the SteamVR companion only into `openvr_api.dll` processes. OpenXR and OpenVR therefore use distinct activation paths over the exact official ReShade module selected by Setup, with no game-local proxy or duplicate allowlist.
+The manifest resolves `..\ReShade-OpenXR-UI.addon64` relative to its own `openxr-layers` directory. The OpenXR loader can therefore discover it in every 64-bit OpenXR process for this user.
 
 Official ReShade still controls which games receive ReShade effects and OpenXR support. Install this add-on once, but continue using the official ReShade installer to enable ReShade and OpenXR for each game. The official **full add-on support** build is required; the standard limited build rejects standalone add-ons. The current UI renderer supports 64-bit D3D11, D3D12 and OpenGL OpenXR sessions.
 
-Close games and VR runtimes before installing or updating so they cannot retain previous files. Run `Install.cmd` as administrator. Re-running it updates all installed runtime files, preserves the OpenXR layer's On or Off value, refreshes the current-user loader startup entry, and starts the loader. Verify the installation from an elevated PowerShell window with:
+Close games and VR runtimes before installing or updating so they cannot retain previous files. Run `Install-OpenXR.cmd` as administrator. Re-running it updates all installed runtime files and preserves the OpenXR layer's On or Off value. Verify the installation from an elevated PowerShell window with:
 
 ```powershell
 Get-Item -LiteralPath "$env:ProgramFiles\ReShade VR UI Add-on\ReShade-OpenXR-UI.addon64"
-Get-Item -LiteralPath "$env:ProgramFiles\ReShade VR UI Add-on\ReShade-SteamVR-UI.addon64"
-Get-Item -LiteralPath "$env:ProgramFiles\ReShade VR UI Add-on\ReShade-VR-Loader.exe"
 Get-Item -LiteralPath "$env:ProgramFiles\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer.json"
 reg.exe query "HKLM\Software\Khronos\OpenXR\1\ApiLayers\Implicit" /v "$env:ProgramFiles\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer.json" /reg:64
-reg.exe query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "ReShade VR UI Loader"
 ```
 
 The registry query must report `REG_DWORD    0x0`. This registration is independent of official ReShade's machine-wide OpenXR registration; both are required for the add-on to activate in a ReShade-enabled game.
 
 To remove only this add-on from the repository installation, run
-`uninstall.bat` as administrator. For an extracted release, run `Uninstall.cmd`
-from the release directory as administrator. Both paths stop the loader,
-remove and verify the HKLM layer registration and HKCU startup entry, and
-remove both frontend DLLs, the loader, and the manifest.
+`uninstall.bat` as administrator. For an extracted release, run `Uninstall-OpenXR.cmd`
+from the release directory as administrator. Both paths remove and verify the
+HKLM layer registration and remove the OpenXR DLL and the manifest.
 They do not change official ReShade, game files, effects, presets, ReShade
-configuration, or logs. They intentionally preserve preferences and
-`ReShade-VR-Loader.log`.
+configuration, or logs. They intentionally preserve preferences.
 
 ## Headset Test
 

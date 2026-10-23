@@ -1,7 +1,6 @@
 param(
 	[string]$ArtifactPath,
 	[string]$SteamVRArtifactPath,
-	[string]$LoaderPath,
 	[string]$OutputDirectory = 'build\reshade-openxr-ui'
 )
 
@@ -16,9 +15,6 @@ if (-not $ArtifactPath) {
 }
 if (-not $SteamVRArtifactPath) {
 	$SteamVRArtifactPath = Join-Path $OutputDirectory 'ReShade-SteamVR-UI.addon64'
-}
-if (-not $LoaderPath) {
-	$LoaderPath = Join-Path $OutputDirectory 'ReShade-VR-Loader.exe'
 }
 
 $vsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -60,30 +56,3 @@ function Test-Artifact([string]$Path, [string[]]$RequiredExports, [string[]]$For
 
 Test-Artifact $ArtifactPath @('NAME', 'DESCRIPTION', 'xrNegotiateLoaderApiLayerInterface') @()
 Test-Artifact $SteamVRArtifactPath @('NAME', 'DESCRIPTION') @('xrNegotiateLoaderApiLayerInterface')
-
-if (-not (Test-Path -LiteralPath $LoaderPath -PathType Leaf)) {
-	throw "Central loader artifact does not exist: $LoaderPath"
-}
-$loaderStream = [System.IO.File]::OpenRead($LoaderPath)
-try {
-	$loaderReader = [System.IO.BinaryReader]::new($loaderStream)
-	$loaderStream.Position = 0x3c
-	$peOffset = $loaderReader.ReadInt32()
-	$loaderStream.Position = $peOffset
-	$peSignature = $loaderReader.ReadUInt32()
-	$machine = $loaderReader.ReadUInt16()
-	$loaderStream.Position = $peOffset + 24 + 68
-	$subsystem = $loaderReader.ReadUInt16()
-}
-finally {
-	$loaderStream.Dispose()
-}
-if ($peSignature -ne 0x00004550 -or $machine -ne 0x8664 -or $subsystem -ne 2) {
-	throw 'Central loader is not an x64 Windows GUI executable.'
-}
-$loader = Get-Item -LiteralPath $LoaderPath
-$loaderHash = Get-FileHash -LiteralPath $LoaderPath -Algorithm SHA256
-Write-Host "ARTIFACT:$LoaderPath"
-Write-Host "SIZE:$($loader.Length)"
-Write-Host "SHA256:$($loaderHash.Hash)"
-Write-Host 'TYPE:x64 Windows GUI'

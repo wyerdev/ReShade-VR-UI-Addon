@@ -47,7 +47,7 @@ namespace
 		const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", path, static_cast<DWORD>(std::size(path)));
 		if (length == 0 || length >= std::size(path))
 			return {};
-		const std::filesystem::path directory = std::filesystem::path(path, path + length) / L"ReShade VR UI Add-on";
+		const std::filesystem::path directory = std::filesystem::path(path, path + length) / L"ReShade System-Wide SteamVR Listener";
 		std::error_code error;
 		std::filesystem::create_directories(directory, error);
 		return error ? std::filesystem::path() : directory;
@@ -202,8 +202,37 @@ namespace
 		return succeeded;
 	}
 
+	struct file_stamp
+	{
+		FILETIME last_write = {};
+		DWORD size = 0;
+		bool operator==(const file_stamp &other) const
+		{
+			return CompareFileTime(&last_write, &other.last_write) == 0 && size == other.size;
+		}
+	};
+
+	file_stamp read_file_stamp(const std::filesystem::path &path)
+	{
+		WIN32_FILE_ATTRIBUTE_DATA data = {};
+		if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data))
+			return {};
+		return { data.ftLastWriteTime, data.nFileSizeLow };
+	}
+
+	// New processes are found by a full process list, which is the main idle cost.
+	constexpr ULONGLONG process_scan_interval_ms = 500;
+	constexpr ULONGLONG allowlist_check_interval_ms = 5000;
+	// A listed game is checked quickly for its VR library so injection stays early,
+	// then slowly once it has run without VR for a while (for example in flat mode).
+	constexpr ULONGLONG fast_backend_check_interval_ms = 25;
+	constexpr ULONGLONG slow_backend_check_interval_ms = 1000;
+	constexpr ULONGLONG fast_backend_check_duration_ms = 60000;
+
 	struct injection_progress
 	{
+		ULONGLONG detected_at = 0;
+		ULONGLONG next_check = 0;
 		uint32_t attempts = 0;
 		bool reshade_loaded = false;
 	};
@@ -258,76 +287,118 @@ int wmain(int argc, wchar_t *argv[])
 	std::set<DWORD> observed_processes;
 	std::map<DWORD, injection_progress> pending_injections;
 	std::vector<std::wstring> allowed_paths = load_allowlist(allowlist);
+	file_stamp allowlist_stamp = read_file_stamp(allowlist);
 	log_message(L"Loader started with " + std::to_wstring(allowed_paths.size()) + L" centrally enabled application(s).");
-	ULONGLONG next_allowlist_reload = GetTickCount64() + 5000;
-	while (WaitForSingleObject(stop_event, 25) == WAIT_TIMEOUT)
+	const DWORD own_process_id = GetCurrentProcessId();
+	ULONGLONG next_allowlist_check = GetTickCount64() + allowlist_check_interval_ms;
+	ULONGLONG next_process_scan = 0;
+	DWORD wait_ms = 0;
+	while (WaitForSingleObject(stop_event, wait_ms) == WAIT_TIMEOUT)
 	{
-		if (GetTickCount64() >= next_allowlist_reload)
+		ULONGLONG now = GetTickCount64();
+		if (now >= next_allowlist_check)
 		{
-			allowed_paths = load_allowlist(allowlist);
-			next_allowlist_reload = GetTickCount64() + 5000;
+			const file_stamp stamp = read_file_stamp(allowlist);
+			if (!(stamp == allowlist_stamp))
+			{
+				allowed_paths = load_allowlist(allowlist);
+				allowlist_stamp = stamp;
+			}
+			next_allowlist_check = now + allowlist_check_interval_ms;
 		}
 
-		scoped_handle snapshot = { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-		if (snapshot.value == INVALID_HANDLE_VALUE)
-			continue;
-		std::set<DWORD> current_processes;
-		PROCESSENTRY32W entry = { sizeof(entry) };
-		for (BOOL has_entry = Process32FirstW(snapshot, &entry); has_entry; has_entry = Process32NextW(snapshot, &entry))
+		if (now >= next_process_scan)
 		{
-			current_processes.insert(entry.th32ProcessID);
-			if (entry.th32ProcessID == GetCurrentProcessId() || observed_processes.find(entry.th32ProcessID) != observed_processes.end())
-				continue;
-			const std::filesystem::path image_path = process_path(entry.th32ProcessID);
-			if (image_path.empty())
-				continue;
-			const std::wstring normalized = normalize_path(image_path);
-			if (std::find(allowed_paths.begin(), allowed_paths.end(), normalized) == allowed_paths.end())
+			next_process_scan = now + process_scan_interval_ms;
+			scoped_handle snapshot = { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+			if (snapshot.value != INVALID_HANDLE_VALUE)
 			{
-				observed_processes.insert(entry.th32ProcessID);
+				std::vector<DWORD> current_processes;
+				PROCESSENTRY32W entry = { sizeof(entry) };
+				for (BOOL has_entry = Process32FirstW(snapshot, &entry); has_entry; has_entry = Process32NextW(snapshot, &entry))
+				{
+					const DWORD process_id = entry.th32ProcessID;
+					current_processes.push_back(process_id);
+					if (process_id == own_process_id || observed_processes.count(process_id) != 0 || pending_injections.count(process_id) != 0)
+						continue;
+					const std::filesystem::path image_path = process_path(process_id);
+					if (image_path.empty())
+						continue;
+					if (std::find(allowed_paths.begin(), allowed_paths.end(), normalize_path(image_path)) == allowed_paths.end())
+					{
+						observed_processes.insert(process_id);
+						continue;
+					}
+					log_message(L"Detected enabled application: " + image_path.native());
+					injection_progress &progress = pending_injections[process_id];
+					progress.detected_at = now;
+					progress.next_check = now;
+				}
+				std::sort(current_processes.begin(), current_processes.end());
+				const auto exited = [&current_processes](DWORD process_id) {
+					return !std::binary_search(current_processes.begin(), current_processes.end(), process_id);
+				};
+				for (auto iterator = observed_processes.begin(); iterator != observed_processes.end();)
+					iterator = exited(*iterator) ? observed_processes.erase(iterator) : std::next(iterator);
+				for (auto iterator = pending_injections.begin(); iterator != pending_injections.end();)
+					iterator = exited(iterator->first) ? pending_injections.erase(iterator) : std::next(iterator);
+			}
+		}
+
+		ULONGLONG next_wake = (std::min)(next_process_scan, next_allowlist_check);
+		for (auto iterator = pending_injections.begin(); iterator != pending_injections.end();)
+		{
+			const DWORD process_id = iterator->first;
+			injection_progress &progress = iterator->second;
+			if (now < progress.next_check)
+			{
+				next_wake = (std::min)(next_wake, progress.next_check);
+				++iterator;
 				continue;
 			}
-			auto [progress_iterator, inserted] = pending_injections.try_emplace(entry.th32ProcessID);
-			injection_progress &progress = progress_iterator->second;
-			if (inserted)
-				log_message(L"Detected enabled application: " + image_path.native());
 
-			const vr_backend backend = detect_vr_backend(entry.th32ProcessID);
+			const vr_backend backend = detect_vr_backend(process_id);
 			if (backend == vr_backend::openxr)
 			{
-				log_message(L"Detected OpenXR in process " + std::to_wstring(entry.th32ProcessID) + L"; leaving activation to the OpenXR API layer.");
-				observed_processes.insert(entry.th32ProcessID);
-				pending_injections.erase(progress_iterator);
+				log_message(L"Detected OpenXR in process " + std::to_wstring(process_id) + L"; leaving activation to the OpenXR API layer.");
+				observed_processes.insert(process_id);
+				iterator = pending_injections.erase(iterator);
 				if (exit_after_injection)
 					return 0;
 				continue;
 			}
-			if (backend != vr_backend::openvr)
-				continue;
+			if (backend == vr_backend::openvr)
+			{
+				++progress.attempts;
+				if (!progress.reshade_loaded)
+					progress.reshade_loaded = inject_library(process_id, reshade);
+				if (progress.reshade_loaded && inject_library(process_id, addon))
+				{
+					log_message(L"Loaded central ReShade and SteamVR UI into process " + std::to_wstring(process_id) + L'.');
+					observed_processes.insert(process_id);
+					iterator = pending_injections.erase(iterator);
+					if (exit_after_injection)
+						return 0;
+					continue;
+				}
+				if (progress.attempts >= 80)
+				{
+					log_message(L"Failed to load central ReShade or SteamVR UI into process " + std::to_wstring(process_id) + L" after 80 attempts.");
+					observed_processes.insert(process_id);
+					iterator = pending_injections.erase(iterator);
+					continue;
+				}
+			}
 
-			++progress.attempts;
-			if (!progress.reshade_loaded)
-				progress.reshade_loaded = inject_library(entry.th32ProcessID, reshade);
-			const bool addon_loaded = progress.reshade_loaded && inject_library(entry.th32ProcessID, addon);
-			if (addon_loaded)
-			{
-				log_message(L"Loaded central ReShade and SteamVR UI into process " + std::to_wstring(entry.th32ProcessID) + L'.');
-				observed_processes.insert(entry.th32ProcessID);
-				pending_injections.erase(progress_iterator);
-				if (exit_after_injection)
-					return 0;
-			}
-			else if (progress.attempts >= 80)
-			{
-				log_message(L"Failed to load central ReShade or SteamVR UI into process " + std::to_wstring(entry.th32ProcessID) + L" after 80 attempts.");
-				observed_processes.insert(entry.th32ProcessID);
-				pending_injections.erase(progress_iterator);
-			}
+			now = GetTickCount64();
+			const bool fast = backend == vr_backend::openvr || now - progress.detected_at < fast_backend_check_duration_ms;
+			progress.next_check = now + (fast ? fast_backend_check_interval_ms : slow_backend_check_interval_ms);
+			next_wake = (std::min)(next_wake, progress.next_check);
+			++iterator;
 		}
-		for (auto iterator = observed_processes.begin(); iterator != observed_processes.end();)
-			iterator = current_processes.find(*iterator) == current_processes.end() ? observed_processes.erase(iterator) : std::next(iterator);
-		for (auto iterator = pending_injections.begin(); iterator != pending_injections.end();)
-			iterator = current_processes.find(iterator->first) == current_processes.end() ? pending_injections.erase(iterator) : std::next(iterator);
+
+		now = GetTickCount64();
+		wait_ms = next_wake > now ? static_cast<DWORD>(next_wake - now) : 0;
 	}
 	if (stopped_event.value != nullptr)
 		SetEvent(stopped_event);

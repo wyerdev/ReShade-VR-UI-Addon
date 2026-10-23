@@ -23,7 +23,8 @@ build.bat
 ```
 
 `build.bat` sets up the local ReShade dependency when it is missing, builds the
-add-ons, and creates the installable package. The setup script requires Git and
+add-ons and the System-Wide SteamVR Listener, and creates both installable
+packages. The setup script requires Git and
 initializes ReShade's required submodules. The ReShade checkout must contain
 its public headers plus the Dear ImGui, OpenXR SDK, and OpenVR dependency
 trees.
@@ -37,27 +38,40 @@ The root batch files are the standard build and installation entry points:
 
 ```bat
 build.bat
+build-addon.bat
+build-listener.bat
 clean.bat
+clean-addon.bat
+clean-listener.bat
 install.bat
 uninstall.bat
 ```
 
-`build.bat` sets up the local ReShade dependency when needed, builds the
-add-ons, and creates the installable package. `clean.bat` removes the generated
-build output, then rebuilds and recreates the package; it assumes the ReShade
-dependency checkout has already been set up. Run `install.bat` and
+`build.bat` builds and packages both products by running `build-addon.bat`
+and then `build-listener.bat`. `build-addon.bat` sets up the local ReShade
+dependency when needed, builds the add-ons, and creates the add-on package.
+`build-listener.bat` builds, tests and packages only the listener; it needs
+the add-on build output, so run it after `build-addon.bat`. `clean.bat` runs
+`clean-addon.bat` and then `clean-listener.bat`; each removes its own
+generated build output, then rebuilds and repackages that product. They assume
+the ReShade dependency checkout has already been set up. Run `install.bat` and
 `uninstall.bat` as administrator. They manage the protected machine-wide
 OpenXR registration and runtime files while preserving per-user preferences
 and logs.
 
 The wrapper builds against `.deps\reshade`, packages the release, and writes
 generated files under `build\reshade-openxr-ui`. The build runs the private
-renderer interaction test and the central loader test. To build ReShade itself,
+renderer interaction test. To build ReShade itself,
 use the build instructions and scripts inside the separate `.deps\reshade`
 checkout first.
 
 See [tools/reshade-openxr-ui/README.md](tools/reshade-openxr-ui/README.md) for
 plugin architecture, release packaging, and simulator validation details.
+
+The optional System-Wide SteamVR Listener is a separate program under
+`tools/steamvr-listener` with its own package and installer. `install.bat` and
+the add-on package do not include it; see
+[tools/steamvr-listener/INSTALL.md](tools/steamvr-listener/INSTALL.md).
 
 ## Validation
 

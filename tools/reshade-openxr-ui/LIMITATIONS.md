@@ -47,8 +47,6 @@
 - The controls are a page inside ReShade's own SteamVR dashboard
   (**Add-ons** > **ReShade VR UI Add-on for SteamVR**), not a separate panel.
 - The FPS line and graph are on that page only; there is no always-on counter.
-- Only games in ReShade Setup's game list are picked up, and only while the
-  add-on's loader is running (it starts when you sign in to Windows).
 - The add-on changes two settings in the game's ReShade files: it turns off
   ReShade's desktop/VR effect sync in `ReShade.ini`, and it sets the dashboard
   font size once in `ReShadeVR.ini`.

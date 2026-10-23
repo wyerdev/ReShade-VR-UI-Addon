@@ -4,7 +4,7 @@ Status: Not started. Saved for later.
 
 ## Why
 
-The optional SteamVR loader (`ReShade-VR-Loader.exe`) is an unsigned program that starts with Windows, watches for games and loads DLLs into them. Antivirus tools often treat that pattern as malware, even though ReShade's own injector and the UEVR injector work the same way. Files built locally are not checked as strictly, because Windows only marks downloaded files for extra checks. Once released, users will probably see the "Windows protected your PC" warning, and some antivirus products may quarantine the loader.
+The optional System-Wide SteamVR Listener (`ReShade-System-Wide-SteamVR-Listener.exe`, a separate program in `tools\steamvr-listener`) is an unsigned program that starts with Windows, watches for games and loads DLLs into them. Antivirus tools often treat that pattern as malware, even though ReShade's own injector and the UEVR injector work the same way. Files built locally are not checked as strictly, because Windows only marks downloaded files for extra checks. Once released, users will probably see the "Windows protected your PC" warning, and some antivirus products may quarantine the loader.
 
 Signing proves who published a file and that it was not changed afterwards. It makes antivirus tools more likely to trust the file, but it does not remove the SmartScreen warning straight away. Microsoft says trust still builds up as more people download the file. EV certificates no longer skip that warning either.
 
@@ -22,8 +22,8 @@ Recommendation: SignPath Foundation, because the project is MIT-licensed, it is 
 
 ## 2. Sign The Files
 
-- Sign `ReShade-VR-Loader.exe`, `ReShade-OpenXR-UI.addon64` and `ReShade-SteamVR-UI.addon64`.
-- `Install.cmd` and `Uninstall.cmd` cannot be signed; Windows does not support signatures on that file type.
+- Sign `ReShade-System-Wide-SteamVR-Listener.exe`, `ReShade-OpenXR-UI.addon64` and `ReShade-SteamVR-UI.addon64`.
+- The `.cmd` install and uninstall scripts cannot be signed; Windows does not support signatures on that file type.
 - Sign before zipping. The step would fit at the start of `package.ps1`, as an optional step.
 - Always add a timestamp (`/tr`). It keeps the signature valid after the certificate expires.
 
