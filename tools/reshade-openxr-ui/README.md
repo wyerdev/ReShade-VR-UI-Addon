@@ -2,7 +2,9 @@
 
 ReShade VR UI Add-on is a controller-driven, headset-native interface for managing ReShade effects in OpenXR and SteamVR/OpenVR applications. The package has two frontends over the same ReShade state model: an OpenXR API-layer quad and a lightweight ReShade add-on page in the existing SteamVR dashboard.
 
-This README is for developers. To install a prebuilt release, see [INSTALL.md](INSTALL.md) (OpenXR games and UEVR) or [INSTALL-SteamVR.md](INSTALL-SteamVR.md) (SteamVR games).
+Why two frontends: in SteamVR games ReShade already has its own dashboard menu, and the only missing piece was a `ReShadeVR.ini` next to the game (without it the ReShade icon does not appear in SteamVR), so the SteamVR side only writes that file and adds small extras. In OpenXR games ReShade has no headset menu at all, so the OpenXR side draws its own panel.
+
+This README is for developers. To install a prebuilt release, see [INSTALL.md](INSTALL.md) (OpenXR games and UEVR) or [INSTALL-SteamVR.md](INSTALL-SteamVR.md) (SteamVR games) or [INSTALL-Vulkan-32bit.md](INSTALL-Vulkan-32bit.md) (Vulkan and 32-bit games, ReShade alone).
 
 ## Install And Load Model
 
@@ -51,14 +53,14 @@ Data `0` means the layer is enabled. When a 64-bit OpenXR application starts:
 6. If ReShade accepts `reshade::register_addon`, the add-on initializes its controller actions, D3D11, D3D12 or OpenGL UI swapchain, and headset quad.
 7. Without ReShade, the layer remains inert and forwards OpenXR normally. Pimax Home therefore does not display the UI.
 
-SteamVR (OpenVR) games do not use this install. Users install ReShade next to the game and copy `ReShade-SteamVR-UI.addon64` into the game folder. The optional System-Wide SteamVR Listener that automates this is a separate program in `tools\steamvr-listener` with its own build, package and installer.
+SteamVR (OpenVR) games do not use this install. Users set up each game in one of two ways: automatic (install ReShade next to the game and copy `ReShade-SteamVR-UI.addon64` into the game folder), or manual (ReShade alone with the packaged `without-addon\ReShadeVR.ini`). The optional System-Wide SteamVR Listener that automates the add-on way is a separate program in `tools\steamvr-listener` with its own build, package and installer.
 
 The DLL has two simultaneous roles:
 
 - **OpenXR API layer:** creates and submits the headset-visible UI.
 - **ReShade add-on:** reads and changes techniques, parameters, ordering, and presets through ReShade's public API.
 
-Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. Install the OpenXR package once as administrator for compatible OpenXR games. SteamVR users download the separate SteamVR package and copy its add-on per game.
+Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. Install the OpenXR package once as administrator for compatible OpenXR games. SteamVR users download the separate SteamVR package and set up each game with or without its add-on.
 
 Run the packaged installer as administrator from the repository root after closing running OpenXR applications:
 
@@ -81,7 +83,7 @@ Vulkan and 32-bit status (checked 2026-10-01):
 
 - Vulkan OpenXR games: ReShade runs the effects, but this add-on does not draw its headset panel yet. The work is planned in `VULKAN_SUPPORT_PLAN.md` and has not started.
 - Vulkan SteamVR (OpenVR) games: ReShade's own SteamVR dashboard already supports Vulkan, and the SteamVR companion has no graphics code of its own, so 64-bit Vulkan SteamVR games should work. This is untested.
-- 32-bit games: there is no 32-bit build of either add-on. 32-bit ReShade only loads `.addon32` files, so neither our page nor the automatic dashboard text-size fix below applies. ReShade's own SteamVR dashboard still works. If its text is too large, close the game and set `FontScale=1` and `FontSize=12` under `[STYLE]` in the game's `ReShadeVR.ini`.
+- 32-bit games: there is no 32-bit build of either add-on. 32-bit ReShade only loads `.addon32` files, so neither our page nor the automatic dashboard text-size fix below applies. ReShade's own SteamVR dashboard still works, but its icon only appears when the game has a `ReShadeVR.ini`. Users download it from the repository (`tools\reshade-openxr-ui\ReShadeVR.ini`, linked from `INSTALL-Vulkan-32bit.md`) or paste its lines from the guide (`FontScale=1` and `FontSize=12` under `[STYLE]`, which also keeps the text from being too large).
 - Example: Half-Life 2 VR. `hl2vr.exe` starts the 32-bit `hl2.exe`, which draws through Vulkan (converted from Direct3D 9 by the mod) and uses SteamVR. Effects and ReShade's dashboard work in the headset; our page does not load.
 
 OpenGL OpenXR sessions (tested with SOMA-VR) need one extra step. ReShade is loaded by its OpenXR layer only when the game starts OpenXR, after the game has made its OpenGL context current, so ReShade has never seen that context and would skip the headset session. During `xrCreateSession`, and only when the session's context is current on the calling thread, this layer releases and re-binds that context through ReShade's hooked `wglMakeCurrent`. ReShade's layer sits above this one and inspects the session after this layer returns, so it then registers the context and runs its normal OpenXR OpenGL path. The panel is drawn with Dear ImGui's OpenGL 3 backend in the game's context; OpenGL is resolved at run time, so the add-on has no `opengl32.dll` import. See `OPENGL_SUPPORT.md` for findings and performance notes, including ReShade's Generic Depth cost.
@@ -238,9 +240,12 @@ THIRD-PARTY-NOTICES.txt
 ```text
 ReShade-SteamVR-UI.addon64
 INSTALL.md
+without-addon\ReShadeVR.ini
 LICENSE
 THIRD-PARTY-NOTICES.txt
 ```
+
+`without-addon\ReShadeVR.ini` is the manual alternative to the add-on. Without a `ReShadeVR.ini` next to the game, ReShade's icon does not appear in the SteamVR dashboard. The file sets only `[STYLE]` `FontScale=1` and `FontSize=12`, which also keeps the menu from being zoomed in; every other setting falls back to the game's `ReShade.ini`.
 
 Rename the build output's `layers` directory to `openxr-layers` when assembling the ZIP. Keep the manifest exactly one directory below the DLL because its relative `library_path` is `..\ReShade-OpenXR-UI.addon64`.
 

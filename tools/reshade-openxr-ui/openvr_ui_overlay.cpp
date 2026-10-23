@@ -19,6 +19,11 @@ namespace
 	bool s_open_logged = false;
 	char s_save_as_name[128] = {};
 
+	// Hidden for now because ReShade's own menu already offers all of these controls; set to true to show them again.
+	constexpr bool show_effect_controls = false;
+
+	void draw_effect_controls();
+
 	template <typename T>
 	T *get_openvr_interface(const char *version)
 	{
@@ -146,6 +151,12 @@ namespace
 				openxr_ui_set_frame_rate_divisor(divisor);
 		}
 
+		if constexpr (show_effect_controls)
+			draw_effect_controls();
+	}
+
+	void draw_effect_controls()
+	{
 		const std::shared_ptr<const openxr_ui::technique_snapshot> snapshot = openxr_ui_get_techniques();
 		ImGui::Text("Current preset: %s", openxr_ui_get_preset_name().c_str());
 		if (ImGui::Button("< Previous"))

@@ -3,6 +3,25 @@
 This repository contains the ReShade VR UI Add-on and its OpenXR validation
 harnesses. ReShade itself is not part of this repository.
 
+## What It Does
+
+ReShade can already draw effects in VR games. What is missing is a way to
+control ReShade from inside the headset:
+
+- **SteamVR games:** ReShade already has its own menu in the SteamVR
+  dashboard. The only missing piece was a `ReShadeVR.ini` file next to the
+  game's `.exe`; without it, the ReShade icon does not appear in SteamVR. The
+  SteamVR download includes that file (manual way), plus an add-on that writes
+  it for you and adds a few extras (automatic way).
+- **OpenXR games and UEVR:** ReShade has no menu in the headset, and no
+  settings file fixes that. So this project adds its own panel in the headset
+  to switch effects on and off and change them.
+
+## Install
+
+To install, start with [Which download do I need?](tools/reshade-openxr-ui/RELEASE_NOTES.md).
+It shows the download and install steps for each kind of VR game.
+
 ## Repository Boundary
 
 The plugin source and tests live under `tools/reshade-openxr-ui`. Related
@@ -166,10 +185,3 @@ ReShade, Dear ImGui, the OpenXR SDK, and OpenVR remain under their upstream
 licenses; see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) for the terms
 included with the release package.
 
-## Installation
-
-For end-user installation, see [tools/reshade-openxr-ui/INSTALL.md](tools/reshade-openxr-ui/INSTALL.md)
-(OpenXR games and UEVR) or
-[tools/reshade-openxr-ui/INSTALL-SteamVR.md](tools/reshade-openxr-ui/INSTALL-SteamVR.md)
-(SteamVR games).
-Official ReShade with full add-on support remains a separate prerequisite.

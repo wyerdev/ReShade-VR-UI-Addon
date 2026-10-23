@@ -21,10 +21,11 @@ $openxrInstallScript = Join-Path $PSScriptRoot 'Install-OpenXR.cmd'
 $openxrUninstallScript = Join-Path $PSScriptRoot 'Uninstall-OpenXR.cmd'
 $openxrInstallGuide = Join-Path $PSScriptRoot 'INSTALL.md'
 $steamvrInstallGuide = Join-Path $PSScriptRoot 'INSTALL-SteamVR.md'
+$steamvrManualIni = Join-Path $PSScriptRoot 'ReShadeVR.ini'
 $projectLicense = Join-Path $repo 'LICENSE'
 $thirdPartyNotices = Join-Path $repo 'THIRD-PARTY-NOTICES.txt'
 
-foreach ($requiredPath in @($addon, $openvrAddon, $manifest, $openxrInstallScript, $openxrUninstallScript, $openxrInstallGuide, $steamvrInstallGuide, $projectLicense, $thirdPartyNotices)) {
+foreach ($requiredPath in @($addon, $openvrAddon, $manifest, $openxrInstallScript, $openxrUninstallScript, $openxrInstallGuide, $steamvrInstallGuide, $steamvrManualIni, $projectLicense, $thirdPartyNotices)) {
 	if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
 		throw "Required release file does not exist: $requiredPath"
 	}
@@ -64,6 +65,10 @@ New-ReleaseArchive 'ReShade-VR-UI-Addon-SteamVR' {
 	param($packageDirectory)
 	Copy-Item -LiteralPath $openvrAddon -Destination $packageDirectory
 	Copy-Item -LiteralPath $steamvrInstallGuide -Destination (Join-Path $packageDirectory 'INSTALL.md')
+	# In its own folder so copying the add-on never overwrites a game's ReShadeVR.ini by accident.
+	$manualDirectory = Join-Path $packageDirectory 'without-addon'
+	New-Item -ItemType Directory -Path $manualDirectory -Force | Out-Null
+	Copy-Item -LiteralPath $steamvrManualIni -Destination $manualDirectory
 }
 
 # Remove the former single package so it cannot be published by mistake.

@@ -4,10 +4,14 @@
 
 - Windows and 64-bit games only.
 - DirectX 11, DirectX 12 and OpenGL for OpenXR games; DirectX 11 and 12 for
-  SteamVR (OpenVR) games. Vulkan games are not supported.
-- Needs official ReShade with full add-on support, set up for the game with
-  **OpenXR** enabled. Without it the add-on does nothing.
-- Installing, updating and uninstalling need an administrator window.
+  SteamVR (OpenVR) games. Vulkan games are not supported; ReShade alone works
+  there (see [INSTALL-Vulkan-32bit.md](INSTALL-Vulkan-32bit.md)).
+- Needs official ReShade with full add-on support. Without it the add-on does
+  nothing. OpenXR games and UEVR: set ReShade up with **OpenXR** ticked.
+  SteamVR games: leave **OpenXR** unticked.
+- Installing, updating and uninstalling the OpenXR add-on need an
+  administrator window. The SteamVR add-on is just copied into the game
+  folder.
 - Games or mods that bring their own ReShade (for example the D2R-PCVR mod for
   Diablo II: Resurrected): the add-on notices this by itself. Its panel then
   controls the game's ReShade, and it adds no headset effects of its own. Tested
@@ -49,12 +53,16 @@
 
 ## SteamVR (OpenVR) Games
 
-- The controls are a page inside ReShade's own SteamVR dashboard
-  (**Add-ons** > **ReShade VR UI Add-on for SteamVR**), not a separate panel.
+- The add-on's page inside ReShade's own SteamVR dashboard
+  (**Add-ons** > **ReShade VR UI Add-on for SteamVR**) shows only the FPS
+  line, graph and FPS target; effects and presets are controlled in ReShade's
+  own menu. There is no separate panel.
 - The FPS line and graph are on that page only; there is no always-on counter.
-- The add-on changes two settings in the game's ReShade files: it turns off
-  ReShade's desktop/VR effect sync in `ReShade.ini`, and it sets the dashboard
-  font size once in `ReShadeVR.ini`.
+- The add-on changes three settings for the game: it writes `ReShadeVR.ini`
+  (without that file the ReShade icon does not appear in SteamVR; the add-on
+  also sets a smaller menu text size there once), turns off ReShade's
+  desktop/VR effect sync in `ReShade.ini`, and turns effects off on the
+  monitor window while the headset shows them.
 
 ## UEVR (Unreal Games)
 

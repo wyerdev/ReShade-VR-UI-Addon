@@ -95,8 +95,8 @@ Test game: SOMA with the SOMA-VR mod (source in `.deps\SOMA-VR`), run through
   thin text there is the simulator's preview scaling).
 - Headset check of the never-waiting D3D12 menu (2026-09-30): user reports
   a successful test in a D3D12 game.
-- Panel tick box **Depth buffer (off = faster in OpenGL)** (also on the SteamVR
-  page, ticked by default) adds or removes `Generic Depth` in ReShade's
+- Panel tick box **Depth buffer (off = faster in OpenGL)** (the SteamVR
+  page's copy is hidden for now, see `DEVELOPMENT.md`; ticked by default) adds or removes `Generic Depth` in ReShade's
   `ADDON/DisabledAddons` list, keeping other entries. It sits next to
   **Performance mode (on = faster shaders)**; a line below both says they apply
   after a game restart and turns amber while a change waits for one.

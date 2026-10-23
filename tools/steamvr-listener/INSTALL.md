@@ -1,17 +1,19 @@
 # Install ReShade System-Wide SteamVR Listener
 
-This is a separate, optional program for 64-bit DirectX 11 and 12 SteamVR (OpenVR) games. It is not part of the ReShade VR UI Add-on install.
+A separate, optional program for 64-bit DirectX 11 and 12 SteamVR games. It is not part of the ReShade VR UI Add-on install.
 
-Without it, you install ReShade next to each SteamVR game and copy `ReShade-SteamVR-UI.addon64` into that game's folder (Way 1 in the add-on's `INSTALL.md`). With it, you pick games once in ReShade Setup, and the listener adds ReShade and the add-on to them when they start (Way 2). Use only one way per game.
+**What it changes:** normally you set up ReShade for each SteamVR game and copy `ReShade-SteamVR-UI.addon64` into its folder yourself. With the listener, you only pick the games in ReShade Setup; when they start, it adds ReShade and the SteamVR add-on to them. Don't also copy the add-on into those games' folders.
 
-The listener starts with Windows and watches for the games you picked. It uses a little processor time in the background.
+It starts with Windows and uses a little processor time in the background.
+
+Something not working? See [Troubleshooting](#troubleshooting) at the end.
 
 ## Install
 
-- Install **ReShade with full add-on support** from [reshade.me](https://reshade.me/).
-- In ReShade Setup, pick the game's main `.exe`, choose **DirectX 10/11/12**, and enable **OpenXR**. This puts the game on ReShade's central game list, which the listener reads.
-- Close games and SteamVR, then right-click `Install-System-Wide-SteamVR-Listener.cmd` and choose **Run as administrator**.
-- Start the game normally, then open **Add-ons** > **ReShade VR UI Add-on for SteamVR** in ReShade's SteamVR dashboard.
+1. Install **ReShade with full add-on support** from [reshade.me](https://reshade.me/). Normal ReShade does not load add-ons.
+2. In ReShade Setup, pick the game's main `.exe`, choose **DirectX 10/11/12**, and tick **OpenXR**. Yes, even though it is a SteamVR game: the listener finds your games through this tick.
+3. Close games and SteamVR. Extract the ZIP, then right-click `Install-System-Wide-SteamVR-Listener.cmd` and choose **Run as administrator**.
+4. Start the game normally. To check that it worked, open ReShade's menu in the SteamVR dashboard and look for **Add-ons** > **ReShade VR UI Add-on for SteamVR**.
 
 ## Update Or Uninstall
 
@@ -24,3 +26,8 @@ The listener starts with Windows and watches for the games you picked. It uses a
 - Start with Windows: `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`, value `ReShade System-Wide SteamVR Listener`.
 - Log: `%LOCALAPPDATA%\ReShade System-Wide SteamVR Listener\ReShade-System-Wide-SteamVR-Listener.log`. Uninstalling does not remove it.
 - It never changes game folders.
+
+## Troubleshooting
+
+- Game not handled: check that you picked the game's main `.exe` in ReShade Setup with **OpenXR** ticked (step 2).
+- Anything else: close the game and delete `ReShade.log` next to the game's `.exe`, so the new log is short. Start the game until the problem shows, close it, then give the new `ReShade.log` and the listener log (path above) to an AI assistant (for example ChatGPT or Copilot) and ask what is wrong.
