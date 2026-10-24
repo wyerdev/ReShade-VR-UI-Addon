@@ -34,6 +34,13 @@ Each install guide ends with **Help** (unzipping, finding the game folder) and *
 
 Building, testing and releases: [DEVELOPERS.md](DEVELOPERS.md).
 
+## Credits
+
+- [ReShade](https://reshade.me/) by crosire
+- [UEVR](https://uevr.io/) by praydog (Unreal games in VR)
+- [Dear ImGui](https://github.com/ocornut/imgui) by Omar Cornut (the headset menu)
+- OpenXR by Khronos, OpenVR by Valve
+
 ## License
 
 MIT License, see [LICENSE](LICENSE). ReShade, Dear ImGui, the OpenXR SDK and OpenVR keep their own licenses, see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
