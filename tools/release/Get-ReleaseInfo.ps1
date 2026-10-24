@@ -91,12 +91,16 @@ if ($NotesFile) {
 }
 
 $number = $lastNumber + 1
+$day = $Date.ToString('yyyy-MM-dd')
 [pscustomobject]@{
 	LastTag     = $lastTag
 	Number      = $number
 	Tag         = "v$number"
-	Title       = "v$number ($($Date.ToString('yyyy-MM-dd')))"
+	Title       = "v$number ($day)"
 	FileVersion = "$($Date.Year).$($Date.Month).$($Date.Day).$number"
+	# Added to the ZIP names: ReShade-VR-UI-Addon-OpenXR-v12_(2026-10-24).zip. Builds that are not released use DevAssetSuffix.
+	AssetSuffix    = "-v${number}_($day)"
+	DevAssetSuffix = "-dev_($day)"
 	IsRelease   = $isRelease
 	Changelog   = $notes.ToString()
 }

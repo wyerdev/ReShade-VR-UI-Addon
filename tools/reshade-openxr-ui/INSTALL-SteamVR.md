@@ -1,49 +1,62 @@
 # ReShade In SteamVR Games
 
-In SteamVR games, ReShade has its own menu: press the controller's menu button and click the ReShade icon in the SteamVR dashboard. **The icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.** Set up each game on its own.
+In SteamVR games, ReShade has its own menu in the SteamVR dashboard: press the controller's menu button and click the ReShade icon. **The icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.** This download gives you that file. Set up each game on its own.
 
 **[PICTURE: the ReShade icon in the SteamVR dashboard]**
 
-**Download:** [ReShade-VR-UI-Addon-SteamVR.zip](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest/download/ReShade-VR-UI-Addon-SteamVR.zip) (newest version). Both ways below use files from this ZIP. All versions: [Releases page](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases).
+**Download:** [newest version](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest) (the file starting with `ReShade-VR-UI-Addon-SteamVR`).
 
-**There are 2 ways. Pick one per game:**
+Pick one way per game:
 
-- **Way 1: Automatic (with the add-on).** For 64-bit DirectX 11 and 12 games. The add-on writes `ReShadeVR.ini` for you, opens ReShade's menu by itself, and adds an FPS counter.
-- **Way 2: Manual (ReShade alone).** For any game. You copy `ReShadeVR.ini` from this ZIP yourself.
+- **Way 1: Automatic.** For 64-bit DirectX 11 and 12 games. The add-on makes `ReShadeVR.ini` for you and adds extras.
+- **Way 2: Manual.** For any game. You copy `ReShadeVR.ini` yourself.
 
-Something not working? See [Troubleshooting](#troubleshooting) at the end.
+Stuck? See [Help](#help) and [Troubleshooting](#troubleshooting) at the end.
 
 ## Way 1: Automatic (With The Add-on)
 
-1. Install **ReShade with full add-on support** from [reshade.me](https://reshade.me/). Normal ReShade does not load add-ons.
-2. In ReShade Setup, pick the game's `.exe`, choose **DirectX 10/11/12**, and leave **OpenXR** unticked (that option is only for OpenXR games).
-3. Copy `ReShade-SteamVR-UI.addon64` from this ZIP next to the game's `.exe`. ReShade loads add-ons from there.
-4. Start the game. ReShade's menu opens in the headset by itself once effects have loaded.
+1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
+2. Run ReShade Setup and pick the game's `.exe`. Choose **DirectX 10/11/12**. Leave **OpenXR** unticked.
+3. Extract the ZIP. Copy `ReShade-SteamVR-UI.addon64` into the game folder, next to the game's `.exe`.
+4. Start the game. ReShade's menu opens in the headset by itself.
 
-What the add-on does, most important first:
+Extras you get:
 
-- Writes `ReShadeVR.ini`, so the ReShade icon appears.
-- Opens ReShade's menu by itself.
-- FPS counter with a graph: in ReShade's menu, open **Add-ons** and click **ReShade VR UI Add-on for SteamVR**.
-- Stops preset changes bouncing between the monitor and the headset (`SyncEffectRuntimes=0` in `ReShade.ini`).
-- Turns effects off on the monitor window, so they are drawn only once. This might save FPS.
-- Sets a smaller menu text size in `ReShadeVR.ini`, so the menu isn't zoomed in.
+- ReShade's menu opens by itself.
+- FPS counter: in ReShade's menu, open **Add-ons** and click **ReShade VR UI Add-on for SteamVR**.
+- Effects are drawn only in the headset, not again on the monitor. This might save FPS.
+- Preset changes no longer bounce between the monitor and the headset.
+- Smaller menu text, so the menu isn't zoomed in.
 
-Update: replace the `.addon64` file. Uninstall: delete it. The settings it wrote stay in the game's `ReShade.ini` and `ReShadeVR.ini`, so the icon keeps appearing.
+Update: replace the `.addon64` file. Uninstall: delete it. The ReShade icon keeps appearing.
 
 ## Way 2: Manual (ReShade Alone)
 
-1. Install ReShade from [reshade.me](https://reshade.me/).
-2. In ReShade Setup, pick the game's `.exe` and the graphics type it uses (DirectX or Vulkan), and leave **OpenXR** unticked (that option is only for OpenXR games).
-3. Copy `ReShadeVR.ini` from this ZIP's `without-addon` folder next to the game's `.exe`. This makes the ReShade icon appear. If the game already has a `ReShadeVR.ini`, keep that one.
+1. Download ReShade from [reshade.me](https://reshade.me/).
+2. Run ReShade Setup and pick the game's `.exe`. Choose the graphics type the game uses (DirectX or Vulkan). Leave **OpenXR** unticked.
+3. Extract the ZIP. Copy `ReShadeVR.ini` from its `without-addon` folder into the game folder, next to the game's `.exe`. If the game already has a `ReShadeVR.ini`, keep that one.
 4. Start the game. In the headset, press the controller's menu button and click the ReShade icon.
 
-The file also sets a smaller menu text size (`FontScale=1.000000` and `FontSize=12.000000` under `[STYLE]`), so the menu isn't zoomed in. If you kept the game's own `ReShadeVR.ini` and the menu looks zoomed in, add those lines to it.
+## Help
 
-You don't get the other extras from Way 1.
+- **Extract a ZIP:** right-click it, choose **Extract All**, then **Extract**.
+- **Find the game folder:** in Steam, right-click the game, choose **Manage**, then **Browse local files**. The `.exe` may be in a `Binaries\Win64` folder inside it. Copy files into the folder that has the `.exe`.
+- **See file endings like `.exe`:** in File Explorer, open **View** and tick **File name extensions** (Windows 11: **View**, **Show**, **File name extensions**).
 
 ## Troubleshooting
 
 - No ReShade icon in SteamVR: check that `ReShadeVR.ini` is next to the game's `.exe`. If it is, start the game before SteamVR.
 - You installed ReShade for this game before with **OpenXR** ticked: open ReShade Setup, pick the game, choose **Uninstall**, then install again with **OpenXR** unticked.
-- Anything else: close the game and delete `ReShade.log` next to the game's `.exe`, so the new log is short. Start the game until the problem shows, close it, then give the new `ReShade.log` to an AI assistant (for example ChatGPT or Copilot) and ask what is wrong.
+- Menu looks zoomed in (Way 2, kept the game's own `ReShadeVR.ini`): add these lines to it:
+
+  ```ini
+  [STYLE]
+  FontScale=1.000000
+  FontSize=12.000000
+  ```
+
+- Anything else: close the game and delete `ReShade.log` next to the game's `.exe`. Start the game until the problem shows, close it, then give the new `ReShade.log` to an AI assistant (for example ChatGPT or Copilot) and ask what is wrong.
+
+## What The Add-on Changes
+
+It writes these settings for you: `ReShadeVR.ini` with a smaller menu text size, and `SyncEffectRuntimes=0` in `ReShade.ini`. They stay after you delete the add-on.

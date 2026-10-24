@@ -42,26 +42,29 @@ jobs:
           $publish = $onMain -and ($info.IsRelease -or $forced)
           # Builds that are not released keep the date but use release number 0.
           $fileVersion = if ($publish) { $info.FileVersion } else { $info.FileVersion -replace '\.\d+$', '.0' }
+          $assetSuffix = if ($publish) { $info.AssetSuffix } else { $info.DevAssetSuffix }
           "tag=$($info.Tag)" >> $env:GITHUB_OUTPUT
           "title=$($info.Title)" >> $env:GITHUB_OUTPUT
           "file_version=$fileVersion" >> $env:GITHUB_OUTPUT
+          "asset_suffix=$assetSuffix" >> $env:GITHUB_OUTPUT
           "publish=$($publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-          Write-Host "Version $fileVersion, publish release: $publish"
+          Write-Host "Version $fileVersion, ZIP suffix $assetSuffix, publish release: $publish"
           Get-Content changelog.md
 
       - name: Build and package
         shell: cmd
         env:
           RESHADE_VR_UI_VERSION: ${{ steps.info.outputs.file_version }}
+          RESHADE_VR_UI_RELEASE_SUFFIX: ${{ steps.info.outputs.asset_suffix }}
         run: call build.bat
 
       - name: Write SHA-256 checksums
         shell: pwsh
         run: |
-          $zips = 'ReShade-VR-UI-Addon-OpenXR.zip', 'ReShade-VR-UI-Addon-SteamVR.zip' |
-            ForEach-Object { "build/reshade-openxr-ui-release/$_" }
+          $zips = Get-ChildItem -LiteralPath build/reshade-openxr-ui-release -Filter 'ReShade-VR-UI-Addon-*.zip' -File
+          if ($zips.Count -ne 2) { throw "Expected 2 ZIPs, found $($zips.Count): $($zips.Name -join ', ')" }
           # Same "<hash>  <file name>" format as sha256sum, so it can be checked on any system.
-          $lines = Get-FileHash -LiteralPath $zips -Algorithm SHA256 |
+          $lines = Get-FileHash -LiteralPath $zips.FullName -Algorithm SHA256 |
             ForEach-Object { '{0}  {1}' -f $_.Hash.ToLowerInvariant(), (Split-Path $_.Path -Leaf) }
           [IO.File]::WriteAllText("$PWD/build/reshade-openxr-ui-release/SHA256SUMS.txt", (($lines -join "`n") + "`n"))
           $lines
@@ -82,12 +85,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           & tools/release/New-ReleaseNotes.ps1 -OutFile release-notes.md -ChangelogFile changelog.md `
-            -ChecksumsFile build/reshade-openxr-ui-release/SHA256SUMS.txt
+            -ChecksumsFile build/reshade-openxr-ui-release/SHA256SUMS.txt `
+            -Tag '${{ steps.info.outputs.tag }}' -AssetSuffix '${{ steps.info.outputs.asset_suffix }}' `
+            -Repository '${{ github.repository }}'
+          $zips = (Get-ChildItem -LiteralPath build/reshade-openxr-ui-release -Filter 'ReShade-VR-UI-Addon-*.zip' -File).FullName
           gh release create '${{ steps.info.outputs.tag }}' `
             --target '${{ github.sha }}' `
             --title '${{ steps.info.outputs.title }}' `
             --notes-file release-notes.md `
-            build/reshade-openxr-ui-release/ReShade-VR-UI-Addon-OpenXR.zip `
-            build/reshade-openxr-ui-release/ReShade-VR-UI-Addon-SteamVR.zip `
+            @zips `
             build/reshade-openxr-ui-release/SHA256SUMS.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

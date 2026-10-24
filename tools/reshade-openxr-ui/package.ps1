@@ -1,9 +1,16 @@
 param(
 	[string]$BuildDirectory = 'build\reshade-openxr-ui',
-	[string]$OutputDirectory = 'build\reshade-openxr-ui-release'
+	[string]$OutputDirectory = 'build\reshade-openxr-ui-release',
+	# Added to the ZIP file names only, for example "-v12_(2026-10-24)". The release workflow sets it;
+	# local builds leave it empty, so the unpacked folders that install.bat uses keep their names.
+	[string]$ArchiveSuffix = $env:RESHADE_VR_UI_RELEASE_SUFFIX
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($ArchiveSuffix -and $ArchiveSuffix -notmatch '^[A-Za-z0-9._()-]+$') {
+	throw "Archive suffix '$ArchiveSuffix' may only contain letters, digits and . _ ( ) -"
+}
 
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 if (-not [System.IO.Path]::IsPathRooted($BuildDirectory)) {
@@ -33,10 +40,13 @@ foreach ($requiredPath in @($addon, $openvrAddon, $manifest, $openxrInstallScrip
 
 function New-ReleaseArchive([string]$Name, [scriptblock]$Fill) {
 	$packageDirectory = Join-Path $OutputDirectory $Name
-	$archive = Join-Path $OutputDirectory "$Name.zip"
+	$archive = Join-Path $OutputDirectory "$Name$ArchiveSuffix.zip"
 
 	Remove-Item -LiteralPath $packageDirectory -Recurse -Force -ErrorAction SilentlyContinue
-	Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+	# Also removes ZIPs of earlier versions, so only this build's ZIPs can be uploaded.
+	Get-ChildItem -LiteralPath $OutputDirectory -Filter "$Name*.zip" -File -ErrorAction SilentlyContinue |
+		Where-Object { $_.Name -eq "$Name.zip" -or $_.Name.StartsWith("$Name-v") -or $_.Name.StartsWith("$Name-dev") } |
+		Remove-Item -Force
 	New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
 
 	& $Fill $packageDirectory

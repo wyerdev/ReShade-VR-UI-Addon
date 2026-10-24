@@ -1,16 +1,13 @@
-## Which Download Do I Need?
+## Download
 
-The ZIPs are under **Assets** at the bottom of this page.
+Pick your game type and click its file.
 
-| Your game | Download | Install steps |
-| --- | --- | --- |
-| OpenXR VR game, or an Unreal game played in VR with UEVR | `ReShade-VR-UI-Addon-OpenXR.zip` | **Install steps: OpenXR games and UEVR** below |
-| SteamVR game | `ReShade-VR-UI-Addon-SteamVR.zip` | **Install steps: SteamVR games** below |
-| Vulkan or 32-bit VR game | No ZIP needed. SteamVR games only need a `ReShadeVR.ini`; the guide shows how to get it | **Install steps: Vulkan and 32-bit games** below |
+| Your game | Download |
+| --- | --- |
+| OpenXR VR game, or Unreal game played in VR with UEVR | {{OPENXR_DOWNLOAD}} |
+| SteamVR game | {{STEAMVR_DOWNLOAD}} |
+| Vulkan or 32-bit VR game | Nothing to download |
 
-Each ZIP also has its install steps inside, as `INSTALL.md`.
+Then open the install steps for your game below.
 
-**SteamVR games:** ReShade's icon only appears in the SteamVR dashboard if the game has a `ReShadeVR.ini` file next to its `.exe`. There are 2 ways, both in the SteamVR ZIP:
-
-- **Automatic (with the add-on):** the add-on writes `ReShadeVR.ini` for you, opens ReShade's menu by itself, and adds an FPS counter.
-- **Manual (ReShade alone):** you copy `ReShadeVR.ini` from the ZIP yourself.
+Not sure which type your game is? Try OpenXR first. If no menu shows in the headset, it's a SteamVR game. UEVR games are OpenXR.

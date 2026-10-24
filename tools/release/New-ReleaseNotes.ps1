@@ -1,7 +1,12 @@
-# Writes the GitHub release page text: which ZIP to download, the full install steps for each kind of game
-# (taken from the install guides, so the steps stay written in one place), the changelog and the checksums.
+# Writes the GitHub release page text: which ZIP to download (direct links to this release's files), the full
+# install steps for each kind of game (taken from the install guides, so the steps stay written in one place),
+# the changelog and the checksums.
 param(
 	[Parameter(Mandatory)][string]$OutFile,
+	[Parameter(Mandatory)][string]$Tag,
+	# The same suffix package.ps1 added to the ZIP names, for example "-v12_(2026-10-24)".
+	[Parameter(Mandatory)][string]$AssetSuffix,
+	[string]$Repository = 'wyerdev/ReShade-VR-UI-Addon',
 	[string]$ChangelogFile,
 	[string]$ChecksumsFile
 )
@@ -20,11 +25,25 @@ function Format-Guide([string]$Summary, [string]$FileName) {
 	$lines = (Read-Text (Join-Path $guideRoot $FileName)) -split "`n" |
 		Where-Object { $_ -notmatch '^# ' -and $_ -notmatch '^\*\*Download:\*\*' } |
 		ForEach-Object { $_ -replace '^(#{2,}) ', '$1## ' -replace '\[([^\]]+)\]\(#[^)]+\)', '**$1**' }
-	return @("<details><summary><b>$Summary</b> (click to open)</summary>", '', ($lines -join "`n").Trim(), '', '</details>') -join "`n"
+	return @("<details><summary><b>$Summary</b> (click to open)</summary>", '', (($lines -join "`n") -replace "`n{3,}", "`n`n").Trim(), '', '</details>') -join "`n"
+}
+
+# Markdown link to one ZIP of this release. Brackets in the file name are encoded, because a ")" would end the link.
+function Format-Download([string]$Name) {
+	$file = "$Name$AssetSuffix.zip"
+	$url = "https://github.com/$Repository/releases/download/$Tag/" + [Uri]::EscapeDataString($file).Replace('(', '%28').Replace(')', '%29')
+	return "**[$([char]0x2B07) $file]($url)**"
+}
+
+$top = (Read-Text (Join-Path $guideRoot 'RELEASE_NOTES.md')).
+	Replace('{{OPENXR_DOWNLOAD}}', (Format-Download 'ReShade-VR-UI-Addon-OpenXR')).
+	Replace('{{STEAMVR_DOWNLOAD}}', (Format-Download 'ReShade-VR-UI-Addon-SteamVR'))
+if ($top -match '\{\{') {
+	throw 'RELEASE_NOTES.md has a placeholder this script does not fill.'
 }
 
 $sections = @(
-	(Read-Text (Join-Path $guideRoot 'RELEASE_NOTES.md')),
+	$top,
 	'## Install Steps',
 	(Format-Guide 'Install steps: OpenXR games and UEVR' 'INSTALL.md'),
 	(Format-Guide 'Install steps: SteamVR games' 'INSTALL-SteamVR.md'),
