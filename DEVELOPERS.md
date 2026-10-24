@@ -150,7 +150,7 @@ its own install guide, renamed to `INSTALL.md`:
 | `ReShade-VR-UI-Addon-SteamVR<suffix>.zip` | SteamVR games, set up per game | `tools\reshade-openxr-ui\INSTALL-SteamVR.md` |
 
 `<suffix>` is the release number and date, for example
-`ReShade-VR-UI-Addon-OpenXR-v12_(2026-10-24).zip`. It comes from the
+`ReShade-VR-UI-Addon-OpenXR-v12-2026-10-24.zip`. It comes from the
 `RESHADE_VR_UI_RELEASE_SUFFIX` environment variable, which the release workflow
 sets. Local builds leave it empty, so their ZIPs have no version. The unpacked
 folders next to the ZIPs never get the suffix, because `install.bat` uses them.
@@ -180,20 +180,24 @@ Releases are made by GitHub Actions
 - The version is a running release number and the date: release `v12` built on
   24 October 2026 is titled `v12 (2026-10-24)`, and its add-ons carry the
   Windows file version `2026.10.24.12`, which ReShade shows in its add-on list.
-  Its ZIPs end in `-v12_(2026-10-24).zip`.
+  Its ZIPs end in `-v12-2026-10-24.zip`.
   Builds that are not released keep the date with `0` as the release number,
-  and their ZIPs end in `-dev_(2026-10-24).zip`; local builds show `0.0.0.0`.
+  and their ZIPs end in `-dev-2026-10-24.zip`; local builds show `0.0.0.0`.
 - The release text is `RELEASE_NOTES.md`, the install guides, then the
   changelog. The changelog lists only commits written as
   [Conventional Commits](https://www.conventionalcommits.org) (`feat: ...`,
   `fix: ...`, `docs: ...` and so on); other commit messages are left out.
+  Players read this list, so write the first line of a commit message as what
+  they notice, in everyday words: `fix: download links on the release page
+  work again`, not `fix: download names without brackets`.
 - Each release also has `SHA256SUMS.txt`, a SHA-256 checksum (a fingerprint
   of the file) for each ZIP, also listed at the end of the release text. To
   check a download, run `Get-FileHash <zip> -Algorithm SHA256` in PowerShell
   and compare the result with the listed value.
 - A push whose last commit message contains `(Skip)` is not built or released.
-- GitHub may rename uploaded files that contain brackets. If a release's file
-  names differ from the ZIP names above, delete that release by hand.
+- ZIP names use only letters, digits, `-`, `_` and `.`. GitHub renames uploaded
+  files with other characters (brackets became dots in v2), which breaks the
+  download links, so `package.ps1` refuses them.
 - To publish without a `feat` or `fix` commit (for example the first release),
   open the workflow on GitHub, choose **Run workflow** and tick the release box.
 

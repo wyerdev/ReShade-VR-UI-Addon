@@ -1,15 +1,16 @@
 param(
 	[string]$BuildDirectory = 'build\reshade-openxr-ui',
 	[string]$OutputDirectory = 'build\reshade-openxr-ui-release',
-	# Added to the ZIP file names only, for example "-v12_(2026-10-24)". The release workflow sets it;
+	# Added to the ZIP file names only, for example "-v12-2026-10-24". The release workflow sets it;
 	# local builds leave it empty, so the unpacked folders that install.bat uses keep their names.
 	[string]$ArchiveSuffix = $env:RESHADE_VR_UI_RELEASE_SUFFIX
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ($ArchiveSuffix -and $ArchiveSuffix -notmatch '^[A-Za-z0-9._()-]+$') {
-	throw "Archive suffix '$ArchiveSuffix' may only contain letters, digits and . _ ( ) -"
+# GitHub renames uploaded files with other characters (for example brackets), which breaks the download links.
+if ($ArchiveSuffix -and $ArchiveSuffix -notmatch '^[A-Za-z0-9._-]+$') {
+	throw "Archive suffix '$ArchiveSuffix' may only contain letters, digits and . _ -"
 }
 
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))

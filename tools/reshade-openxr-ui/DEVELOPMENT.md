@@ -171,7 +171,7 @@ build.bat
 install.bat
 ```
 
-`package.ps1` creates `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip` and `ReShade-VR-UI-Addon-SteamVR.zip`, each with an unpacked directory of the same name. Release builds add the release number and date to the ZIP names only (for example `-v12_(2026-10-24)`, from `RESHADE_VR_UI_RELEASE_SUFFIX`). `Install-OpenXR.cmd` must run from the complete OpenXR layout because it expects the DLL beside the script and the manifest under `openxr-layers`.
+`package.ps1` creates `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip` and `ReShade-VR-UI-Addon-SteamVR.zip`, each with an unpacked directory of the same name. Release builds add the release number and date to the ZIP names only (for example `-v12-2026-10-24`, from `RESHADE_VR_UI_RELEASE_SUFFIX`). `Install-OpenXR.cmd` must run from the complete OpenXR layout because it expects the DLL beside the script and the manifest under `openxr-layers`.
 
 Installation copies exactly these runtime files:
 

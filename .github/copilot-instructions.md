@@ -104,6 +104,7 @@
 - When giving the user a commit message, write it as a Conventional Commit: `type(optional scope): short plain-English summary`, for example `fix(opengl): stop the headset menu flickering in SOMA`.
 - Types: `feat` (new feature users notice), `fix` (bug fix), `perf` (faster or lighter), `revert`, `docs`, `refactor`, `build`, `ci`, `test`, `style`, `chore`. Add `!` after the type (`feat!:`) for a change that breaks existing installs or settings.
 - Only `feat`, `fix`, `perf`, `revert` and `!` commits trigger a GitHub Release; all conventional commits appear in its changelog, and other messages are left out. So the summary must make sense to someone reading the release page.
+- Write the summary line for players, not developers. Say what they notice or get, in everyday words, not how it was done: `fix: download links on the release page work again`, not `fix: download names without brackets`. Avoid file names, code names and technical terms in it. Only the summary line reaches the release page; put technical details in the body.
 - Adding `(Skip)` anywhere in the message stops GitHub Actions from building or releasing that push. Suggest it only when the commit changes nothing that is built or packaged (for example agent instructions or developer notes), and say so to the user.
 - Give one commit message per logical change; if the work mixes unrelated changes, suggest separate commits.
 

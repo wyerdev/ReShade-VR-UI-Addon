@@ -98,9 +98,10 @@ $day = $Date.ToString('yyyy-MM-dd')
 	Tag         = "v$number"
 	Title       = "v$number ($day)"
 	FileVersion = "$($Date.Year).$($Date.Month).$($Date.Day).$number"
-	# Added to the ZIP names: ReShade-VR-UI-Addon-OpenXR-v12_(2026-10-24).zip. Builds that are not released use DevAssetSuffix.
-	AssetSuffix    = "-v${number}_($day)"
-	DevAssetSuffix = "-dev_($day)"
+	# Added to the ZIP names: ReShade-VR-UI-Addon-OpenXR-v12-2026-10-24.zip. Builds that are not released use DevAssetSuffix.
+	# No brackets: GitHub renames uploaded files that contain them.
+	AssetSuffix    = "-v$number-$day"
+	DevAssetSuffix = "-dev-$day"
 	IsRelease   = $isRelease
 	Changelog   = $notes.ToString()
 }

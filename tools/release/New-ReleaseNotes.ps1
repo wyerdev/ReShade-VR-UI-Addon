@@ -4,7 +4,7 @@
 param(
 	[Parameter(Mandatory)][string]$OutFile,
 	[Parameter(Mandatory)][string]$Tag,
-	# The same suffix package.ps1 added to the ZIP names, for example "-v12_(2026-10-24)".
+	# The same suffix package.ps1 added to the ZIP names, for example "-v12-2026-10-24".
 	[Parameter(Mandatory)][string]$AssetSuffix,
 	[string]$Repository = 'wyerdev/ReShade-VR-UI-Addon',
 	[string]$ChangelogFile,
@@ -28,10 +28,10 @@ function Format-Guide([string]$Summary, [string]$FileName) {
 	return @("<details><summary><b>$Summary</b> (click to open)</summary>", '', (($lines -join "`n") -replace "`n{3,}", "`n`n").Trim(), '', '</details>') -join "`n"
 }
 
-# Markdown link to one ZIP of this release. Brackets in the file name are encoded, because a ")" would end the link.
+# Markdown link to one ZIP of this release.
 function Format-Download([string]$Name) {
 	$file = "$Name$AssetSuffix.zip"
-	$url = "https://github.com/$Repository/releases/download/$Tag/" + [Uri]::EscapeDataString($file).Replace('(', '%28').Replace(')', '%29')
+	$url = "https://github.com/$Repository/releases/download/$Tag/" + [Uri]::EscapeDataString($file)
 	return "**[$([char]0x2B07) $file]($url)**"
 }
 

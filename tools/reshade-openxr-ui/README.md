@@ -221,7 +221,7 @@ Create the user-facing ZIPs after the complete validation workflow:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\package.ps1
 ```
 
-Both ZIPs go into one GitHub release. Its page text starts with [RELEASE_NOTES.md](RELEASE_NOTES.md) and then shows each install guide as a fold-out section (built by `tools\release\New-ReleaseNotes.ps1`). Each ZIP holds only its own guide, renamed to `INSTALL.md`. Release ZIP names end in the release number and date, for example `ReShade-VR-UI-Addon-OpenXR-v12_(2026-10-24).zip` (set through `RESHADE_VR_UI_RELEASE_SUFFIX`; local builds have no suffix). See [DEVELOPERS.md](../../DEVELOPERS.md).
+Both ZIPs go into one GitHub release. Its page text starts with [RELEASE_NOTES.md](RELEASE_NOTES.md) and then shows each install guide as a fold-out section (built by `tools\release\New-ReleaseNotes.ps1`). Each ZIP holds only its own guide, renamed to `INSTALL.md`. Release ZIP names end in the release number and date, for example `ReShade-VR-UI-Addon-OpenXR-v12-2026-10-24.zip` (set through `RESHADE_VR_UI_RELEASE_SUFFIX`; local builds have no suffix). See [DEVELOPERS.md](../../DEVELOPERS.md).
 
 `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip` (OpenXR games and UEVR; guide: [INSTALL.md](INSTALL.md)):
 
