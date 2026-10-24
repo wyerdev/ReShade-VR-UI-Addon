@@ -821,6 +821,7 @@ namespace
 				openxr_ui_get_effect_subfolder_status(),
 				openxr_ui_is_reshade_loaded(),
 				effect_runtime_wait_seconds,
+				openxr_ui_performance_mode_active(),
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)

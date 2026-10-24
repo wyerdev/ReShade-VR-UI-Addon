@@ -22,6 +22,7 @@ applyTo: "tools/reshade-openxr-ui/**"
 - WARP validates interaction commands and state transitions only; never use debug prints, text-width measurements, hit-test results, or standalone WARP render-target images to decide whether UI text or controls overlap.
 - Visual acceptance requires actual OpenXR Simulator captures produced by `capture_simulator_ui.ps1`:
   - `build\reshade-openxr-ui\simulator-captures\d3d11\main.png`
+  - `build\reshade-openxr-ui\simulator-captures\d3d11\fps-target-open.png`
   - `build\reshade-openxr-ui\simulator-captures\d3d11\detail.png`
   - `build\reshade-openxr-ui\simulator-captures\d3d11\save-as.png`
   - `build\reshade-openxr-ui\simulator-captures\d3d11\creating.png`

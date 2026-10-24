@@ -34,7 +34,7 @@ $testReshadeManifest = Join-Path $layerDirectory 'ReShade64_XR_UI_Capture.json'
 $existingReshadeManifest = Join-Path $layerDirectory 'ReShade64_XR.json'
 $probeName = if ($GraphicsApi -eq 'D3D11') { 'xr_probe_d3d11.exe' } else { 'xr_probe.exe' }
 $probe = Join-Path $TestRoot $probeName
-$probeFrames = $Frames + 800
+$probeFrames = $Frames + 1000
 $runtimeManifest = Join-Path $TestRoot 'openxr_simulator.json'
 $outputDirectory = Join-Path $buildDirectory "simulator-captures\$($GraphicsApi.ToLowerInvariant())"
 $testLocalAppData = Join-Path $TestRoot 'openxr-ui-capture-localappdata'
@@ -283,6 +283,12 @@ try {
 		return
 	}
 	Save-SimulatorWindow (Join-Path $outputDirectory 'main.png')
+	Invoke-ControllerClick -X 600 -Y 500
+	Wait-ForFrame ((Get-FrameCount) + 15)
+	Save-SimulatorWindow (Join-Path $outputDirectory 'fps-target-open.png')
+	# A second click on the box closes the list without changing the setting.
+	Invoke-ControllerClick -X 600 -Y 500
+	Wait-ForFrame ((Get-FrameCount) + 15)
 	Invoke-ControllerClick -X 780 -Y 32
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'pinned.png')

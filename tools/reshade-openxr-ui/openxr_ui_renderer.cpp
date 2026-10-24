@@ -312,6 +312,152 @@ namespace
 		ImGui::EndDisabled();
 		return { hovered, std::clamp((ImGui::GetIO().MousePos.y - track_min_y) / (track_max_y - track_min_y), 0.0f, 1.0f) };
 	}
+
+	// Only one drop-down list is open at a time. While it is open the pointer is hidden from the rest of the
+	// panel, so the next click can only pick a choice or close the list.
+	struct dropdown_state
+	{
+		ImGuiID open_id = 0;
+		ImVec2 box_min;
+		ImVec2 box_max;
+		std::vector<std::string> options;
+		size_t selected = 0;
+		bool box_drawn = false;
+		ImGuiID chosen_id = 0;
+		size_t chosen_option = 0;
+	};
+
+	struct dropdown_interaction
+	{
+		bool hovered = false;
+		bool chosen = false;
+		size_t option = 0;
+	};
+
+	// Opens below the box, or above it when the panel has no room below.
+	ImVec2 dropdown_list_min(const dropdown_state &state, float display_height)
+	{
+		const float list_height = (state.box_max.y - state.box_min.y) * static_cast<float>(state.options.size());
+		const float below = state.box_max.y + 2.0f;
+		return { state.box_min.x, below + list_height <= display_height ? below : state.box_min.y - 2.0f - list_height };
+	}
+
+	ptrdiff_t dropdown_option_at(const dropdown_state &state, ImVec2 pointer, float display_height)
+	{
+		const ImVec2 list_min = dropdown_list_min(state, display_height);
+		const float row_height = state.box_max.y - state.box_min.y;
+		if (row_height <= 0.0f || pointer.x < list_min.x || pointer.x >= state.box_max.x || pointer.y < list_min.y)
+			return -1;
+		const size_t row = static_cast<size_t>((pointer.y - list_min.y) / row_height);
+		return row < state.options.size() ? static_cast<ptrdiff_t>(row) : -1;
+	}
+
+	// Call before ImGui::NewFrame. Returns true when the pointer must be hidden from the other controls this frame.
+	bool update_dropdown(dropdown_state &state, bool pointer_visible, ImVec2 pointer, bool clicked, float display_height)
+	{
+		state.chosen_id = 0;
+		if (state.open_id == 0)
+			return false;
+		if (clicked)
+		{
+			const ptrdiff_t option = pointer_visible ? dropdown_option_at(state, pointer, display_height) : -1;
+			if (option >= 0)
+			{
+				state.chosen_id = state.open_id;
+				state.chosen_option = static_cast<size_t>(option);
+			}
+			state.open_id = 0;
+		}
+		return true;
+	}
+
+	// A box showing `prefix` and the current choice with an arrow, so it reads as a list to pick from rather than a button.
+	// It is sized to its longest choice, so the text is never cut short.
+	dropdown_interaction draw_dropdown(dropdown_state &state, const char *id, const char *prefix, float height,
+		const char *const *options, size_t option_count, size_t selected, bool clicked)
+	{
+		float widest_option = 0.0f;
+		for (size_t index = 0; index < option_count; ++index)
+			widest_option = (std::max)(widest_option, ImGui::CalcTextSize(options[index]).x);
+		constexpr float text_left = 10.0f;
+		constexpr float text_gap = 12.0f;
+		const float arrow_width = height;
+		const ImVec2 size = { std::ceil(text_left + ImGui::CalcTextSize(prefix).x + widest_option + text_gap + arrow_width), height };
+		const std::string label = std::string(prefix) + (selected < option_count ? options[selected] : "");
+
+		const ImGuiID item_id = ImGui::GetID(id);
+		ImGui::InvisibleButton(id, size);
+		dropdown_interaction interaction;
+		interaction.hovered = ImGui::IsItemHovered();
+		const bool open = state.open_id == item_id;
+		const ImVec2 minimum = ImGui::GetItemRectMin();
+		const ImVec2 maximum = ImGui::GetItemRectMax();
+		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+		draw_list->AddRectFilled(minimum, maximum, interaction.hovered || open ? IM_COL32(24, 66, 74, 255) : IM_COL32(10, 32, 38, 255), 3.0f);
+		draw_list->AddRect(minimum, maximum, interaction.hovered || open ? IM_COL32(0, 200, 225, 255) : IM_COL32(70, 130, 140, 255), 3.0f, 0, 1.5f);
+
+		const float arrow_left = maximum.x - arrow_width;
+		draw_list->AddLine({ arrow_left, minimum.y + 5.0f }, { arrow_left, maximum.y - 5.0f }, IM_COL32(70, 130, 140, 255), 1.0f);
+		const ImVec2 arrow_center = { arrow_left + arrow_width * 0.5f, (minimum.y + maximum.y) * 0.5f };
+		const float half = (std::min)(arrow_width * 0.22f, 7.0f);
+		const ImU32 text_color = IM_COL32(222, 242, 245, 255);
+		if (open)
+			draw_list->AddTriangleFilled({ arrow_center.x - half, arrow_center.y + half * 0.5f }, { arrow_center.x + half, arrow_center.y + half * 0.5f },
+				{ arrow_center.x, arrow_center.y - half * 0.7f }, text_color);
+		else
+			draw_list->AddTriangleFilled({ arrow_center.x - half, arrow_center.y - half * 0.5f }, { arrow_center.x + half, arrow_center.y - half * 0.5f },
+				{ arrow_center.x, arrow_center.y + half * 0.7f }, text_color);
+		draw_list->AddText({ minimum.x + text_left, minimum.y + (size.y - ImGui::GetFontSize()) * 0.5f }, text_color, label.c_str());
+
+		if (clicked && interaction.hovered && !open)
+		{
+			state.open_id = item_id;
+			state.options.assign(options, options + option_count);
+			state.selected = selected;
+		}
+		if (state.open_id == item_id)
+		{
+			state.box_min = minimum;
+			state.box_max = maximum;
+			state.box_drawn = true;
+		}
+		if (state.chosen_id == item_id)
+		{
+			interaction.chosen = true;
+			interaction.option = state.chosen_option;
+		}
+		return interaction;
+	}
+
+	// Call after every control is drawn. A list whose box was not drawn this frame (another page is shown) closes.
+	void draw_open_dropdown(dropdown_state &state, bool pointer_visible, ImVec2 pointer, float display_height)
+	{
+		if (state.open_id != 0 && !state.box_drawn)
+			state.open_id = 0;
+		state.box_drawn = false;
+		if (state.open_id == 0)
+			return;
+
+		const ImVec2 list_min = dropdown_list_min(state, display_height);
+		const float row_height = state.box_max.y - state.box_min.y;
+		const ImVec2 list_max = { state.box_max.x, list_min.y + row_height * static_cast<float>(state.options.size()) };
+		const ptrdiff_t hovered = pointer_visible ? dropdown_option_at(state, pointer, display_height) : -1;
+		ImDrawList *const draw_list = ImGui::GetForegroundDrawList();
+		draw_list->AddRectFilled({ list_min.x + 4.0f, list_min.y + 4.0f }, { list_max.x + 4.0f, list_max.y + 4.0f }, IM_COL32(0, 0, 0, 140), 4.0f);
+		draw_list->AddRectFilled(list_min, list_max, IM_COL32(12, 34, 42, 255), 3.0f);
+		for (size_t index = 0; index < state.options.size(); ++index)
+		{
+			const ImVec2 row_min = { list_min.x, list_min.y + row_height * static_cast<float>(index) };
+			const ImVec2 row_max = { list_max.x, row_min.y + row_height };
+			if (static_cast<ptrdiff_t>(index) == hovered)
+				draw_list->AddRectFilled(row_min, row_max, IM_COL32(28, 82, 90, 255), 3.0f);
+			if (index == state.selected)
+				draw_list->AddRectFilled({ row_min.x + 4.0f, row_min.y + 6.0f }, { row_min.x + 8.0f, row_max.y - 6.0f }, IM_COL32(0, 200, 225, 255), 2.0f);
+			draw_list->AddText({ row_min.x + 18.0f, row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f },
+				index == state.selected ? IM_COL32(255, 255, 255, 255) : IM_COL32(200, 225, 230, 255), state.options[index].c_str());
+		}
+		draw_list->AddRect(list_min, list_max, IM_COL32(0, 200, 225, 255), 3.0f, 0, 1.5f);
+	}
 }
 
 namespace openxr_ui
@@ -365,6 +511,7 @@ namespace openxr_ui
 		bool save_as_dialog_open = false;
 		bool save_as_uppercase = true;
 		std::string save_as_name;
+		dropdown_state dropdown;
 	};
 
 	panel_renderer::panel_renderer() :
@@ -562,7 +709,11 @@ namespace openxr_ui
 		const float display_height = input.expanded ? static_cast<float>(expanded_panel_height) : static_cast<float>(compact_panel_height);
 		io.DisplaySize = { static_cast<float>(_implementation->width), display_height };
 		io.DeltaTime = 1.0f / 90.0f;
-		io.AddMousePosEvent(input.pointer_visible ? input.pointer_x : -FLT_MAX, input.pointer_visible ? input.pointer_y : -FLT_MAX);
+		const ImVec2 pointer = { input.pointer_x, input.pointer_y };
+		const bool dropdown_takes_pointer = update_dropdown(_implementation->dropdown, input.pointer_visible, pointer,
+			input.select_clicked && _implementation->dragging == implementation::drag_target::none, display_height);
+		const bool pointer_reaches_controls = input.pointer_visible && !dropdown_takes_pointer;
+		io.AddMousePosEvent(pointer_reaches_controls ? input.pointer_x : -FLT_MAX, pointer_reaches_controls ? input.pointer_y : -FLT_MAX);
 		if (_implementation->dragging != implementation::drag_target::none)
 		{
 			if (input.select_down)
@@ -1024,9 +1175,12 @@ namespace openxr_ui
 			ImGui::SetCursorScreenPos(footer_min);
 			const bool statistics_hovered = draw_tick_box("always_show_statistics", "Always show FPS", input.always_show_statistics, 230.0f);
 			ImGui::SetCursorScreenPos({ footer_min.x + 420.0f, footer_min.y + 2.0f });
-			char frame_rate_label[48];
-			std::snprintf(frame_rate_label, sizeof(frame_rate_label), "FPS target: %s", frame_rate_divisor_name(input.frame_rate_divisor));
-			const bool frame_rate_hovered = draw_text_button("frame_rate_divisor", frame_rate_label, { 290.0f, 30.0f });
+			const char *frame_rate_options[max_frame_rate_divisor];
+			for (uint32_t divisor = 1; divisor <= max_frame_rate_divisor; ++divisor)
+				frame_rate_options[divisor - 1] = frame_rate_divisor_name(divisor);
+			const dropdown_interaction frame_rate = draw_dropdown(_implementation->dropdown, "frame_rate_divisor", "FPS target: ", 30.0f,
+				frame_rate_options, max_frame_rate_divisor, input.frame_rate_divisor - 1,
+				input.select_clicked && _implementation->dragging == implementation::drag_target::none);
 
 			// Both settings are read by ReShade only at game start, so they share one restart note.
 			const std::string restart_first = "Restart the game to apply your change.\n\n";
@@ -1095,10 +1249,10 @@ namespace openxr_ui
 				result.action = render_result::command::set_always_show_statistics;
 				result.state = !input.always_show_statistics;
 			}
-			else if (input.select_clicked && frame_rate_hovered && _implementation->dragging == implementation::drag_target::none)
+			else if (frame_rate.chosen && frame_rate.option + 1 != input.frame_rate_divisor)
 			{
 				result.action = render_result::command::set_frame_rate_divisor;
-				result.value = input.frame_rate_divisor % max_frame_rate_divisor + 1;
+				result.value = static_cast<double>(frame_rate.option + 1);
 			}
 			else if (input.select_clicked && depth_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
@@ -1160,6 +1314,18 @@ namespace openxr_ui
 				ImGui::PushStyleColor(ImGuiCol_Text, default_value_color);
 				ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
 				ImGui::TextUnformatted(selected.tooltip.c_str());
+				ImGui::PopTextWrapPos();
+				ImGui::PopStyleColor();
+				ImGui::Spacing();
+			}
+			if (input.performance_mode_active)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, changed_value_color);
+				ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
+				ImGui::TextUnformatted(input.performance_mode ?
+					"Performance mode is on, so this effect's values are fixed and cannot be shown. "
+					"Turn off Performance mode and restart the game to adjust them." :
+					"Performance mode is still active until the game restarts. Restart the game to adjust this effect's values.");
 				ImGui::PopTextWrapPos();
 				ImGui::PopStyleColor();
 				ImGui::Spacing();
@@ -1384,8 +1550,9 @@ namespace openxr_ui
 		if (_implementation->save_as_feedback_frame_count != 0 && --_implementation->save_as_feedback_frame_count == 0)
 			_implementation->save_as_feedback = 0;
 
+		draw_open_dropdown(_implementation->dropdown, input.pointer_visible, pointer, display_height);
 		if (input.pointer_visible)
-			draw_crosshair(ImGui::GetForegroundDrawList(), io.MousePos);
+			draw_crosshair(ImGui::GetForegroundDrawList(), pointer);
 		ImGui::End();
 		ImGui::Render();
 		return result;

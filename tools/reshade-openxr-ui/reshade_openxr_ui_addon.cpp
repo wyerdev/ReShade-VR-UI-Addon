@@ -999,14 +999,24 @@ namespace
 		// ReShade reads PerformanceMode only when it creates the effect runtime.
 		if (runtime_changed)
 			s_performance_mode_at_start = s_performance_mode;
-		s_observed_preset_path = current_preset_path(runtime);
+		// A preset switch seen first by this refresh must start a new saved baseline, as in synchronize_runtime_model.
+		std::string preset_path = current_preset_path(runtime);
+		const bool preset_changed = preset_path != s_observed_preset_path;
+		s_observed_preset_path = std::move(preset_path);
 		if (!inventory.snapshot->techniques.empty())
 			s_empty_inventory_retry_frame = 0;
-		if (inventory_changed)
+		if (inventory_changed || preset_changed)
 			s_technique_restore_states.clear();
+		if (preset_changed)
+		{
+			s_temporary_technique_states.clear();
+			s_shaders_temporarily_disabled = false;
+			for (openxr_ui::technique &entry : inventory.snapshot->techniques)
+				entry.has_restore_state = false;
+		}
 		if (!s_shaders_temporarily_disabled)
 		{
-			if (inventory_changed)
+			if (inventory_changed || preset_changed)
 			{
 				s_preset_dirty_state.mark_saved(*inventory.snapshot);
 			}
@@ -1616,6 +1626,12 @@ bool openxr_ui_performance_mode_restart_pending()
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);
 	return s_effect_runtime != nullptr && s_performance_mode != s_performance_mode_at_start;
+}
+
+bool openxr_ui_performance_mode_active()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	return s_effect_runtime != nullptr && s_performance_mode_at_start;
 }
 
 bool openxr_ui_set_performance_mode(bool enabled)

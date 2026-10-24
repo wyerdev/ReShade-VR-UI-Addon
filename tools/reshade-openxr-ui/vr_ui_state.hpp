@@ -45,6 +45,8 @@ bool openxr_ui_set_frame_rate_divisor(uint32_t divisor);
 // ReShade applies a performance mode change only when the game starts again.
 bool openxr_ui_get_performance_mode();
 bool openxr_ui_performance_mode_restart_pending();
+// True when the running game started with performance mode on, which removes the adjustable effect values.
+bool openxr_ui_performance_mode_active();
 bool openxr_ui_set_performance_mode(bool enabled);
 // ReShade's built-in Generic Depth add-on; ReShade applies the change only when the game starts again.
 bool openxr_ui_is_depth_detection_disabled();

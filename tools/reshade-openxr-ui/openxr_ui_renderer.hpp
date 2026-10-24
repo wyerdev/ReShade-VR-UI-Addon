@@ -56,6 +56,8 @@ namespace openxr_ui
 		bool reshade_loaded = true;
 		// How long the panel has waited for ReShade's effects to start.
 		uint32_t effect_runtime_wait_seconds = 0;
+		// The game started with performance mode on, so ReShade baked the effect values into the shaders.
+		bool performance_mode_active = false;
 	};
 
 	struct render_result

@@ -468,12 +468,26 @@ int main()
 		std::fputs("Always show FPS checkbox did not produce its persisted command.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input frame_rate_toggle = { true, 480.0f, 498.0f, true };
-	frame_rate_toggle.frame_rate_divisor = 3;
-	const openxr_ui::render_result frame_rate_result = renderer.render(render_target.Get(), snapshot, frame_rate_toggle);
-	if (frame_rate_result.action != openxr_ui::render_result::command::set_frame_rate_divisor || frame_rate_result.value != 1.0)
+	openxr_ui::render_input frame_rate_open = { true, 480.0f, 498.0f, true };
+	if (renderer.render(render_target.Get(), snapshot, frame_rate_open).action != openxr_ui::render_result::command::none)
 	{
-		std::fputs("FPS target button did not cycle from third rate back to full rate.\n", stderr);
+		std::fputs("FPS target drop-down changed the setting instead of opening its list.\n", stderr);
+		return 1;
+	}
+	// The list opens below the box with one 30-pixel row per choice; the third row is "Third rate".
+	// The Performance mode and Depth buffer boxes sit under the list, so a pick that leaked through would toggle one of them.
+	const openxr_ui::render_input frame_rate_pick = { true, 480.0f, 592.0f, true };
+	const openxr_ui::render_result frame_rate_result = renderer.render(render_target.Get(), snapshot, frame_rate_pick);
+	if (frame_rate_result.action != openxr_ui::render_result::command::set_frame_rate_divisor || frame_rate_result.value != 3.0)
+	{
+		std::fputs("FPS target drop-down did not pick third rate from its list.\n", stderr);
+		return 1;
+	}
+	renderer.render(render_target.Get(), snapshot, frame_rate_open);
+	const openxr_ui::render_input frame_rate_dismiss = { true, 100.0f, 535.0f, true };
+	if (renderer.render(render_target.Get(), snapshot, frame_rate_dismiss).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("A click outside the open FPS target list reached the control underneath.\n", stderr);
 		return 1;
 	}
 	const openxr_ui::render_input depth_toggle = { true, 480.0f, 572.0f, true };
