@@ -2,7 +2,7 @@
 
 In SteamVR games, ReShade has its own menu in the SteamVR dashboard: press the controller's menu button and click the ReShade icon. **The icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.** This download gives you that file. Set up each game on its own.
 
-**[PICTURE: the ReShade icon in the SteamVR dashboard]**
+![The ReShade icon in the SteamVR dashboard, with ReShade's menu open above it](https://raw.githubusercontent.com/wyerdev/ReShade-VR-UI-Addon/main/tools/reshade-openxr-ui/images/steamvr-dashboard-reshade-icon.png)
 
 **Download:** [newest version](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest) (the file starting with `ReShade-VR-UI-Addon-SteamVR`).
 

@@ -28,6 +28,7 @@
 - The checkout under `.deps\reshade` is an external, ignored build dependency. Do not copy it into this repository or include it in release packages.
 - `RESHADE-dependency.md` is an informational snapshot, not a pinned revision. Preserve user edits and regenerate it only through `setup-reshade.ps1` when the dependency checkout changes.
 - Git is read-only for the agent. Only the user stages, unstages, commits, pushes, or otherwise changes Git state (branches, stash, reset, restore, remotes, config). The agent may run only read commands such as `git status`, `git diff`, `git log` and `git show`.
+- Every commit message the agent writes for the user must be a Conventional Commit (`docs: ...`, `fix: ...` and so on), following [Commit Messages](#commit-messages). A message without a type prefix is wrong, because the release changelog leaves it out.
 - The workspace hook `.github/hooks/git-read-only.json` blocks Git change commands and edits inside `.git` folders. Never disable, edit or work around it; `.github/hooks/test-git-read-only.ps1` checks it.
 - `setup-reshade.ps1` changes the `.deps` Git checkouts, so run it only when the user asks.
 
@@ -100,15 +101,17 @@
 - Write down every finding the user would otherwise have to remember (setup steps, settings that make something work, side effects such as settings an add-on leaves in a game folder) in the user-facing guide it belongs to (`INSTALL.md`, `INSTALL-SteamVR.md`, `LIMITATIONS.md`) in the same task, not only in developer notes.
 - Before answering a question about how something works, read the existing docs, and answer from what was already found. Do not reason it out again from scratch if not needed.
 - When the user asks to fix the instructions or docs, change the files in the same turn and say which lines changed.
+- Instructions state general rules. Never write a rule or example around the specific case that prompted it (a particular commit, file, picture or bug), not even reworded; describe the general pattern so it applies to every similar case. When adding a rule, add no example unless the rule cannot be understood without one.
 - When the user asks for something to be its own thing (its own guide, file or download), make it a separate file in that same turn. Don't fold it into an existing file as a section.
 - Each install guide covers only its own case and never links to the other guides. Choosing the right guide happens only in the "Which download do I need?" table in `RELEASE_NOTES.md` and in the README files.
 
 ## Commit Messages
 
-- When giving the user a commit message, write it as a Conventional Commit: `type(optional scope): short plain-English summary`, for example `fix(opengl): stop the headset menu flickering in SOMA`.
+- Every commit message given to the user, with no exceptions, is a Conventional Commit: `type(optional scope): short plain-English summary`, for example `fix(opengl): stop the headset menu flickering in SOMA`. Before replying, check that the first line starts with one of the types below.
 - Types: `feat` (new feature users notice), `fix` (bug fix), `perf` (faster or lighter), `revert`, `docs`, `refactor`, `build`, `ci`, `test`, `style`, `chore`. Add `!` after the type (`feat!:`) for a change that breaks existing installs or settings.
 - Only `feat`, `fix`, `perf`, `revert` and `!` commits trigger a GitHub Release; all conventional commits appear in its changelog, and other messages are left out. So the summary must make sense to someone reading the release page.
 - Write the summary line for players, not developers. Say what they notice or get, in everyday words, not how it was done: `fix: download links on the release page work again`, not `fix: download names without brackets`. Avoid file names, code names and technical terms in it. Only the summary line reaches the release page; put technical details in the body.
+- The summary line must name the concrete thing that was added, changed or removed, and where, not only the goal behind it. When one commit contains several changes, the summary line names each of them, not only the main one.
 - Adding `(Skip)` anywhere in the message stops GitHub Actions from building or releasing that push. Suggest it only when the commit changes nothing that is built or packaged (for example agent instructions or developer notes), and say so to the user.
 - Give one commit message per logical change; if the work mixes unrelated changes, suggest separate commits.
 
