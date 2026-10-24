@@ -172,17 +172,15 @@ the file name never changes, and the versioned names change every release.
 Releases are made by GitHub Actions
 ([build-release.yml](.github/workflows/build-release.yml)), not by hand:
 
-- Every push to `main` and every pull request builds both ZIPs; they can be
-  downloaded from the run's page.
-- If the pushed commits include a `feat:`, `fix:`, `perf:`, `revert:` or
-  breaking (`!`) commit, the same run publishes a GitHub Release with the two
-  ZIPs. Other commit types wait for the next release.
+- Every push to `main` (and every manual run on `main`) builds both ZIPs and
+  publishes them as a GitHub Release. The only way to skip a push is
+  `(Skip)` in the last commit message, which skips the build too. Nothing is
+  built without being released, so pull requests and other branches are not
+  built.
 - The version is a running release number and the date: release `v12` built on
   24 October 2026 is titled `v12 (2026-10-24)`, and its add-ons carry the
   Windows file version `2026.10.24.12`, which ReShade shows in its add-on list.
-  Its ZIPs end in `-v12-2026-10-24.zip`.
-  Builds that are not released keep the date with `0` as the release number,
-  and their ZIPs end in `-dev-2026-10-24.zip`; local builds show `0.0.0.0`.
+  Its ZIPs end in `-v12-2026-10-24.zip`. Local builds show `0.0.0.0`.
 - The release text is `RELEASE_NOTES.md`, the install guides, then the
   changelog. The changelog lists only commits written as
   [Conventional Commits](https://www.conventionalcommits.org) (`feat: ...`,
@@ -198,8 +196,6 @@ Releases are made by GitHub Actions
 - ZIP names use only letters, digits, `-`, `_` and `.`. GitHub renames uploaded
   files with other characters (brackets became dots in v2), which breaks the
   download links, so `package.ps1` refuses them.
-- To publish without a `feat` or `fix` commit (for example the first release),
-  open the workflow on GitHub, choose **Run workflow** and tick the release box.
 
 The packages contain only the plugin artifacts, installer, uninstaller,
 manifest, install guide, project license, and third-party notices. They do not

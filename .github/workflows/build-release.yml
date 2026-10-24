@@ -1,34 +1,28 @@
 name: Build and release
 
-# Every push to main builds the add-on. If the new commits contain a feat, fix, perf, revert or
-# breaking change, the same run also publishes a GitHub Release tagged vN (N = previous release + 1).
+# Every push to main builds the add-on and publishes a GitHub Release tagged vN (N = previous release + 1).
 # A push whose last commit message contains "(Skip)" does not build or release.
+# Nothing is ever built without being released.
 
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
-    inputs:
-      release:
-        description: Publish a release even if there is no feat or fix commit since the last one
-        type: boolean
-        default: false
 
 permissions:
   contents: write
 
 concurrency:
-  # Releases on main run one at a time so two runs never pick the same release number.
-  group: build-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Releases run one at a time so two runs never pick the same release number.
+  group: release
+  cancel-in-progress: false
 
 jobs:
   build:
-    if: ${{ !contains(github.event.head_commit.message, '(Skip)') }}
+    if: ${{ github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '(Skip)') }}
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -37,19 +31,13 @@ jobs:
         shell: pwsh
         run: |
           $info = & tools/release/Get-ReleaseInfo.ps1 -NotesFile changelog.md
-          $onMain = '${{ github.ref }}' -eq 'refs/heads/main' -and '${{ github.event_name }}' -ne 'pull_request'
-          $forced = '${{ github.event.inputs.release }}' -eq 'true'
-          $publish = $onMain -and ($info.IsRelease -or $forced)
-          # Builds that are not released keep the date but use release number 0.
-          $fileVersion = if ($publish) { $info.FileVersion } else { $info.FileVersion -replace '\.\d+$', '.0' }
-          $assetSuffix = if ($publish) { $info.AssetSuffix } else { $info.DevAssetSuffix }
           "tag=$($info.Tag)" >> $env:GITHUB_OUTPUT
           "title=$($info.Title)" >> $env:GITHUB_OUTPUT
-          "file_version=$fileVersion" >> $env:GITHUB_OUTPUT
-          "asset_suffix=$assetSuffix" >> $env:GITHUB_OUTPUT
-          "publish=$($publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-          Write-Host "Version $fileVersion, ZIP suffix $assetSuffix, publish release: $publish"
+          "file_version=$($info.FileVersion)" >> $env:GITHUB_OUTPUT
+          "asset_suffix=$($info.AssetSuffix)" >> $env:GITHUB_OUTPUT
+          Write-Host "Release $($info.Tag), version $($info.FileVersion), ZIP suffix $($info.AssetSuffix)"
           Get-Content changelog.md
+          "### Publishing release $($info.Tag)" >> $env:GITHUB_STEP_SUMMARY
 
       - name: Build and package
         shell: cmd
@@ -69,7 +57,7 @@ jobs:
           [IO.File]::WriteAllText("$PWD/build/reshade-openxr-ui-release/SHA256SUMS.txt", (($lines -join "`n") + "`n"))
           $lines
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: packages-${{ steps.info.outputs.file_version }}
           path: |
@@ -79,7 +67,6 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        if: ${{ steps.info.outputs.publish == 'true' }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,6 +1,5 @@
 # Works out the next release number and the changelog from Conventional Commits since the last vN tag.
-# A release happens when a feat, fix, perf, revert or breaking ("!" / "BREAKING CHANGE:") commit is new.
-# Other conventional types are listed in the changelog but do not trigger a release on their own.
+# Whether to release is decided by the workflow (every push to main unless "(Skip)"), not here.
 # Commits without a conventional prefix are left out of the changelog.
 param(
 	[string]$Head = 'HEAD',
@@ -50,11 +49,9 @@ $sections = [ordered]@{
 	style    = 'Code style'
 	chore    = 'Maintenance'
 }
-$releaseTypes = @('breaking', 'feat', 'fix', 'perf', 'revert')
 $entries = @{}
 foreach ($key in $sections.Keys) { $entries[$key] = [System.Collections.Generic.List[string]]::new() }
 
-$isRelease = $false
 $pattern = '^(?<type>[a-zA-Z]+)(\((?<scope>[^)]+)\))?(?<bang>!)?:\s*(?<desc>.+)$'
 foreach ($record in (($log.Output -join "`n") -split [char]0x1e)) {
 	$fields = $record.Trim() -split [char]0x1f
@@ -74,8 +71,7 @@ foreach ($record in (($log.Output -join "`n") -split [char]0x1e)) {
 	if ($match.Groups['bang'].Success -or $body -match '(?m)^BREAKING[ -]CHANGE:') {
 		$type = 'breaking'
 	}
-	$entries[$type].Add("- $description ($($hash.Substring(0, 7)))")
-	if ($type -in $releaseTypes) { $isRelease = $true }
+	$entries[$type].Add("- $description ($($hash.Substring(0, 7)))")
 }
 
 $notes = [System.Text.StringBuilder]::new()
@@ -98,10 +94,8 @@ $day = $Date.ToString('yyyy-MM-dd')
 	Tag         = "v$number"
 	Title       = "v$number ($day)"
 	FileVersion = "$($Date.Year).$($Date.Month).$($Date.Day).$number"
-	# Added to the ZIP names: ReShade-VR-UI-Addon-OpenXR-v12-2026-10-24.zip. Builds that are not released use DevAssetSuffix.
+	# Added to the ZIP names: ReShade-VR-UI-Addon-OpenXR-v12-2026-10-24.zip.
 	# No brackets: GitHub renames uploaded files that contain them.
 	AssetSuffix    = "-v$number-$day"
-	DevAssetSuffix = "-dev-$day"
-	IsRelease   = $isRelease
 	Changelog   = $notes.ToString()
 }
