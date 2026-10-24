@@ -174,7 +174,9 @@ Releases are made by GitHub Actions
 
 - Every push to `main` (and every manual run on `main`) builds both ZIPs and
   publishes them as a GitHub Release. The only way to skip a push is
-  `(Skip)` in the last commit message, which skips the build too. Nothing is
+  `(Skip)` in the first line of the last commit message (any letter case),
+  which skips the build too; `(Skip)` further down the message is ignored.
+  Nothing is
   built without being released, so pull requests and other branches are not
   built.
 - The version is a running release number and the date: release `v12` built on
@@ -192,7 +194,6 @@ Releases are made by GitHub Actions
   of the file) for each ZIP, also listed at the end of the release text. To
   check a download, run `Get-FileHash <zip> -Algorithm SHA256` in PowerShell
   and compare the result with the listed value.
-- A push whose last commit message contains `(Skip)` is not built or released.
 - ZIP names use only letters, digits, `-`, `_` and `.`. GitHub renames uploaded
   files with other characters (brackets became dots in v2), which breaks the
   download links, so `package.ps1` refuses them.
