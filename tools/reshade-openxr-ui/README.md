@@ -4,7 +4,7 @@ ReShade VR UI Add-on is a controller-driven, headset-native interface for managi
 
 Why two frontends: in SteamVR games ReShade already has its own dashboard menu, and the only missing piece was a `ReShadeVR.ini` next to the game (without it the ReShade icon does not appear in SteamVR), so the SteamVR side only writes that file and adds small extras. In OpenXR games ReShade has no headset menu at all, so the OpenXR side draws its own panel.
 
-This README is for developers. To install a prebuilt release, see [INSTALL.md](INSTALL.md) (OpenXR games and UEVR) or [INSTALL-SteamVR.md](INSTALL-SteamVR.md) (SteamVR games) or [INSTALL-Vulkan-32bit.md](INSTALL-Vulkan-32bit.md) (Vulkan and 32-bit games, ReShade alone).
+This README is for developers. To install a prebuilt release, download it from the [Releases page](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest) and see [INSTALL.md](INSTALL.md) (OpenXR games and UEVR) or [INSTALL-SteamVR.md](INSTALL-SteamVR.md) (SteamVR games) or [INSTALL-Vulkan-32bit.md](INSTALL-Vulkan-32bit.md) (Vulkan and 32-bit games, ReShade alone).
 
 ## Install And Load Model
 
@@ -204,7 +204,7 @@ simulator path with the location of your external OpenXR-Simulator bundle:
 build.bat
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\verify.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\smoke.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test -Frames 30
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test -Frames 1600
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test
 ```
 
 `verify.ps1` checks both add-on export contracts. By default, the smoke test runs isolated D3D11 and D3D12 OpenXR Simulator legs, including a no-ReShade control for each API. The capture workflow also runs both APIs, drives the real OpenXR action path, and writes screenshots under `build\reshade-openxr-ui\simulator-captures\d3d11` and `simulator-captures\d3d12` for visual inspection.
@@ -221,7 +221,7 @@ Create the user-facing ZIPs after the complete validation workflow:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\package.ps1
 ```
 
-Both ZIPs go into one GitHub release, whose page text is [RELEASE_NOTES.md](RELEASE_NOTES.md). Each ZIP holds only its own guide, renamed to `INSTALL.md`.
+Both ZIPs go into one GitHub release. Its page text starts with [RELEASE_NOTES.md](RELEASE_NOTES.md) and then shows each install guide as a fold-out section (built by `tools\release\New-ReleaseNotes.ps1`). Each ZIP holds only its own guide, renamed to `INSTALL.md`.
 
 `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip` (OpenXR games and UEVR; guide: [INSTALL.md](INSTALL.md)):
 

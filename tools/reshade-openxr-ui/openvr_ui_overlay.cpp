@@ -5,6 +5,7 @@
 
 #include "vr_frame_graph.hpp"
 #include "vr_ui_state.hpp"
+#include "vr_ui_version.hpp"
 
 #include <Windows.h>
 
@@ -104,6 +105,10 @@ namespace
 			s_open_logged = true;
 		}
 		ImGui::TextUnformatted("ReShade VR Effects");
+		char version_label[16];
+		openxr_ui::format_version_label(version_label);
+		ImGui::SameLine();
+		ImGui::TextDisabled("%s", version_label);
 		ImGui::Separator();
 		if (GetModuleHandleW(L"openvr_api.dll") == nullptr)
 		{

@@ -1,0 +1,93 @@
+name: Build and release
+
+# Every push to main builds the add-on. If the new commits contain a feat, fix, perf, revert or
+# breaking change, the same run also publishes a GitHub Release tagged vN (N = previous release + 1).
+# A push whose last commit message contains "(Skip)" does not build or release.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Publish a release even if there is no feat or fix commit since the last one
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  # Releases on main run one at a time so two runs never pick the same release number.
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    if: ${{ !contains(github.event.head_commit.message, '(Skip)') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Work out version and changelog
+        id: info
+        shell: pwsh
+        run: |
+          $info = & tools/release/Get-ReleaseInfo.ps1 -NotesFile changelog.md
+          $onMain = '${{ github.ref }}' -eq 'refs/heads/main' -and '${{ github.event_name }}' -ne 'pull_request'
+          $forced = '${{ github.event.inputs.release }}' -eq 'true'
+          $publish = $onMain -and ($info.IsRelease -or $forced)
+          # Builds that are not released keep the date but use release number 0.
+          $fileVersion = if ($publish) { $info.FileVersion } else { $info.FileVersion -replace '\.\d+$', '.0' }
+          "tag=$($info.Tag)" >> $env:GITHUB_OUTPUT
+          "title=$($info.Title)" >> $env:GITHUB_OUTPUT
+          "file_version=$fileVersion" >> $env:GITHUB_OUTPUT
+          "publish=$($publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          Write-Host "Version $fileVersion, publish release: $publish"
+          Get-Content changelog.md
+
+      - name: Build and package
+        shell: cmd
+        env:
+          RESHADE_VR_UI_VERSION: ${{ steps.info.outputs.file_version }}
+        run: call build.bat
+
+      - name: Write SHA-256 checksums
+        shell: pwsh
+        run: |
+          $zips = 'ReShade-VR-UI-Addon-OpenXR.zip', 'ReShade-VR-UI-Addon-SteamVR.zip' |
+            ForEach-Object { "build/reshade-openxr-ui-release/$_" }
+          # Same "<hash>  <file name>" format as sha256sum, so it can be checked on any system.
+          $lines = Get-FileHash -LiteralPath $zips -Algorithm SHA256 |
+            ForEach-Object { '{0}  {1}' -f $_.Hash.ToLowerInvariant(), (Split-Path $_.Path -Leaf) }
+          [IO.File]::WriteAllText("$PWD/build/reshade-openxr-ui-release/SHA256SUMS.txt", (($lines -join "`n") + "`n"))
+          $lines
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ steps.info.outputs.file_version }}
+          path: |
+            build/reshade-openxr-ui-release/*.zip
+            build/reshade-openxr-ui-release/SHA256SUMS.txt
+            build/steamvr-listener-release/*.zip
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: ${{ steps.info.outputs.publish == 'true' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          & tools/release/New-ReleaseNotes.ps1 -OutFile release-notes.md -ChangelogFile changelog.md `
+            -ChecksumsFile build/reshade-openxr-ui-release/SHA256SUMS.txt
+          gh release create '${{ steps.info.outputs.tag }}' `
+            --target '${{ github.sha }}' `
+            --title '${{ steps.info.outputs.title }}' `
+            --notes-file release-notes.md `
+            build/reshade-openxr-ui-release/ReShade-VR-UI-Addon-OpenXR.zip `
+            build/reshade-openxr-ui-release/ReShade-VR-UI-Addon-SteamVR.zip `
+            build/reshade-openxr-ui-release/SHA256SUMS.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -211,7 +211,7 @@ Run one additional focused smoke with `XR_PROBE_VK_ENABLE1=1` to cover the older
 The future command should be:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -GraphicsApi Vulkan -Frames 1600
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -GraphicsApi Vulkan
 ```
 
 Require the same actual simulator-window states as D3D11 and D3D12:
@@ -227,7 +227,7 @@ Require the same actual simulator-window states as D3D11 and D3D12:
 
 Inspect every image directly. Do not accept debug text, hit tests, file existence, hashes, or synthetic render targets as visual proof. Confirm all controls and text are visible and non-overlapping, the preset states change as expected, and the eight images are distinct where expected.
 
-The harness must restore managed configuration and preset bytes, delete the test-created `HI.ini`, remove temporary local app data and staged layers, and leave the machine-wide runtime and registry unchanged.
+The test script must restore managed configuration and preset bytes, delete the test-created `HI.ini`, remove temporary local app data and staged layers, and leave the machine-wide runtime and registry unchanged.
 
 ### 5. Full regression
 

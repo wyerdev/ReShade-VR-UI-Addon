@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
 	[string]$TestRoot = '.deps\openxr-simulator-test',
-	[int]$Frames = 1600,
+	[int]$Frames = 4000,
 	[ValidateSet('Both', 'D3D11', 'D3D12')]
 	[string]$GraphicsApi = 'Both',
 	[string]$OutputDirectory = 'build\reshade-openxr-ui',
@@ -9,6 +9,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'openxr_test_isolation.ps1')
+$installedLayers = $null
 
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 if (-not [System.IO.Path]::IsPathRooted($TestRoot)) {
@@ -123,8 +125,10 @@ function Get-FrameCount {
 
 function Wait-ForFrame {
 	param([Parameter(Mandatory = $true)][int]$Frame)
+	$deadline = (Get-Date).AddSeconds(30)
 	while (-not $process.WaitForExit(50)) {
 		if ((Get-FrameCount) -ge $Frame) { return }
+		if ((Get-Date) -gt $deadline) { throw "OpenXR probe did not reach frame $Frame within 30 seconds." }
 	}
 	throw "OpenXR probe exited before frame $Frame."
 }
@@ -214,7 +218,6 @@ $savedEnvironment = @{
 	XR_PROBE_SLEEP_MS = $env:XR_PROBE_SLEEP_MS
 	XR_PROBE_PROJECTION_ONLY = $env:XR_PROBE_PROJECTION_ONLY
 	DISABLE_XR_APILAYER_reshade_1 = $env:DISABLE_XR_APILAYER_reshade_1
-	DISABLE_XR_APILAYER_reshade_vr_ui = $env:DISABLE_XR_APILAYER_reshade_vr_ui
 	DISABLE_ReShade_VR_UI_Addon = $env:DISABLE_ReShade_VR_UI_Addon
 }
 $process = $null
@@ -247,7 +250,7 @@ try {
 	$env:XR_API_LAYER_PATH = $testLayerDirectory + ';' + $layerDirectory
 	$env:XR_ENABLE_API_LAYERS = 'XR_APILAYER_reshade_vr_ui_capture;XR_APILAYER_reshade_local_ui_capture'
 	$env:DISABLE_XR_APILAYER_reshade_1 = '1'
-	$env:DISABLE_XR_APILAYER_reshade_vr_ui = '1'
+	$installedLayers = Disable-InstalledOpenXRLayers
 	$env:DISABLE_ReShade_VR_UI_Addon = '1'
 	$env:XR_PROBE_FRAMES = $probeFrames.ToString()
 	$env:XR_PROBE_SLEEP_MS = '10'
@@ -272,7 +275,8 @@ try {
 		Wait-ForFrame ((Get-FrameCount) + 15)
 		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-restored.png')
 
-		$process.WaitForExit()
+		# The probe only exits after its whole frame budget, so this can take a minute after the last capture.
+		if (-not $process.WaitForExit(120000)) { throw 'OpenXR probe did not finish its frame budget within 120 seconds.' }
 		$process.Refresh()
 		if ($process.ExitCode -ne 0) { throw "OpenXR probe failed with exit code $($process.ExitCode)." }
 		$probeOutput = Get-Content -LiteralPath $stdoutPath -Raw
@@ -352,7 +356,8 @@ try {
 		throw "Deleted preset reappeared after backward preset navigation: $createdPresetPath"
 	}
 
-	$process.WaitForExit()
+	# The probe only exits after its whole frame budget, so this can take a minute after the last capture.
+	if (-not $process.WaitForExit(120000)) { throw 'OpenXR probe did not finish its frame budget within 120 seconds.' }
 	$process.Refresh()
 	if ($process.ExitCode -ne 0) { throw "OpenXR probe failed with exit code $($process.ExitCode)." }
 	$probeOutput = Get-Content -LiteralPath $stdoutPath -Raw
@@ -366,6 +371,7 @@ finally {
 		Stop-Process -Id $process.Id -Force
 		$process.WaitForExit()
 	}
+	Restore-InstalledOpenXRLayers $installedLayers
 	foreach ($entry in $savedEnvironment.GetEnumerator()) {
 		Set-Item -Path "Env:$($entry.Key)" -Value $entry.Value
 	}

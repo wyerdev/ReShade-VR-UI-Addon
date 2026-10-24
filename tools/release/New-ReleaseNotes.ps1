@@ -1,0 +1,42 @@
+# Writes the GitHub release page text: which ZIP to download, the full install steps for each kind of game
+# (taken from the install guides, so the steps stay written in one place), the changelog and the checksums.
+param(
+	[Parameter(Mandatory)][string]$OutFile,
+	[string]$ChangelogFile,
+	[string]$ChecksumsFile
+)
+
+$ErrorActionPreference = 'Stop'
+$guideRoot = Join-Path $PSScriptRoot '..\reshade-openxr-ui'
+
+function Read-Text([string]$Path) {
+	return [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path)).Replace("`r`n", "`n").Trim()
+}
+
+# Shows a guide as a fold-out section. Its own title and download line are dropped (the release page already
+# has the downloads), its headings move two levels down, and links to its own sections become plain text,
+# because those links do not work inside a fold-out section.
+function Format-Guide([string]$Summary, [string]$FileName) {
+	$lines = (Read-Text (Join-Path $guideRoot $FileName)) -split "`n" |
+		Where-Object { $_ -notmatch '^# ' -and $_ -notmatch '^\*\*Download:\*\*' } |
+		ForEach-Object { $_ -replace '^(#{2,}) ', '$1## ' -replace '\[([^\]]+)\]\(#[^)]+\)', '**$1**' }
+	return @("<details><summary><b>$Summary</b> (click to open)</summary>", '', ($lines -join "`n").Trim(), '', '</details>') -join "`n"
+}
+
+$sections = @(
+	(Read-Text (Join-Path $guideRoot 'RELEASE_NOTES.md')),
+	'## Install Steps',
+	(Format-Guide 'Install steps: OpenXR games and UEVR' 'INSTALL.md'),
+	(Format-Guide 'Install steps: SteamVR games' 'INSTALL-SteamVR.md'),
+	(Format-Guide 'Install steps: Vulkan and 32-bit games' 'INSTALL-Vulkan-32bit.md')
+)
+if ($ChangelogFile) {
+	$sections += '## What Changed'
+	$sections += Read-Text $ChangelogFile
+}
+if ($ChecksumsFile) {
+	$sections += '## SHA-256 Checksums'
+	$sections += @('```', (Read-Text $ChecksumsFile), '```') -join "`n"
+}
+
+[IO.File]::WriteAllText([IO.Path]::GetFullPath($OutFile), (($sections -join "`n`n") + "`n"), [Text.UTF8Encoding]::new($false))

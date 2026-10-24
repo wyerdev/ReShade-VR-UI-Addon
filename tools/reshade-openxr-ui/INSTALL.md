@@ -4,6 +4,8 @@ For 64-bit OpenXR games that use DirectX 11, DirectX 12 or OpenGL, and for Unrea
 
 **Install the add-on once. It adds a panel in the headset to control ReShade's effects in all your OpenXR games.**
 
+**Download:** [ReShade-VR-UI-Addon-OpenXR.zip](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest/download/ReShade-VR-UI-Addon-OpenXR.zip) (newest version). All versions: [Releases page](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases).
+
 Something not working? See [Troubleshooting](#troubleshooting) at the end.
 
 ## Install

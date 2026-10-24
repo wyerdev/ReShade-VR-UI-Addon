@@ -61,7 +61,9 @@ $testTargetProgramDatabase = Join-Path $OutputDirectory 'Listener-Test-Target.pd
 $testMarker = Join-Path $OutputDirectory 'Listener-Test-Marker.dll'
 $testMarkerProgramDatabase = Join-Path $OutputDirectory 'Listener-Test-Marker.pdb'
 
-$listenerCompileCommand = 'call "' + $developerCommand + '" -arch=x64 -host_arch=x64 >nul & cl.exe /nologo /std:c++17 /EHsc /W4 /O2 /MD /Fo:"' + $OutputDirectory + '\\" "' + $listenerSource + '" /Fe:"' + $listener + '" /link /SUBSYSTEM:WINDOWS /ENTRY:wmainCRTStartup /PDB:"' + $listenerProgramDatabase + '"'
+. (Join-Path $PSScriptRoot '..\release\version-resource.ps1')
+$listenerVersionResource = New-VersionResource -DeveloperCommand $developerCommand -OutputDirectory $OutputDirectory -FileName 'ReShade-System-Wide-SteamVR-Listener.exe' -Description 'ReShade VR UI System-Wide SteamVR Listener' -Executable
+$listenerCompileCommand = 'call "' + $developerCommand + '" -arch=x64 -host_arch=x64 >nul & cl.exe /nologo /std:c++17 /EHsc /W4 /O2 /MD /Fo:"' + $OutputDirectory + '\\" "' + $listenerVersionResource + '" "' + $listenerSource + '" /Fe:"' + $listener + '" /link /SUBSYSTEM:WINDOWS /ENTRY:wmainCRTStartup /PDB:"' + $listenerProgramDatabase + '"'
 & cmd.exe /d /c $listenerCompileCommand
 if ($LASTEXITCODE -ne 0) {
 	throw "SteamVR listener build failed with exit code $LASTEXITCODE."

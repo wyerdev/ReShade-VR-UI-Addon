@@ -8,6 +8,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'openxr_test_isolation.ps1')
+$installedLayers = $null
 
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 if (-not [System.IO.Path]::IsPathRooted($TestRoot)) {
@@ -89,6 +91,7 @@ try {
 	$env:XR_ENABLE_API_LAYERS = 'XR_APILAYER_reshade_vr_ui_smoke;XR_APILAYER_reshade_local_ui_smoke'
 	$env:DISABLE_XR_APILAYER_reshade_1 = '1'
 	$env:DISABLE_ReShade_VR_UI_Addon = '1'
+	$installedLayers = Disable-InstalledOpenXRLayers
 	$env:XR_PROBE_FRAMES = $Frames.ToString()
 	$env:XR_PROBE_PROJECTION_ONLY = '1'
 	$env:XR_LOADER_DEBUG = if ($LoaderDebug) { 'all' } else { $null }
@@ -112,6 +115,7 @@ finally {
 	$env:XR_LOADER_DEBUG = $savedLoaderDebug
 	$env:DISABLE_XR_APILAYER_reshade_1 = $savedDisableCentralReshade
 	$env:DISABLE_ReShade_VR_UI_Addon = $savedDisableGlobalVrUi
+	Restore-InstalledOpenXRLayers $installedLayers
 	Remove-Item -LiteralPath $testDll, $testManifest, $testReshadeManifest -Force -ErrorAction SilentlyContinue
 	Remove-Item -LiteralPath $testLocalAppData -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -171,6 +175,7 @@ try {
 	$env:XR_ENABLE_API_LAYERS = 'XR_APILAYER_reshade_vr_ui_negative_smoke'
 	$env:DISABLE_XR_APILAYER_reshade_1 = '1'
 	$env:DISABLE_ReShade_VR_UI_Addon = '1'
+	$installedLayers = Disable-InstalledOpenXRLayers
 	$env:XR_PROBE_FRAMES = $Frames.ToString()
 	$env:XR_PROBE_PROJECTION_ONLY = '1'
 	$env:XR_LOADER_DEBUG = if ($LoaderDebug) { 'all' } else { $null }
@@ -195,6 +200,7 @@ finally {
 	$env:XR_LOADER_DEBUG = $savedLoaderDebug
 	$env:DISABLE_XR_APILAYER_reshade_1 = $savedDisableCentralReshade
 	$env:DISABLE_ReShade_VR_UI_Addon = $savedDisableGlobalVrUi
+	Restore-InstalledOpenXRLayers $installedLayers
 	Remove-Item -LiteralPath $negativeLocalAppData -Recurse -Force -ErrorAction SilentlyContinue
 }
 

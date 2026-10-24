@@ -36,6 +36,6 @@ applyTo: "tools/reshade-openxr-ui/**"
 
 1. Run `build.bat`; require the private renderer and central-loader tests to pass.
 2. Run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\smoke.ps1 -TestRoot <path-to-OpenXR-Simulator-test> -Frames 30`; require D3D11 and D3D12 to complete 30/30 frames with zero failures and zero graphics-validation errors.
-3. For layout, text, sizing, or visibility changes, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot <path-to-OpenXR-Simulator-test> -Frames 1600` and inspect every screenshot for both APIs.
+3. For layout, text, sizing, or visibility changes, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot <path-to-OpenXR-Simulator-test>` and inspect every screenshot for both APIs.
 4. Run editor diagnostics and `git diff --check`.
 5. Record material commands and results in the task report. Update `RESHADE-dependency.md` only when the dependency snapshot changes.

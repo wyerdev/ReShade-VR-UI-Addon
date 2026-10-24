@@ -1,7 +1,10 @@
 # ReShade VR UI Add-on
 
-This repository contains the ReShade VR UI Add-on and its OpenXR validation
-harnesses. ReShade itself is not part of this repository.
+Control ReShade from inside your VR headset, without taking it off.
+
+ReShade is a free program that adds visual effects, such as sharpening or
+color changes, to games. This add-on lets you switch those effects on and off
+and adjust them while you play in VR. ReShade itself is a separate download.
 
 ## What It Does
 
@@ -17,15 +20,31 @@ control ReShade from inside the headset:
   settings file fixes that. So this project adds its own panel in the headset
   to switch effects on and off and change them.
 
-## Install
+## Download And Install
 
-To install, start with [Which download do I need?](tools/reshade-openxr-ui/RELEASE_NOTES.md).
-It shows the download and install steps for each kind of VR game.
+**[⬇ Download and install steps (Releases page)](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest)**
 
-## Repository Boundary
+The Releases page has the downloads and the full install steps for each kind
+of game. Or go straight to the guide for your game; each one starts with its
+download link:
+
+| Your game | Download and install steps |
+| --- | --- |
+| OpenXR VR game, or an Unreal game played in VR with UEVR | [Install for OpenXR and UEVR](tools/reshade-openxr-ui/INSTALL.md) |
+| SteamVR game | [Install for SteamVR](tools/reshade-openxr-ui/INSTALL-SteamVR.md) |
+| Vulkan or 32-bit VR game (nothing to download) | [ReShade in Vulkan and 32-bit games](tools/reshade-openxr-ui/INSTALL-Vulkan-32bit.md) |
+
+Every ZIP also has its install steps inside, in a file called `INSTALL.md`.
+
+## For Developers
+
+Everything below is for people who build or change the add-on. You do not need
+it to install or use the add-on.
+
+### Repository Boundary
 
 The plugin source and tests live under `tools/reshade-openxr-ui`. Related
-OpenXR integration harnesses live under `tools/` beside it. The official
+OpenXR integration test scripts live under `tools/` beside it. The official
 ReShade source is fetched separately into `.deps/reshade`, which is ignored by
 Git and never included in release packages.
 
@@ -33,7 +52,7 @@ The plugin uses the current ReShade checkout available locally. The dependency
 setup script records the branch, commit, and submodule revisions used for a
 build in `RESHADE-dependency.md`, but does not pin that revision.
 
-## Setup
+### Setup
 
 From this repository root, run the standard setup, build, and package flow:
 
@@ -51,7 +70,7 @@ trees.
 For a clean rebuild and package, run `clean.bat`. It assumes the ReShade
 dependency checkout has already been set up.
 
-## Build
+### Build
 
 The root batch files are the standard build and installation entry points:
 
@@ -92,25 +111,33 @@ The optional System-Wide SteamVR Listener is a separate program under
 the add-on package do not include it; see
 [tools/steamvr-listener/INSTALL.md](tools/steamvr-listener/INSTALL.md).
 
-## Validation
+### Testing
 
-The deterministic simulator bundle is external to this repository. Supply its
-path explicitly:
+`test.bat` runs everything in order (the build and its built-in tests, the quick
+headset test and the menu screenshot test) and ends with one PASSED or FAILED
+line per test. It exits with code 0 only when all of them pass.
+
+```bat
+test.bat C:\path\to\OpenXR-Simulator-test
+```
+
+The deterministic simulator bundle is external to this repository. Without a
+path, `test.bat` uses `RESHADE_VR_UI_TEST_ROOT`, then
+`.deps\openxr-simulator-test`, then an `OpenXR-Simulator-test` folder next to
+this repository. The two simulator tests can also be run on their own from
+PowerShell after `build.bat`:
 
 ```powershell
 .\tools\reshade-openxr-ui\smoke.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test -Frames 30
-.\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test -Frames 1600
+.\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test
 ```
-
-These validation scripts do not have batch-file wrappers and must be run from
-PowerShell after `build.bat`.
 
 Inspect every captured simulator state. Synthetic renderer output, logs, hit
 tests, and screenshot existence do not prove the headset UI is visually
 correct.
 
 Most users do not need the following two scripts. They are optional integration
-harnesses for testing a full ReShade graphics proxy, not for testing this
+tests for a full ReShade graphics proxy, not for testing this
 repository's ReShade VR UI Add-on:
 
 - `tools\test_openxr_simulator.ps1` copies a full `ReShade64.dll` into the
@@ -123,7 +150,7 @@ The normal add-on validation is the `tools\reshade-openxr-ui\smoke.ps1` and
 `build\reshade-openxr-ui\ReShade-OpenXR-UI.addon64` output produced by this
 repository.
 
-The Hubris/Pimax harness is an optional read-only status check:
+The Hubris/Pimax test script has an optional read-only status check:
 
 ```powershell
 .\tools\test_openxr_hubris.ps1 -Action Status -GameRoot C:\path\to\Hubris
@@ -142,9 +169,9 @@ separate ReShade build or installation; it is not
 The migration and build scripts never launch a game or modify an existing
 ReShade checkout.
 
-## Release Package
+### Release Package
 
-After validation:
+After testing:
 
 ```bat
 build.bat
@@ -161,14 +188,38 @@ its own install guide, renamed to `INSTALL.md`:
 | `ReShade-VR-UI-Addon-OpenXR.zip` | OpenXR games and UEVR | `tools\reshade-openxr-ui\INSTALL.md` |
 | `ReShade-VR-UI-Addon-SteamVR.zip` | SteamVR games, set up per game | `tools\reshade-openxr-ui\INSTALL-SteamVR.md` |
 
-The release page text is `tools\reshade-openxr-ui\RELEASE_NOTES.md`. It only
-says which ZIP to download and links to the two guides, so the install steps
-are written in one place. The System-Wide SteamVR Listener is not part of the
-release for now.
+The release page text is built by `tools\release\New-ReleaseNotes.ps1`: first
+`tools\reshade-openxr-ui\RELEASE_NOTES.md` (which ZIP to download), then each
+install guide as a fold-out section, so users find the download and the steps
+on one page while the steps are still written in one place. The System-Wide
+SteamVR Listener is not part of the release for now.
 
-```powershell
-gh release create <tag> build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-SteamVR.zip --draft --title "<title>" --notes-file tools\reshade-openxr-ui\RELEASE_NOTES.md
-```
+#### Automatic releases
+
+Releases are made by GitHub Actions
+([build-release.yml](.github/workflows/build-release.yml)), not by hand:
+
+- Every push to `main` and every pull request builds both ZIPs; they can be
+  downloaded from the run's page.
+- If the pushed commits include a `feat:`, `fix:`, `perf:`, `revert:` or
+  breaking (`!`) commit, the same run publishes a GitHub Release with the two
+  ZIPs. Other commit types wait for the next release.
+- The version is a running release number and the date: release `v12` built on
+  24 October 2026 is titled `v12 (2026-10-24)`, and its add-ons carry the
+  Windows file version `2026.10.24.12`, which ReShade shows in its add-on list.
+  Builds that are not released keep the date with `0` as the release number;
+  local builds show `0.0.0.0`.
+- The release text is `RELEASE_NOTES.md`, the install guides, then the
+  changelog. The changelog lists only commits written as
+  [Conventional Commits](https://www.conventionalcommits.org) (`feat: ...`,
+  `fix: ...`, `docs: ...` and so on); other commit messages are left out.
+- Each release also has `SHA256SUMS.txt`, a SHA-256 checksum (a fingerprint
+  of the file) for each ZIP, also listed at the end of the release text. To
+  check a download, run `Get-FileHash <zip> -Algorithm SHA256` in PowerShell
+  and compare the result with the listed value.
+- A push whose last commit message contains `(Skip)` is not built or released.
+- To publish without a `feat` or `fix` commit (for example the first release),
+  open the workflow on GitHub, choose **Run workflow** and tick the release box.
 
 The packages contain only the plugin artifacts, installer, uninstaller,
 manifest, install guide, project license, and third-party notices. They do not

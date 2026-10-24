@@ -14,6 +14,7 @@
 - Start with the direct answer or main conclusion before technical details.
 - Do not assume the user understands programming terms, internal names, or acronyms.
 - Avoid technical jargon when ordinary words communicate the same meaning.
+- Never use the word "harness" in Markdown files or answers; say "test script" or "test setup" instead.
 - When a technical term is necessary, explain what it means in plain English the first time it appears.
 - Explain problems as a concrete sequence of what happens, why it fails, and how the proposed change fixes it.
 - Keep optional technical evidence separate from the main explanation.
@@ -98,8 +99,19 @@
 - When the user asks for something to be its own thing (its own guide, file or download), make it a separate file in that same turn. Don't fold it into an existing file as a section.
 - Each install guide covers only its own case and never links to the other guides. Choosing the right guide happens only in the "Which download do I need?" table in `RELEASE_NOTES.md` and in the README files.
 
+## Commit Messages
+
+- When giving the user a commit message, write it as a Conventional Commit: `type(optional scope): short plain-English summary`, for example `fix(opengl): stop the headset menu flickering in SOMA`.
+- Types: `feat` (new feature users notice), `fix` (bug fix), `perf` (faster or lighter), `revert`, `docs`, `refactor`, `build`, `ci`, `test`, `style`, `chore`. Add `!` after the type (`feat!:`) for a change that breaks existing installs or settings.
+- Only `feat`, `fix`, `perf`, `revert` and `!` commits trigger a GitHub Release; all conventional commits appear in its changelog, and other messages are left out. So the summary must make sense to someone reading the release page.
+- Adding `(Skip)` anywhere in the message stops GitHub Actions from building or releasing that push. Suggest it only when the commit changes nothing that is built or packaged (for example agent instructions or developer notes), and say so to the user.
+- Give one commit message per logical change; if the work mixes unrelated changes, suggest separate commits.
+
 ## Edit And Validation Discipline
 
+- Any failing build, test or validation is the agent's job to fix in the same task, whoever or whichever change caused it. Never report a failure as "pre-existing" or "not from this change" as a reason to leave it; find the cause, fix it, and rerun until everything passes. Only ask the user first when the fix needs a decision only they can make.
+- Never implement or suggest workarounds. Find the root cause of a problem and fix it there, so the situation cannot happen in the first place. Code that detects a bad situation and hides or tolerates it (for example, making a second copy switch itself off) is a workaround, not a fix.
+- Never state a cause as fact until a test proves it. If a change does not make the failing test pass, say plainly that the cause is still unknown.
 - Use `apply_patch` for edits to existing files and keep patches small.
 - After the first substantive edit, run the narrowest executable validation available before unrelated exploration or edits.
 - After changing source code or tests, run `build.bat` from the repository root yourself. Inspect and fix build or test failures, then rerun it until it passes; do not leave the build for the user to run.

@@ -4,6 +4,8 @@ In SteamVR games, ReShade has its own menu: press the controller's menu button a
 
 **[PICTURE: the ReShade icon in the SteamVR dashboard]**
 
+**Download:** [ReShade-VR-UI-Addon-SteamVR.zip](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest/download/ReShade-VR-UI-Addon-SteamVR.zip) (newest version). Both ways below use files from this ZIP. All versions: [Releases page](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases).
+
 **There are 2 ways. Pick one per game:**
 
 - **Way 1: Automatic (with the add-on).** For 64-bit DirectX 11 and 12 games. The add-on writes `ReShadeVR.ini` for you, opens ReShade's menu by itself, and adds an FPS counter.

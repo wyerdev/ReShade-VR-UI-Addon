@@ -8,6 +8,7 @@
 #include <imgui_impl_opengl3.h>
 
 #include "vr_frame_graph.hpp"
+#include "vr_ui_version.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -1208,6 +1209,10 @@ namespace openxr_ui
 			ImGui::GetWindowDrawList()->AddText({ settings_column_x + 36.0f, footer_min.y + 111.0f + (34.0f - ImGui::GetFontSize()) * 0.5f },
 				restart_pending ? changed_value_color : IM_COL32(150, 170, 174, 255),
 				restart_pending ? "Restart the game to apply your change." : "These two apply after a game restart.");
+			char version_label[16];
+			openxr_ui::format_version_label(version_label);
+			ImGui::GetWindowDrawList()->AddText({ ImGui::GetWindowWidth() - outer_padding - ImGui::CalcTextSize(version_label).x,
+				footer_min.y + 111.0f + (34.0f - ImGui::GetFontSize()) * 0.5f }, IM_COL32(150, 170, 174, 255), version_label);
 
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 37.0f });
 			const bool starts_open_hovered = draw_tick_box("starts_open", "UI starts open", input.ui_starts_open, 220.0f);
