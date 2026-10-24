@@ -2,6 +2,7 @@
 
 #include "openxr_ui_model.hpp"
 #include "vr_frame_statistics.hpp"
+#include "vr_menu_shortcut.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -33,7 +34,8 @@ namespace openxr_ui
 		bool select_down = false;
 		bool select_released = false;
 		float scroll_y = 0.0f;
-		bool long_press_enabled = false;
+		// Choices from vr_menu_shortcut.hpp.
+		uint32_t menu_button = menu_button_both_sticks;
 		bool ui_starts_open = true;
 		bool performance_mode = false;
 		bool shaders_temporarily_disabled = false;
@@ -58,6 +60,7 @@ namespace openxr_ui
 		uint32_t effect_runtime_wait_seconds = 0;
 		// The game started with performance mode on, so ReShade baked the effect values into the shaders.
 		bool performance_mode_active = false;
+		uint32_t menu_key = menu_key_insert;
 	};
 
 	struct render_result
@@ -83,7 +86,8 @@ namespace openxr_ui
 			set_parameter,
 			reset_parameter,
 			reset_all_parameters,
-			toggle_long_press,
+			set_menu_button,
+			set_menu_key,
 			set_ui_starts_open,
 			set_performance_mode,
 			set_always_show_statistics,

@@ -101,7 +101,7 @@ For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingV
 - Shader parameter editing with sliders, steps, defaults, and reset actions
 - Per-shader Revert to the last successful preset save and Restore to the captured live state
 - Preset navigation, save, named Save As, and delete
-- Controller pointer, trigger interaction, thumbstick scrolling, and `L3 + R3` visibility control
+- Controller pointer, trigger interaction, thumbstick scrolling, and a choice of controller buttons or keyboard key to show and hide the panel
 - Active graphics API indicator for Direct3D 11, Direct3D 12 and OpenGL sessions
 - Distinct diagnostics for a missing OpenXR effect runtime and an empty technique inventory
 - Compact and expanded panel layouts

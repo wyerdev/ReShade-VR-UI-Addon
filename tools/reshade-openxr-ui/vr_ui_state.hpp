@@ -2,6 +2,7 @@
 
 #include "openxr_ui_model.hpp"
 #include "vr_frame_statistics.hpp"
+#include "vr_menu_shortcut.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -37,6 +38,13 @@ bool openxr_ui_revert_technique(uint64_t technique_id);
 bool openxr_ui_restore_technique(uint64_t technique_id);
 bool openxr_ui_get_ui_starts_open();
 bool openxr_ui_set_ui_starts_open(bool starts_open);
+// Values from vr_menu_shortcut.hpp. Setting both to Off is refused so the menu can always be reopened.
+uint32_t openxr_ui_get_menu_button();
+bool openxr_ui_set_menu_button(uint32_t button);
+uint32_t openxr_ui_get_menu_key();
+bool openxr_ui_set_menu_key(uint32_t key);
+// True while the chosen key is held and a window of this game is in front. Cheap enough to call every frame.
+bool openxr_ui_menu_key_down(uint32_t key);
 bool openxr_ui_get_always_show_statistics();
 bool openxr_ui_set_always_show_statistics(bool enabled);
 // 1 = full headset rate, 2 = half, 3 = third; colours the FPS graph.

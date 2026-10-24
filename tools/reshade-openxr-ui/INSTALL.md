@@ -12,7 +12,7 @@ Something not working? See [Troubleshooting](#troubleshooting) at the end.
 2. In ReShade Setup, pick the game's `.exe` (UEVR games: the one ending in `-Win64-Shipping.exe`), choose **DirectX 10/11/12** (or **OpenGL**), and tick **OpenXR**, so ReShade draws its effects in the headset. Installed ReShade for this game before? Choose **Uninstall** first, then install again: an old ReShade copy in the game folder can stop effects reaching the headset.
 3. Close games and SteamVR. Extract the ZIP, then right-click `Install-OpenXR.cmd` and choose **Run as administrator**. This switches the add-on on for all your OpenXR games, so you do it only once.
 4. Start the game. For UEVR, inject with UEVR set to **OpenXR** (not OpenVR).
-5. The panel appears in the headset. Press both thumbsticks in (`L3 + R3`) to show or hide it. `Waiting for ReShade...` may show for a moment.
+5. The panel appears in the headset. Press both thumbsticks in (`L3 + R3`) or the `Insert` key to show or hide it; the panel's `Open UI` row offers other buttons and keys (useful in UEVR games, which use both of those for their own menu). `Waiting for ReShade...` may show for a moment.
 6. Switch effects on in the panel. A new game starts with none on.
 
 ## OpenGL Games: Depth Buffer And FPS

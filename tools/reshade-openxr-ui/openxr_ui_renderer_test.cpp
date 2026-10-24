@@ -440,11 +440,39 @@ int main()
 	if (!expect_command(renderer, render_target.Get(), snapshot, 900.0f, 32.0f,
 		openxr_ui::render_result::command::toggle_panel_size, 0))
 		return 1;
-	const openxr_ui::render_input long_press_toggle = { true, 160.0f, 572.0f, true, false, false, false, 0.0f, false };
-	const openxr_ui::render_result long_press_result = renderer.render(render_target.Get(), snapshot, long_press_toggle);
-	if (long_press_result.action != openxr_ui::render_result::command::toggle_long_press)
+	// The "Open UI" row holds the controller list, then the key list; the panel has no room below, so their 30-pixel rows open above.
+	const openxr_ui::render_input menu_button_open = { true, 200.0f, 572.0f, true };
+	if (renderer.render(render_target.Get(), snapshot, menu_button_open).action != openxr_ui::render_result::command::none)
 	{
-		std::fputs("Long-press visibility checkbox did not produce its command.\n", stderr);
+		std::fputs("Controller menu drop-down changed the setting instead of opening its list.\n", stderr);
+		return 1;
+	}
+	const openxr_ui::render_input menu_button_pick = { true, 200.0f, 450.0f, true };
+	const openxr_ui::render_result menu_button_result = renderer.render(render_target.Get(), snapshot, menu_button_pick);
+	if (menu_button_result.action != openxr_ui::render_result::command::set_menu_button ||
+		menu_button_result.value != static_cast<double>(openxr_ui::menu_button_b_and_y))
+	{
+		std::fputs("Controller menu drop-down did not pick B + Y from its list.\n", stderr);
+		return 1;
+	}
+	const openxr_ui::render_input menu_key_open = { true, 370.0f, 572.0f, true };
+	const openxr_ui::render_input menu_key_pick_off = { true, 370.0f, 540.0f, true };
+	renderer.render(render_target.Get(), snapshot, menu_key_open);
+	const openxr_ui::render_result menu_key_result = renderer.render(render_target.Get(), snapshot, menu_key_pick_off);
+	if (menu_key_result.action != openxr_ui::render_result::command::set_menu_key ||
+		menu_key_result.value != static_cast<double>(openxr_ui::menu_key_off))
+	{
+		std::fputs("Keyboard menu drop-down did not pick Off from its list.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input menu_key_open_without_button = menu_key_open;
+	menu_key_open_without_button.menu_button = openxr_ui::menu_button_off;
+	openxr_ui::render_input menu_key_pick_off_without_button = menu_key_pick_off;
+	menu_key_pick_off_without_button.menu_button = openxr_ui::menu_button_off;
+	renderer.render(render_target.Get(), snapshot, menu_key_open_without_button);
+	if (renderer.render(render_target.Get(), snapshot, menu_key_pick_off_without_button).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("Keyboard menu drop-down allowed Off while the controller shortcut is also Off.\n", stderr);
 		return 1;
 	}
 	const openxr_ui::render_input starts_open_toggle = { true, 100.0f, 535.0f, true, false, false, false, 0.0f, false, true };

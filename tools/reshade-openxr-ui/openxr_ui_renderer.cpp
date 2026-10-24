@@ -1172,9 +1172,11 @@ namespace openxr_ui
 				_implementation->technique_scroll = static_cast<size_t>(std::round(drag_fraction * static_cast<float>(maximum_scroll)));
 			}
 
+			// The left column holds UI behaviour, the right column game-start settings; the gap keeps the two apart.
+			const float settings_column_x = footer_min.x + 440.0f;
 			ImGui::SetCursorScreenPos(footer_min);
 			const bool statistics_hovered = draw_tick_box("always_show_statistics", "Always show FPS", input.always_show_statistics, 230.0f);
-			ImGui::SetCursorScreenPos({ footer_min.x + 420.0f, footer_min.y + 2.0f });
+			ImGui::SetCursorScreenPos({ settings_column_x, footer_min.y + 2.0f });
 			const char *frame_rate_options[max_frame_rate_divisor];
 			for (uint32_t divisor = 1; divisor <= max_frame_rate_divisor; ++divisor)
 				frame_rate_options[divisor - 1] = frame_rate_divisor_name(divisor);
@@ -1184,7 +1186,7 @@ namespace openxr_ui
 
 			// Both settings are read by ReShade only at game start, so they share one restart note.
 			const std::string restart_first = "Restart the game to apply your change.\n\n";
-			ImGui::SetCursorScreenPos({ footer_min.x + 420.0f, footer_min.y + 37.0f });
+			ImGui::SetCursorScreenPos({ settings_column_x, footer_min.y + 37.0f });
 			const char *const performance_label = "Performance mode (on = faster shaders)";
 			const bool performance_hovered = draw_tick_box("performance_mode", performance_label, input.performance_mode, 520.0f);
 			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), performance_label,
@@ -1193,7 +1195,7 @@ namespace openxr_ui
 				"How much this helps depends on how many and how heavy the shaders you use are. "
 				"Shader settings can then not be changed; shaders can still be switched on and off. "
 				"Applies after a game restart.").c_str());
-			ImGui::SetCursorScreenPos({ footer_min.x + 420.0f, footer_min.y + 74.0f });
+			ImGui::SetCursorScreenPos({ settings_column_x, footer_min.y + 74.0f });
 			const char *const depth_label = "Depth buffer (off = faster in OpenGL)";
 			const bool depth_hovered = draw_tick_box("depth_buffer", depth_label, !input.depth_detection_disabled, 520.0f);
 			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), depth_label,
@@ -1203,14 +1205,34 @@ namespace openxr_ui
 				"In SOMA-VR (OpenGL) turning it off gave about 30 FPS more. In DirectX games ReShade costs only a few FPS in total, "
 				"so turning this off makes little difference there. Applies after a game restart.").c_str());
 			const bool restart_pending = input.performance_mode_restart_pending || input.depth_detection_restart_pending;
-			ImGui::GetWindowDrawList()->AddText({ footer_min.x + 456.0f, footer_min.y + 111.0f + (34.0f - ImGui::GetFontSize()) * 0.5f },
+			ImGui::GetWindowDrawList()->AddText({ settings_column_x + 36.0f, footer_min.y + 111.0f + (34.0f - ImGui::GetFontSize()) * 0.5f },
 				restart_pending ? changed_value_color : IM_COL32(150, 170, 174, 255),
 				restart_pending ? "Restart the game to apply your change." : "These two apply after a game restart.");
 
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 37.0f });
 			const bool starts_open_hovered = draw_tick_box("starts_open", "UI starts open", input.ui_starts_open, 220.0f);
-			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 74.0f });
-			const bool long_press_hovered = draw_tick_box("long_press", "Hide/show: hold L3 + R3 1.5s", input.long_press_enabled, 380.0f);
+			// The game still sees every button and key press, so each choice may also do something in the game or in a mod such as UEVR.
+			const char *const shortcut_details =
+				"Shows or hides this menu. The game also receives the press.\n\n"
+				"Controller: L3+R3 presses both thumbsticks in. B+Y presses the two upper face buttons together. "
+				"The Hold choices, including Hold Menu (the left controller's menu button), need 1.5 seconds.\n"
+				"Key: works while the game window is in front.\n\n"
+				"UEVR opens its own menu with L3+R3 and Insert, so in UEVR games pick a hold or B+Y, and End or Page Up. "
+				"Controller and key cannot both be Off.";
+			const bool interaction_free = input.select_clicked && _implementation->dragging == implementation::drag_target::none;
+			const ImVec2 shortcut_row = { footer_min.x, footer_min.y + 74.0f };
+			const char *const shortcut_label = "Open UI";
+			// Lines up with the tick boxes above; the two lists share their height and baseline with the FPS target list.
+			ImGui::GetWindowDrawList()->AddText({ shortcut_row.x + 7.0f, shortcut_row.y + (34.0f - ImGui::GetFontSize()) * 0.5f },
+				IM_COL32(222, 242, 245, 255), shortcut_label);
+			ImGui::SetCursorScreenPos({ shortcut_row.x + 7.0f + ImGui::CalcTextSize(shortcut_label).x + 12.0f, shortcut_row.y + 2.0f });
+			const dropdown_interaction button_choice = draw_dropdown(_implementation->dropdown, "menu_button", "", 30.0f,
+				menu_button_names, menu_button_count, input.menu_button, interaction_free);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Open UI: controller buttons", shortcut_details);
+			ImGui::SetCursorScreenPos({ ImGui::GetItemRectMax().x + 8.0f, shortcut_row.y + 2.0f });
+			const dropdown_interaction key_choice = draw_dropdown(_implementation->dropdown, "menu_key", "", 30.0f,
+				menu_key_names, menu_key_count, input.menu_key, interaction_free);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Open UI: keyboard key", shortcut_details);
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 111.0f });
 			const bool disable_all_hovered = draw_text_button("disable_all",
 				input.shaders_temporarily_disabled ? "Restore shaders" : "Disable all", { 200.0f, 34.0f }, true,
@@ -1232,8 +1254,18 @@ namespace openxr_ui
 				result.action = render_result::command::delete_preset;
 			else if (input.select_clicked && disable_all_hovered && _implementation->dragging == implementation::drag_target::none)
 				result.action = render_result::command::toggle_all_techniques;
-			else if (input.select_clicked && long_press_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::toggle_long_press;
+			else if (button_choice.chosen && button_choice.option != input.menu_button &&
+				!(button_choice.option == menu_button_off && input.menu_key == menu_key_off))
+			{
+				result.action = render_result::command::set_menu_button;
+				result.value = static_cast<double>(button_choice.option);
+			}
+			else if (key_choice.chosen && key_choice.option != input.menu_key &&
+				!(key_choice.option == menu_key_off && input.menu_button == menu_button_off))
+			{
+				result.action = render_result::command::set_menu_key;
+				result.value = static_cast<double>(key_choice.option);
+			}
 			else if (input.select_clicked && starts_open_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				result.action = render_result::command::set_ui_starts_open;

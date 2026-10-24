@@ -289,6 +289,16 @@ try {
 	# A second click on the box closes the list without changing the setting.
 	Invoke-ControllerClick -X 600 -Y 500
 	Wait-ForFrame ((Get-FrameCount) + 15)
+	Invoke-ControllerClick -X 200 -Y 572
+	Wait-ForFrame ((Get-FrameCount) + 15)
+	Save-SimulatorWindow (Join-Path $outputDirectory 'menu-button-open.png')
+	Invoke-ControllerClick -X 200 -Y 572
+	Wait-ForFrame ((Get-FrameCount) + 15)
+	Invoke-ControllerClick -X 370 -Y 572
+	Wait-ForFrame ((Get-FrameCount) + 15)
+	Save-SimulatorWindow (Join-Path $outputDirectory 'menu-key-open.png')
+	Invoke-ControllerClick -X 370 -Y 572
+	Wait-ForFrame ((Get-FrameCount) + 15)
 	Invoke-ControllerClick -X 780 -Y 32
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'pinned.png')

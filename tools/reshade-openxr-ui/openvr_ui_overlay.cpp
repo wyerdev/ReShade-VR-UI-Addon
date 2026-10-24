@@ -150,6 +150,14 @@ namespace
 			if (ImGui::RadioButton(openxr_ui::frame_rate_divisor_name(divisor), statistics.frame_rate_divisor == divisor))
 				openxr_ui_set_frame_rate_divisor(divisor);
 		}
+		ImGui::TextUnformatted("Open this page with key:");
+		const uint32_t menu_key = openxr_ui_get_menu_key();
+		for (uint32_t key = 0; key < openxr_ui::menu_key_count; ++key)
+		{
+			ImGui::SameLine();
+			if (ImGui::RadioButton(openxr_ui::menu_key_names[key], menu_key == key))
+				openxr_ui_set_menu_key(key);
+		}
 
 		if constexpr (show_effect_controls)
 			draw_effect_controls();

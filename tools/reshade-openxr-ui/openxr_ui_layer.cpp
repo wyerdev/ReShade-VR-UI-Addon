@@ -120,6 +120,9 @@ namespace
 		XrAction right_menu_toggle_action = XR_NULL_HANDLE;
 		XrAction left_menu_toggle_action = XR_NULL_HANDLE;
 		XrAction simple_menu_toggle_action = XR_NULL_HANDLE;
+		XrAction left_menu_button_action = XR_NULL_HANDLE;
+		XrAction right_b_action = XR_NULL_HANDLE;
+		XrAction left_y_action = XR_NULL_HANDLE;
 		XrAction scroll_action = XR_NULL_HANDLE;
 		XrPath right_hand_path = XR_NULL_PATH;
 		XrPath left_hand_path = XR_NULL_PATH;
@@ -132,6 +135,9 @@ namespace
 		XrPath left_thumbstick_click_path = XR_NULL_PATH;
 		XrPath thumbstick_path = XR_NULL_PATH;
 		XrPath menu_click_path = XR_NULL_PATH;
+		XrPath left_menu_click_path = XR_NULL_PATH;
+		XrPath right_b_click_path = XR_NULL_PATH;
+		XrPath left_y_click_path = XR_NULL_PATH;
 		bool actions_ready = false;
 	};
 
@@ -207,12 +213,14 @@ namespace
 		bool menu_chord_was_pressed = false;
 		bool menu_chord_triggered = false;
 		XrTime menu_chord_started = 0;
+		bool menu_key_was_pressed = false;
+		uint32_t menu_button = openxr_ui::menu_button_both_sticks;
+		uint32_t menu_key = openxr_ui::menu_key_insert;
 		bool panel_visible = true;
 		bool ui_starts_open = true;
 		bool performance_mode = false;
 		bool shaders_temporarily_disabled = false;
 		bool preset_dirty = false;
-		bool menu_long_press_enabled = false;
 		bool panel_expanded = false;
 		bool select_down = false;
 		bool select_released = false;
@@ -484,6 +492,24 @@ namespace
 		if (XR_FAILED(dispatch.CreateAction(dispatch.action_set, &action_info, &dispatch.simple_menu_toggle_action)))
 			return false;
 
+		action_info.subactionPaths = &dispatch.left_hand_path;
+		strcpy_s(action_info.actionName, "menu_toggle_left_menu");
+		strcpy_s(action_info.localizedActionName, "Show or Hide Menu Left Menu Button");
+		if (XR_FAILED(dispatch.CreateAction(dispatch.action_set, &action_info, &dispatch.left_menu_button_action)))
+			return false;
+
+		action_info.subactionPaths = &dispatch.right_hand_path;
+		strcpy_s(action_info.actionName, "menu_toggle_b");
+		strcpy_s(action_info.localizedActionName, "Show or Hide Menu B");
+		if (XR_FAILED(dispatch.CreateAction(dispatch.action_set, &action_info, &dispatch.right_b_action)))
+			return false;
+
+		action_info.subactionPaths = &dispatch.left_hand_path;
+		strcpy_s(action_info.actionName, "menu_toggle_y");
+		strcpy_s(action_info.localizedActionName, "Show or Hide Menu Y");
+		if (XR_FAILED(dispatch.CreateAction(dispatch.action_set, &action_info, &dispatch.left_y_action)))
+			return false;
+
 		action_info = { XR_TYPE_ACTION_CREATE_INFO };
 		action_info.countSubactionPaths = 1;
 		action_info.subactionPaths = &dispatch.right_hand_path;
@@ -501,7 +527,10 @@ namespace
 			!string_to_path(dispatch, "/user/hand/right/input/thumbstick/click", dispatch.right_thumbstick_click_path) ||
 			!string_to_path(dispatch, "/user/hand/left/input/thumbstick/click", dispatch.left_thumbstick_click_path) ||
 			!string_to_path(dispatch, "/user/hand/right/input/thumbstick", dispatch.thumbstick_path) ||
-			!string_to_path(dispatch, "/user/hand/right/input/menu/click", dispatch.menu_click_path))
+			!string_to_path(dispatch, "/user/hand/right/input/menu/click", dispatch.menu_click_path) ||
+			!string_to_path(dispatch, "/user/hand/left/input/menu/click", dispatch.left_menu_click_path) ||
+			!string_to_path(dispatch, "/user/hand/right/input/b/click", dispatch.right_b_click_path) ||
+			!string_to_path(dispatch, "/user/hand/left/input/y/click", dispatch.left_y_click_path))
 			return false;
 
 		suggest_bindings(dispatch, dispatch.oculus_profile, {
@@ -509,6 +538,9 @@ namespace
 			{ dispatch.select_action, dispatch.trigger_path },
 			{ dispatch.right_menu_toggle_action, dispatch.right_thumbstick_click_path },
 			{ dispatch.left_menu_toggle_action, dispatch.left_thumbstick_click_path },
+			{ dispatch.left_menu_button_action, dispatch.left_menu_click_path },
+			{ dispatch.right_b_action, dispatch.right_b_click_path },
+			{ dispatch.left_y_action, dispatch.left_y_click_path },
 			{ dispatch.scroll_action, dispatch.thumbstick_path },
 		});
 		suggest_bindings(dispatch, dispatch.simple_profile, {
@@ -535,6 +567,9 @@ namespace
 			append(dispatch.select_action, dispatch.trigger_path);
 			append(dispatch.right_menu_toggle_action, dispatch.right_thumbstick_click_path);
 			append(dispatch.left_menu_toggle_action, dispatch.left_thumbstick_click_path);
+			append(dispatch.left_menu_button_action, dispatch.left_menu_click_path);
+			append(dispatch.right_b_action, dispatch.right_b_click_path);
+			append(dispatch.left_y_action, dispatch.left_y_click_path);
 			append(dispatch.scroll_action, dispatch.thumbstick_path);
 		}
 		else if (profile == dispatch.simple_profile)
@@ -803,7 +838,7 @@ namespace
 				state.select_down,
 				state.select_released,
 				state.scroll_y,
-				state.menu_long_press_enabled,
+				state.menu_button,
 				state.ui_starts_open,
 				state.performance_mode,
 				state.shaders_temporarily_disabled,
@@ -822,6 +857,7 @@ namespace
 				openxr_ui_is_reshade_loaded(),
 				effect_runtime_wait_seconds,
 				openxr_ui_performance_mode_active(),
+				state.menu_key,
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
@@ -897,8 +933,16 @@ namespace
 			case openxr_ui::render_result::command::reset_all_parameters:
 				openxr_ui_reset_all_parameters(render_result.target_id);
 				break;
-			case openxr_ui::render_result::command::toggle_long_press:
-				state.menu_long_press_enabled = !state.menu_long_press_enabled;
+			case openxr_ui::render_result::command::set_menu_button:
+				if (openxr_ui_set_menu_button(static_cast<uint32_t>(render_result.value)))
+				{
+					state.menu_button = static_cast<uint32_t>(render_result.value);
+					state.menu_chord_triggered = true;
+				}
+				break;
+			case openxr_ui::render_result::command::set_menu_key:
+				if (openxr_ui_set_menu_key(static_cast<uint32_t>(render_result.value)))
+					state.menu_key = static_cast<uint32_t>(render_result.value);
 				break;
 			case openxr_ui::render_result::command::set_ui_starts_open:
 				if (openxr_ui_set_ui_starts_open(render_result.state))
@@ -1059,6 +1103,48 @@ namespace
 		state.anchor_ready = true;
 	}
 
+	bool read_boolean_action(session_state &state, XrAction action, XrPath subaction_path, bool &pressed)
+	{
+		XrActionStateGetInfo get_info = { XR_TYPE_ACTION_STATE_GET_INFO };
+		get_info.action = action;
+		get_info.subactionPath = subaction_path;
+		XrActionStateBoolean action_state = { XR_TYPE_ACTION_STATE_BOOLEAN };
+		if (XR_FAILED(state.dispatch->GetActionStateBoolean(state.session, &get_info, &action_state)) || !action_state.isActive)
+			return false;
+		pressed = action_state.currentState != XR_FALSE;
+		return true;
+	}
+
+	bool menu_button_down(session_state &state)
+	{
+		const instance_dispatch &dispatch = *state.dispatch;
+		bool first = false;
+		bool second = false;
+		switch (state.menu_button)
+		{
+		case openxr_ui::menu_button_both_sticks:
+		case openxr_ui::menu_button_hold_both_sticks:
+			if (read_boolean_action(state, dispatch.right_menu_toggle_action, dispatch.right_hand_path, first) &&
+				read_boolean_action(state, dispatch.left_menu_toggle_action, dispatch.left_hand_path, second) && first && second)
+				return true;
+			break;
+		case openxr_ui::menu_button_hold_left_menu:
+			if (read_boolean_action(state, dispatch.left_menu_button_action, dispatch.left_hand_path, first) && first)
+				return true;
+			break;
+		case openxr_ui::menu_button_b_and_y:
+		case openxr_ui::menu_button_hold_b_and_y:
+			if (read_boolean_action(state, dispatch.right_b_action, dispatch.right_hand_path, first) &&
+				read_boolean_action(state, dispatch.left_y_action, dispatch.left_hand_path, second) && first && second)
+				return true;
+			break;
+		default:
+			return false;
+		}
+		// The Khronos simple controller has only one menu button, used by every controller choice.
+		return read_boolean_action(state, dispatch.simple_menu_toggle_action, dispatch.right_hand_path, first) && first;
+	}
+
 	void update_interaction(session_state &state, XrTime display_time)
 	{
 		state.pointer_visible = false;
@@ -1067,6 +1153,10 @@ namespace
 		state.scroll_y = 0.0f;
 		if (!state.pointer_visible)
 			state.pointer_filter_ready = false;
+		const bool key_pressed = openxr_ui_menu_key_down(state.menu_key);
+		if (key_pressed && !state.menu_key_was_pressed)
+			state.panel_visible = !state.panel_visible;
+		state.menu_key_was_pressed = key_pressed;
 		if (!state.actions_attached || state.aim_space == XR_NULL_HANDLE)
 			return;
 
@@ -1100,31 +1190,19 @@ namespace
 			state.select_was_pressed = pressed;
 		}
 
-		get_info.action = state.dispatch->right_menu_toggle_action;
-		XrActionStateBoolean right_menu_state = { XR_TYPE_ACTION_STATE_BOOLEAN };
-		const bool right_menu_available = XR_SUCCEEDED(state.dispatch->GetActionStateBoolean(state.session, &get_info, &right_menu_state)) && right_menu_state.isActive;
-		get_info.action = state.dispatch->left_menu_toggle_action;
-		get_info.subactionPath = state.dispatch->left_hand_path;
-		XrActionStateBoolean left_menu_state = { XR_TYPE_ACTION_STATE_BOOLEAN };
-		const bool left_menu_available = XR_SUCCEEDED(state.dispatch->GetActionStateBoolean(state.session, &get_info, &left_menu_state)) && left_menu_state.isActive;
-		get_info.action = state.dispatch->simple_menu_toggle_action;
-		get_info.subactionPath = state.dispatch->right_hand_path;
-		XrActionStateBoolean simple_menu_state = { XR_TYPE_ACTION_STATE_BOOLEAN };
-		const bool simple_menu_pressed = XR_SUCCEEDED(state.dispatch->GetActionStateBoolean(state.session, &get_info, &simple_menu_state)) &&
-			simple_menu_state.isActive && simple_menu_state.currentState;
-		const bool menu_chord_pressed = (right_menu_available && left_menu_available &&
-			right_menu_state.currentState && left_menu_state.currentState) || simple_menu_pressed;
+		const bool menu_chord_pressed = menu_button_down(state);
+		const bool menu_needs_hold = openxr_ui::menu_button_needs_hold(state.menu_button);
 		if (menu_chord_pressed && !state.menu_chord_was_pressed)
 		{
 			state.menu_chord_started = display_time;
 			state.menu_chord_triggered = false;
-			if (!state.menu_long_press_enabled)
+			if (!menu_needs_hold)
 			{
 				state.panel_visible = !state.panel_visible;
 				state.menu_chord_triggered = true;
 			}
 		}
-		else if (menu_chord_pressed && state.menu_long_press_enabled && !state.menu_chord_triggered &&
+		else if (menu_chord_pressed && menu_needs_hold && !state.menu_chord_triggered &&
 			display_time - state.menu_chord_started >= menu_long_press_duration)
 		{
 			state.panel_visible = !state.panel_visible;
@@ -1433,6 +1511,8 @@ extern "C" XrResult XRAPI_CALL xrCreateSession(XrInstance instance, const XrSess
 	state->performance_mode = openxr_ui_get_performance_mode();
 	state->always_show_statistics = openxr_ui_get_always_show_statistics();
 	state->frame_timing.set_frame_rate_divisor(openxr_ui_get_frame_rate_divisor());
+	state->menu_button = openxr_ui_get_menu_button();
+	state->menu_key = openxr_ui_get_menu_key();
 	state->panel_visible = state->ui_starts_open;
 	if (create_info != nullptr)
 		read_eye_resolution(*state, create_info->systemId);

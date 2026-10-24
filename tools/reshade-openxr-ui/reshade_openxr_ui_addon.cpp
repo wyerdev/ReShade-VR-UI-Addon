@@ -20,6 +20,8 @@
 #include <unordered_set>
 #include <vector>
 
+#pragma comment(lib, "user32.lib")
+
 using namespace reshade::api;
 
 namespace
@@ -41,6 +43,8 @@ namespace
 	bool s_ui_starts_open = true;
 	bool s_always_show_statistics = false;
 	uint32_t s_frame_rate_divisor = 1;
+	uint32_t s_menu_button = openxr_ui::menu_button_both_sticks;
+	uint32_t s_menu_key = openxr_ui::menu_key_insert;
 	bool s_ui_settings_loaded = false;
 	bool s_performance_mode = false;
 	bool s_performance_mode_at_start = false;
@@ -50,6 +54,7 @@ namespace
 	bool s_depth_detection_disabled_at_start = false;
 	bool s_openvr_runtime_sync_disabled = false;
 	bool s_openvr_dashboard_pending = false;
+	bool s_openvr_menu_key_was_pressed = false;
 	bool s_shaders_temporarily_disabled = false;
 	std::unordered_map<uint64_t, bool> s_temporary_technique_states;
 	struct technique_restore_state
@@ -300,6 +305,12 @@ namespace
 			s_always_show_statistics = GetPrivateProfileIntW(L"UI", L"AlwaysShowFPS", 0, path.c_str()) != 0;
 			const UINT divisor = GetPrivateProfileIntW(L"UI", L"FrameRateDivisor", 1, path.c_str());
 			s_frame_rate_divisor = divisor >= 1 && divisor <= openxr_ui::max_frame_rate_divisor ? divisor : 1;
+			const UINT button = GetPrivateProfileIntW(L"UI", L"MenuButton", openxr_ui::menu_button_both_sticks, path.c_str());
+			s_menu_button = button < openxr_ui::menu_button_count ? button : openxr_ui::menu_button_both_sticks;
+			const UINT key = GetPrivateProfileIntW(L"UI", L"MenuKey", openxr_ui::menu_key_insert, path.c_str());
+			s_menu_key = key < openxr_ui::menu_key_count ? key : openxr_ui::menu_key_insert;
+			if (s_menu_button == openxr_ui::menu_button_off && s_menu_key == openxr_ui::menu_key_off)
+				s_menu_key = openxr_ui::menu_key_insert;
 		}
 #ifdef RESHADE_OPENVR_FRONTEND
 		s_openvr_frame_timing.set_frame_rate_divisor(s_frame_rate_divisor);
@@ -1168,6 +1179,7 @@ namespace
 		bool show_dashboard = false;
 		bool query_refresh_rate = false;
 		bool query_cpu_time = false;
+		bool menu_key_opened = false;
 		{
 			const std::lock_guard<std::mutex> lock(s_mutex);
 			if (runtime == s_effect_runtime)
@@ -1177,6 +1189,10 @@ namespace
 				query_refresh_rate = s_openvr_refresh_query_frame % 450 == 0;
 				query_cpu_time = s_openvr_refresh_query_frame % 45 == 0;
 				++s_openvr_refresh_query_frame;
+				load_ui_settings();
+				const bool key_pressed = openxr_ui_menu_key_down(s_menu_key);
+				menu_key_opened = key_pressed && !s_openvr_menu_key_was_pressed;
+				s_openvr_menu_key_was_pressed = key_pressed;
 			}
 			show_dashboard = runtime == s_effect_runtime && s_openvr_dashboard_pending && !s_techniques->techniques.empty();
 			if (show_dashboard)
@@ -1200,6 +1216,8 @@ namespace
 			log_runtime_message(dashboard_shown ? reshade::log::level::info : reshade::log::level::error,
 				dashboard_shown ? "requested the ReShade SteamVR dashboard after VR effects became ready." : "failed to show the ReShade SteamVR dashboard.");
 		}
+		else if (menu_key_opened && !openvr_ui_show_dashboard())
+			log_runtime_message(reshade::log::level::error, "failed to show the ReShade SteamVR dashboard for the menu key.");
 #endif
 	}
 
@@ -1547,6 +1565,76 @@ bool openxr_ui_set_ui_starts_open(bool starts_open)
 	s_ui_starts_open = starts_open;
 	s_ui_settings_loaded = true;
 	log_runtime_message(reshade::log::level::info, starts_open ? "UI will start open." : "UI will start closed.");
+	return true;
+}
+
+namespace
+{
+	bool save_menu_shortcut(const wchar_t *name, uint32_t value, const char *error_message)
+	{
+		const std::filesystem::path path = ui_settings_path();
+		if (path.empty())
+			return false;
+		std::error_code error;
+		std::filesystem::create_directories(path.parent_path(), error);
+		if (error || !WritePrivateProfileStringW(L"UI", name, std::to_wstring(value).c_str(), path.c_str()))
+		{
+			log_runtime_message(reshade::log::level::error, error_message);
+			return false;
+		}
+		return true;
+	}
+}
+
+uint32_t openxr_ui_get_menu_button()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_menu_button;
+}
+
+bool openxr_ui_set_menu_button(uint32_t button)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	if (button >= openxr_ui::menu_button_count || (button == openxr_ui::menu_button_off && s_menu_key == openxr_ui::menu_key_off) ||
+		!save_menu_shortcut(L"MenuButton", button, "failed to save the controller menu button setting."))
+		return false;
+	s_menu_button = button;
+	char message[96];
+	std::snprintf(message, sizeof(message), "controller menu button is %s.", openxr_ui::menu_button_names[button]);
+	log_runtime_message(reshade::log::level::info, message);
+	return true;
+}
+
+uint32_t openxr_ui_get_menu_key()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_menu_key;
+}
+
+bool openxr_ui_menu_key_down(uint32_t key)
+{
+	const int code = key < openxr_ui::menu_key_count ? openxr_ui::menu_key_codes[key] : 0;
+	if (code == 0 || (GetAsyncKeyState(code) & 0x8000) == 0)
+		return false;
+	DWORD foreground_process = 0;
+	GetWindowThreadProcessId(GetForegroundWindow(), &foreground_process);
+	return foreground_process == GetCurrentProcessId();
+}
+
+bool openxr_ui_set_menu_key(uint32_t key)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	if (key >= openxr_ui::menu_key_count || (key == openxr_ui::menu_key_off && s_menu_button == openxr_ui::menu_button_off) ||
+		!save_menu_shortcut(L"MenuKey", key, "failed to save the keyboard menu key setting."))
+		return false;
+	s_menu_key = key;
+	char message[96];
+	std::snprintf(message, sizeof(message), "keyboard menu key is %s.", openxr_ui::menu_key_names[key]);
+	log_runtime_message(reshade::log::level::info, message);
 	return true;
 }
 
