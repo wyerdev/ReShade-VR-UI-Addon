@@ -1,7 +1,5 @@
-# ReShade build dependency
-/.deps/reshade/
-/.deps/openxr-simulator-test/
-/.deps/UEVR/
+# Local-only external checkouts (ReShade build dependency, reference mods, test tools)
+/.deps/
 
 # Generated build and release output
 /build/
