@@ -12,9 +12,9 @@ Stuck? See [Help](#help) and [Troubleshooting](#troubleshooting) at the end.
 
 1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
 2. Run ReShade Setup and pick the game's `.exe`. For UEVR games, pick the one ending in `-Win64-Shipping.exe`.
-3. Choose **DirectX 10/11/12** (or **OpenGL**) and tick **OpenXR**.
+3. Choose **DirectX 10/11/12** (or **OpenGL**) and tick the **OpenXR layer**.
 4. Close all games and SteamVR.
-5. Extract the add-on ZIP. Right-click `Install-OpenXR.cmd` and choose **Run as administrator**.
+5. Extract the add-on ZIP. Double-click `Install-OpenXR.cmd`. When Windows asks for permission, click **Yes**.
 6. Start the game. For UEVR, set UEVR to **OpenXR** before you inject.
 7. In the headset, press both thumbsticks in (`L3 + R3`) or the `Insert` key. The menu opens. Turn effects on there.
 
@@ -22,8 +22,8 @@ UEVR uses the same buttons for its own menu. Pick other buttons in the add-on me
 
 ## Update Or Uninstall
 
-- Update: close games and SteamVR, extract the new ZIP, then run `Install-OpenXR.cmd` as administrator.
-- Uninstall: run `Uninstall-OpenXR.cmd` as administrator.
+- Update: close games and SteamVR, extract the new ZIP, then run `Install-OpenXR.cmd` and click **Yes** when Windows asks for permission.
+- Uninstall: run `Uninstall-OpenXR.cmd` and click **Yes** when Windows asks for permission.
 
 ## OpenGL Games: More FPS
 
@@ -36,13 +36,13 @@ For more FPS: untick **Depth buffer (off = faster in OpenGL)** in the menu and r
 - **Extract a ZIP:** right-click it, choose **Extract All**, then **Extract**.
 - **Find the game folder:** in Steam, right-click the game, choose **Manage**, then **Browse local files**. In ReShade Setup, click **Browse** and go to that folder. The `.exe` may be in a `Binaries\Win64` folder inside it.
 - **See file endings like `.exe`:** in File Explorer, open **View** and tick **File name extensions** (Windows 11: **View**, **Show**, **File name extensions**).
-- **Run as administrator:** right-click the file, choose **Run as administrator**, then click **Yes**.
+- **Administrator rights:** the install and uninstall files ask Windows for them by themselves. Click **Yes** in the permission window. If no window shows, right-click the file, choose **Run as administrator**, then click **Yes**.
 
 ## Troubleshooting
 
-- `No administrator rights`: nothing was changed. Run the file again with **Run as administrator** (see [Help](#help)) and click **Yes**.
+- `No administrator rights`: nothing was changed. Run the file again and click **Yes** when Windows asks for permission (see [Help](#help)).
 - `Waiting for ReShade...`: wait a moment. In OpenGL games it stays until the game shows its normal 3D view.
-- No menu or no effects: check that you installed ReShade **with full add-on support** and ticked **OpenXR**. For UEVR, check that UEVR is set to **OpenXR**.
+- No menu or no effects: check that you installed ReShade **with full add-on support** and ticked the **OpenXR layer**. For UEVR, check that UEVR is set to **OpenXR**.
 - Still no menu: the game may be a SteamVR game. Open ReShade Setup, pick the game, choose **Uninstall**, then follow the SteamVR install steps. The OpenXR add-on can stay installed.
 - Still no effects: an old ReShade copy in the game folder can block them. Open ReShade Setup, pick the game, choose **Uninstall**, then install again (steps 2 and 3).
 - Anything else: close the game and delete `ReShade.log` next to the game's `.exe`. Start the game until the problem shows, close it, then give the new `ReShade.log` to an AI assistant (for example ChatGPT or Copilot) and ask what is wrong.

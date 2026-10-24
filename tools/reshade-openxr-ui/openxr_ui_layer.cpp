@@ -664,6 +664,9 @@ namespace
 				state.quad_format, width, height);
 		if (!renderer_initialized)
 			target.renderer.reset();
+		else
+			target.renderer->set_srgb_target(state.api == graphics_api::opengl ? state.quad_format == gl_srgb8_alpha8 :
+				state.quad_format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
 		return renderer_initialized;
 	}
 
@@ -858,6 +861,7 @@ namespace
 				effect_runtime_wait_seconds,
 				openxr_ui_performance_mode_active(),
 				state.menu_key,
+				openxr_ui_get_theme(),
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
@@ -968,6 +972,14 @@ namespace
 				break;
 			case openxr_ui::render_result::command::dismiss_effect_subfolder_notice:
 				openxr_ui_dismiss_effect_subfolder_notice();
+				break;
+			case openxr_ui::render_result::command::set_theme:
+				if (openxr_ui_set_theme(static_cast<uint32_t>(render_result.value)))
+				{
+					openxr_ui::panel_renderer::select_theme(static_cast<uint32_t>(render_result.value));
+					// Redraws the FPS counter in the new theme without hiding its current image meanwhile.
+					state.statistics_image_revision = UINT64_MAX;
+				}
 				break;
 			case openxr_ui::render_result::command::toggle_panel_lock:
 				state.panel_locked = !state.panel_locked;
@@ -1513,6 +1525,7 @@ extern "C" XrResult XRAPI_CALL xrCreateSession(XrInstance instance, const XrSess
 	state->frame_timing.set_frame_rate_divisor(openxr_ui_get_frame_rate_divisor());
 	state->menu_button = openxr_ui_get_menu_button();
 	state->menu_key = openxr_ui_get_menu_key();
+	openxr_ui::panel_renderer::select_theme(openxr_ui_get_theme());
 	state->panel_visible = state->ui_starts_open;
 	if (create_info != nullptr)
 		read_eye_resolution(*state, create_info->systemId);

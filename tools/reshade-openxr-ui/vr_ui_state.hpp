@@ -50,6 +50,9 @@ bool openxr_ui_set_always_show_statistics(bool enabled);
 // 1 = full headset rate, 2 = half, 3 = third; colours the FPS graph.
 uint32_t openxr_ui_get_frame_rate_divisor();
 bool openxr_ui_set_frame_rate_divisor(uint32_t divisor);
+// Index into vr_theme::theme_names; saved by name as Theme= in settings.ini.
+uint32_t openxr_ui_get_theme();
+bool openxr_ui_set_theme(uint32_t theme);
 // ReShade applies a performance mode change only when the game starts again.
 bool openxr_ui_get_performance_mode();
 bool openxr_ui_performance_mode_restart_pending();

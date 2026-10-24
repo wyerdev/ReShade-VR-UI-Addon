@@ -13,9 +13,20 @@ set "RUN_KEY=HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
 set "RUN_VALUE=ReShade System-Wide SteamVR Listener"
 set "LEGACY_RUN_VALUE=ReShade VR UI Loader"
 
+rem fltmc only succeeds in a window with administrator rights.
 fltmc >nul 2>&1
-if errorlevel 1 goto :administrator_required
+if not errorlevel 1 goto :has_administrator
+if /I "%~1"=="--elevated" goto :administrator_required
+if defined RESHADE_OPENXR_UI_NONINTERACTIVE goto :administrator_required
+echo Asking Windows for administrator rights. Click Yes to continue.
+echo The uninstall continues in a new window.
+rem Restart this script elevated and wait for it. The elevated copy pauses itself.
+set "ELEVATE_ARGUMENTS=/c ""%~f0" --elevated""
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "try { $p = Start-Process -FilePath $env:ComSpec -ArgumentList $env:ELEVATE_ARGUMENTS -Verb RunAs -PassThru -ErrorAction Stop; $null = $p.Handle; $p.WaitForExit(); exit $p.ExitCode } catch { exit 1223 }"
+if errorlevel 1223 if not errorlevel 1224 goto :administrator_required
+exit /b %ERRORLEVEL%
 
+:has_administrator
 if exist "%INSTALL_LISTENER%" "%INSTALL_LISTENER%" --stop >nul 2>&1
 if exist "%LEGACY_LISTENER%" "%LEGACY_LISTENER%" --stop >nul 2>&1
 if exist "%LEGACY_LOADER%" "%LEGACY_LOADER%" --stop >nul 2>&1
@@ -43,6 +54,7 @@ exit /b 0
 
 :administrator_required
 echo ReShade System-Wide SteamVR Listener requires administrator access to uninstall.
+echo Windows did not give administrator rights. Nothing was uninstalled.
 echo Right-click Uninstall-System-Wide-SteamVR-Listener.cmd and select Run as administrator.
 if not defined RESHADE_OPENXR_UI_NONINTERACTIVE pause
 exit /b 1

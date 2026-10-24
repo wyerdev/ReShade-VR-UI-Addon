@@ -109,6 +109,7 @@ For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingV
 - **Performance mode (on = faster shaders)** tick box: writes ReShade's own `GENERAL/PerformanceMode` for the headset runtime, applied at the next game start
 - **Depth buffer (off = faster in OpenGL)** tick box: unticking turns ReShade's built-in Generic Depth add-on off through ReShade's own `ADDON/DisabledAddons` setting in the game's `ReShade.ini`, applied at the next game start; other disabled add-ons in that list are kept
 - FPS counter with CPU time, a 5-second frame-time graph and a full/half/third-rate FPS target
+- **Theme** list in the menu footer with the add-on's own themes: Violet Night (default), Plum and Slate. The choice is saved as `Theme=<name>` under `[UI]` in `settings.ini`. Text uses the embedded Atkinson Hyperlegible font (SIL Open Font License, see `fonts\OFL.txt`), designed for low-vision reading
 - Headset per-eye resolution shown next to the graphics API
 - Persistent UI preferences under `%LOCALAPPDATA%\ReShade VR UI Add-on`
 

@@ -3,6 +3,7 @@
 #include "openxr_ui_model.hpp"
 #include "vr_frame_statistics.hpp"
 #include "vr_menu_shortcut.hpp"
+#include "vr_ui_themes.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -61,6 +62,8 @@ namespace openxr_ui
 		// The game started with performance mode on, so ReShade baked the effect values into the shaders.
 		bool performance_mode_active = false;
 		uint32_t menu_key = menu_key_insert;
+		// Index into vr_theme::theme_names; also used by the FPS counter.
+		uint32_t theme = vr_theme::default_theme;
 	};
 
 	struct render_result
@@ -96,6 +99,7 @@ namespace openxr_ui
 			toggle_panel_lock,
 			include_effect_subfolders,
 			dismiss_effect_subfolder_notice,
+			set_theme,
 		};
 
 		command action = command::none;
@@ -129,6 +133,20 @@ namespace openxr_ui
 		void notify_save_result(bool succeeded);
 		void notify_save_as_started(bool started);
 		void notify_save_as_result(bool succeeded);
+		// True when the render target converts written colors to sRGB, as the usual R8G8B8A8_UNORM_SRGB or
+		// GL_SRGB8_ALPHA8 swapchains do; the renderer then compensates so theme colors appear exactly.
+		void set_srgb_target(bool srgb);
+		// Selects the theme for every panel in the process, including the FPS counter.
+		static void select_theme(uint32_t theme);
+
+		enum class page
+		{
+			effects,
+			effect_detail,
+			save_as,
+		};
+		// Opens a page directly, for the preview tool and tests. `technique_id` selects the effect for effect_detail.
+		void show_page(page target, uint64_t technique_id = 0, const std::string &save_as_name = {});
 
 	private:
 		bool initialize_context(uint32_t width, uint32_t height);

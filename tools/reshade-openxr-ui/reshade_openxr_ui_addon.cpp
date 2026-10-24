@@ -2,6 +2,7 @@
 
 #include "openxr_ui_preset.hpp"
 #include "vr_ui_state.hpp"
+#include "vr_ui_themes.hpp"
 
 #include <Windows.h>
 
@@ -43,6 +44,7 @@ namespace
 	bool s_ui_starts_open = true;
 	bool s_always_show_statistics = false;
 	uint32_t s_frame_rate_divisor = 1;
+	uint32_t s_theme = vr_theme::default_theme;
 	uint32_t s_menu_button = openxr_ui::menu_button_both_sticks;
 	uint32_t s_menu_key = openxr_ui::menu_key_insert;
 	bool s_ui_settings_loaded = false;
@@ -311,6 +313,11 @@ namespace
 			s_menu_key = key < openxr_ui::menu_key_count ? key : openxr_ui::menu_key_insert;
 			if (s_menu_button == openxr_ui::menu_button_off && s_menu_key == openxr_ui::menu_key_off)
 				s_menu_key = openxr_ui::menu_key_insert;
+			wchar_t theme_name[64] = L"";
+			GetPrivateProfileStringW(L"UI", L"Theme", L"", theme_name, static_cast<DWORD>(std::size(theme_name)), path.c_str());
+			char theme_name_utf8[192] = "";
+			WideCharToMultiByte(CP_UTF8, 0, theme_name, -1, theme_name_utf8, static_cast<int>(sizeof(theme_name_utf8)), nullptr, nullptr);
+			s_theme = vr_theme::find_theme(theme_name_utf8);
 		}
 #ifdef RESHADE_OPENVR_FRONTEND
 		s_openvr_frame_timing.set_frame_rate_divisor(s_frame_rate_divisor);
@@ -1692,6 +1699,33 @@ bool openxr_ui_set_frame_rate_divisor(uint32_t divisor)
 	char message[64];
 	std::snprintf(message, sizeof(message), "FPS target is %s.", openxr_ui::frame_rate_divisor_name(divisor));
 	log_runtime_message(reshade::log::level::info, message);
+	return true;
+}
+
+uint32_t openxr_ui_get_theme()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_theme;
+}
+
+bool openxr_ui_set_theme(uint32_t theme)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	const std::filesystem::path path = ui_settings_path();
+	if (path.empty() || theme >= vr_theme::theme_count)
+		return false;
+	const std::string name = vr_theme::theme_names[theme];
+	std::error_code error;
+	std::filesystem::create_directories(path.parent_path(), error);
+	if (error || !WritePrivateProfileStringW(L"UI", L"Theme", std::wstring(name.begin(), name.end()).c_str(), path.c_str()))
+	{
+		log_runtime_message(reshade::log::level::error, "failed to save the theme setting.");
+		return false;
+	}
+	s_theme = theme;
+	log_runtime_message(reshade::log::level::info, ("Theme is " + name + ".").c_str());
 	return true;
 }
 

@@ -11,14 +11,14 @@ Something not working? See [Troubleshooting](#troubleshooting) at the end.
 ## Install
 
 1. Install **ReShade with full add-on support** from [reshade.me](https://reshade.me/). Normal ReShade does not load add-ons.
-2. In ReShade Setup, pick the game's main `.exe`, choose **DirectX 10/11/12**, and tick **OpenXR**. Yes, even though it is a SteamVR game: the listener finds your games through this tick.
-3. Close games and SteamVR. Extract the ZIP, then right-click `Install-System-Wide-SteamVR-Listener.cmd` and choose **Run as administrator**.
+2. In ReShade Setup, pick the game's main `.exe`, choose **DirectX 10/11/12**, and tick the **OpenXR layer**. Yes, even though it is a SteamVR game: the listener finds your games through this tick.
+3. Close games and SteamVR. Extract the ZIP, then double-click `Install-System-Wide-SteamVR-Listener.cmd`. When Windows asks for permission, click **Yes**.
 4. Start the game normally. To check that it worked, open ReShade's menu in the SteamVR dashboard and look for **Add-ons** > **ReShade VR UI Add-on for SteamVR**.
 
 ## Update Or Uninstall
 
-- Update: close games and SteamVR, extract the new ZIP, then run `Install-System-Wide-SteamVR-Listener.cmd` as administrator.
-- Uninstall: run `Uninstall-System-Wide-SteamVR-Listener.cmd` as administrator. This does not touch the ReShade VR UI Add-on install.
+- Update: close games and SteamVR, extract the new ZIP, then run `Install-System-Wide-SteamVR-Listener.cmd` and click **Yes** when Windows asks for permission.
+- Uninstall: run `Uninstall-System-Wide-SteamVR-Listener.cmd` and click **Yes** when Windows asks for permission. This does not touch the ReShade VR UI Add-on install.
 
 ## Where It Installs
 
@@ -29,5 +29,5 @@ Something not working? See [Troubleshooting](#troubleshooting) at the end.
 
 ## Troubleshooting
 
-- Game not handled: check that you picked the game's main `.exe` in ReShade Setup with **OpenXR** ticked (step 2).
+- Game not handled: check that you picked the game's main `.exe` in ReShade Setup with the **OpenXR layer** ticked (step 2).
 - Anything else: close the game and delete `ReShade.log` next to the game's `.exe`, so the new log is short. Start the game until the problem shows, close it, then give the new `ReShade.log` and the listener log (path above) to an AI assistant (for example ChatGPT or Copilot) and ask what is wrong.

@@ -5,7 +5,12 @@ param(
 	[ValidateSet('Both', 'D3D11', 'D3D12')]
 	[string]$GraphicsApi = 'Both',
 	[string]$OutputDirectory = 'build\reshade-openxr-ui',
-	[switch]$RevertRestoreOnly
+	[switch]$RevertRestoreOnly,
+	# A theme name from vr_ui_themes.hpp, for example 'Plum'. Captures then go to simulator-captures\<api>-<theme>.
+	[string]$Theme,
+	# Fast design loop: saves only main.png, detail.png and save-as.png, then stops the probe at once instead of waiting
+	# for its frame budget. Skips the probe's own pass/fail report, so finish with a full run.
+	[switch]$Quick
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,7 +27,7 @@ if (-not [System.IO.Path]::IsPathRooted($OutputDirectory)) {
 
 if ($GraphicsApi -eq 'Both') {
 	foreach ($api in @('D3D11', 'D3D12')) {
-		& $PSCommandPath -TestRoot $TestRoot -Frames $Frames -GraphicsApi $api -OutputDirectory $OutputDirectory -RevertRestoreOnly:$RevertRestoreOnly
+		& $PSCommandPath -TestRoot $TestRoot -Frames $Frames -GraphicsApi $api -OutputDirectory $OutputDirectory -RevertRestoreOnly:$RevertRestoreOnly -Theme $Theme -Quick:$Quick
 	}
 	Write-Host "Saved D3D11 and D3D12 simulator UI captures."
 	return
@@ -39,6 +44,9 @@ $probe = Join-Path $TestRoot $probeName
 $probeFrames = $Frames + 1000
 $runtimeManifest = Join-Path $TestRoot 'openxr_simulator.json'
 $outputDirectory = Join-Path $buildDirectory "simulator-captures\$($GraphicsApi.ToLowerInvariant())"
+if ($Theme) {
+	$outputDirectory += '-' + ($Theme.ToLowerInvariant() -replace '[^a-z0-9]+', '-')
+}
 $testLocalAppData = Join-Path $TestRoot 'openxr-ui-capture-localappdata'
 $testInstallDirectory = Join-Path $testLocalAppData 'ReShade VR UI Add-on'
 $testLayerDirectory = Join-Path $testInstallDirectory 'openxr-layers'
@@ -240,10 +248,13 @@ try {
 		view_mode = 'left'
 		zoom_mode = 'fill'
 		show_stats = $false
-		window_width = 1920
-		window_height = 1080
+		window_width = 1280
+		window_height = 1400
 		preview_fps = 90
 	} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $simulatorDataDirectory 'settings.json') -Encoding ASCII
+	if ($Theme) {
+		Set-Content -LiteralPath (Join-Path $testInstallDirectory 'settings.ini') -Value "[UI]`r`nTheme=$Theme" -Encoding Unicode
+	}
 
 	$env:LOCALAPPDATA = $testLocalAppData
 	$env:XR_RUNTIME_JSON = $runtimeManifest
@@ -261,17 +272,17 @@ try {
 	$processHandle = $process.Handle
 	Wait-ForFrame 60
 	if ($RevertRestoreOnly) {
-		Invoke-ControllerClick -X 900 -Y 145
+		Invoke-ControllerClick -X 908 -Y 172
 		Wait-ForFrame ((Get-FrameCount) + 15)
 		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-detail.png')
 
-		Invoke-ControllerClick -X 520 -Y 32
+		Invoke-ControllerClick -X 612 -Y 40
 		Wait-ForFrame ((Get-FrameCount) + 15)
 		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-edited.png')
-		Invoke-ControllerClick -X 735 -Y 32
+		Invoke-ControllerClick -X 732 -Y 40
 		Wait-ForFrame ((Get-FrameCount) + 15)
 		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-reverted.png')
-		Invoke-ControllerClick -X 830 -Y 32
+		Invoke-ControllerClick -X 852 -Y 40
 		Wait-ForFrame ((Get-FrameCount) + 15)
 		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-restored.png')
 
@@ -287,52 +298,64 @@ try {
 		return
 	}
 	Save-SimulatorWindow (Join-Path $outputDirectory 'main.png')
-	Invoke-ControllerClick -X 600 -Y 500
+	if ($Quick) {
+		Invoke-ControllerClick -X 908 -Y 172
+		Wait-ForFrame ((Get-FrameCount) + 15)
+		Save-SimulatorWindow (Join-Path $outputDirectory 'detail.png')
+		Invoke-ControllerClick -X 64 -Y 40
+		Invoke-ControllerClick -X 832 -Y 120
+		Wait-ForFrame ((Get-FrameCount) + 15)
+		Save-SimulatorWindow (Join-Path $outputDirectory 'save-as.png')
+		# The finally block stops the probe and restores every test file.
+		Write-Host "Saved quick $GraphicsApi simulator UI captures to $outputDirectory"
+		return
+	}
+	Invoke-ControllerClick -X 560 -Y 502
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'fps-target-open.png')
 	# A second click on the box closes the list without changing the setting.
-	Invoke-ControllerClick -X 600 -Y 500
+	Invoke-ControllerClick -X 560 -Y 502
 	Wait-ForFrame ((Get-FrameCount) + 15)
-	Invoke-ControllerClick -X 200 -Y 572
+	Invoke-ControllerClick -X 180 -Y 582
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'menu-button-open.png')
-	Invoke-ControllerClick -X 200 -Y 572
+	Invoke-ControllerClick -X 180 -Y 582
 	Wait-ForFrame ((Get-FrameCount) + 15)
-	Invoke-ControllerClick -X 370 -Y 572
+	Invoke-ControllerClick -X 310 -Y 582
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'menu-key-open.png')
-	Invoke-ControllerClick -X 370 -Y 572
+	Invoke-ControllerClick -X 310 -Y 582
 	Wait-ForFrame ((Get-FrameCount) + 15)
-	Invoke-ControllerClick -X 780 -Y 32
+	Invoke-ControllerClick -X 872 -Y 40
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'pinned.png')
-	Invoke-ControllerClick -X 780 -Y 32 -Pinned
+	Invoke-ControllerClick -X 872 -Y 40 -Pinned
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'preset-off.png')
 
-	Invoke-ControllerClick -X 629 -Y 102
+	Invoke-ControllerClick -X 648 -Y 120
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'preset-on.png')
-	Invoke-ControllerClick -X 587 -Y 102
+	Invoke-ControllerClick -X 608 -Y 120
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'preset-off-again.png')
 
-	Invoke-ControllerClick -X 900 -Y 145
+	Invoke-ControllerClick -X 908 -Y 172
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'detail.png')
 
-	Invoke-ControllerClick -X 520 -Y 32
+	Invoke-ControllerClick -X 612 -Y 40
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'detail-edited.png')
-	Invoke-ControllerClick -X 735 -Y 32
+	Invoke-ControllerClick -X 732 -Y 40
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'detail-reverted.png')
-	Invoke-ControllerClick -X 830 -Y 32
+	Invoke-ControllerClick -X 852 -Y 40
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'detail-restored.png')
 
-	Invoke-ControllerClick -X 50 -Y 32
-	Invoke-ControllerClick -X 827 -Y 102
+	Invoke-ControllerClick -X 64 -Y 40
+	Invoke-ControllerClick -X 832 -Y 120
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'save-as.png')
 
@@ -345,12 +368,12 @@ try {
 	Wait-ForFrame ((Get-FrameCount) + 150)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'created.png')
 
-	Invoke-ControllerClick -X 960 -Y 102
+	Invoke-ControllerClick -X 952 -Y 120
 	Wait-ForFrame ((Get-FrameCount) + 130)
 	if (Test-Path -LiteralPath $createdPresetPath) {
 		throw "Deleted preset was recreated after ReShade flushed its preset cache: $createdPresetPath"
 	}
-	Invoke-ControllerClick -X 587 -Y 102
+	Invoke-ControllerClick -X 608 -Y 120
 	Wait-ForFrame ((Get-FrameCount) + 10)
 	if (Test-Path -LiteralPath $createdPresetPath) {
 		throw "Deleted preset reappeared after backward preset navigation: $createdPresetPath"

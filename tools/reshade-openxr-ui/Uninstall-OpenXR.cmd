@@ -1,9 +1,10 @@
 @echo off
 setlocal EnableExtensions
 
-rem Console colour codes so errors show in red.
+rem Console colour codes so errors show in red and success in green.
 for /F %%A in ('echo prompt $E^| cmd') do set "ESC=%%A"
 set "RED=%ESC%[91m"
+set "GREEN=%ESC%[92m"
 set "RESET=%ESC%[0m"
 
 set "INSTALL_DIRECTORY=%ProgramFiles%\ReShade VR UI Add-on"
@@ -35,8 +36,18 @@ if "%IS_INSTALLED%"=="0" goto :not_installed
 
 rem fltmc only succeeds in a window with administrator rights.
 fltmc >nul 2>&1
-if errorlevel 1 goto :administrator_required
+if not errorlevel 1 goto :has_administrator
+if /I "%~1"=="--elevated" goto :administrator_required
+if defined RESHADE_OPENXR_UI_NONINTERACTIVE goto :administrator_required
+echo Asking Windows for administrator rights. Click Yes to continue.
+echo The uninstall continues in a new window.
+rem Restart this script elevated and wait for it. The elevated copy pauses itself.
+set "ELEVATE_ARGUMENTS=/c ""%~f0" --elevated""
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "try { $p = Start-Process -FilePath $env:ComSpec -ArgumentList $env:ELEVATE_ARGUMENTS -Verb RunAs -PassThru -ErrorAction Stop; $null = $p.Handle; $p.WaitForExit(); exit $p.ExitCode } catch { exit 1223 }"
+if errorlevel 1223 if not errorlevel 1224 goto :administrator_required
+exit /b %ERRORLEVEL%
 
+:has_administrator
 reg delete "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /f /reg:64 >nul 2>&1
 reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /reg:64 >nul 2>&1
 if not errorlevel 1 goto :registry_failed
@@ -49,11 +60,11 @@ rmdir "%INSTALL_DIRECTORY%" >nul 2>&1
 if exist "%INSTALL_ADDON%" goto :files_failed
 if exist "%INSTALL_MANIFEST%" goto :files_failed
 
-echo ----------------------------------------------------------------
+echo %GREEN%----------------------------------------------------------------
 echo  DONE: ReShade VR UI Add-on for OpenXR is uninstalled.
 echo ----------------------------------------------------------------
 echo Your saved settings were kept in "%PREFERENCES_DIRECTORY%".
-echo Delete that folder too if you do not plan to install it again.
+echo Delete that folder too if you do not plan to install it again.%RESET%
 if not defined RESHADE_OPENXR_UI_NONINTERACTIVE pause
 exit /b 0
 
@@ -69,8 +80,8 @@ exit /b 0
 echo %RED%----------------------------------------------------------------
 echo  ERROR: No administrator rights. Nothing was uninstalled.
 echo ----------------------------------------------------------------
-echo This window was started without administrator rights, so Windows
-echo blocks the 2 steps above.
+echo Windows did not give administrator rights (the permission
+echo request was declined), so Windows blocks the 2 steps above.
 echo.
 echo To fix it:
 echo   1. Close this window.

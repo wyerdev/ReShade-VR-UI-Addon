@@ -16,7 +16,7 @@ Stuck? See [Help](#help) and [Troubleshooting](#troubleshooting) at the end.
 ## Way 1: Automatic (With The Add-on)
 
 1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
-2. Run ReShade Setup and pick the game's `.exe`. Choose **DirectX 10/11/12**. Leave **OpenXR** unticked.
+2. Run ReShade Setup and pick the game's `.exe`. Choose **DirectX 10/11/12**. Leave the **OpenXR layer** unticked.
 3. Extract the ZIP. Copy `ReShade-SteamVR-UI.addon64` into the game folder, next to the game's `.exe`.
 4. Start the game. ReShade's menu opens in the headset by itself.
 
@@ -33,7 +33,7 @@ Update: replace the `.addon64` file. Uninstall: delete it. The ReShade icon keep
 ## Way 2: Manual (ReShade Alone)
 
 1. Download ReShade from [reshade.me](https://reshade.me/).
-2. Run ReShade Setup and pick the game's `.exe`. Choose the graphics type the game uses (DirectX or Vulkan). Leave **OpenXR** unticked.
+2. Run ReShade Setup and pick the game's `.exe`. Choose the graphics type the game uses (DirectX or Vulkan). Leave the **OpenXR layer** unticked.
 3. Extract the ZIP. Copy `ReShadeVR.ini` from its `without-addon` folder into the game folder, next to the game's `.exe`. If the game already has a `ReShadeVR.ini`, keep that one.
 4. Start the game. In the headset, press the controller's menu button and click the ReShade icon.
 
@@ -46,7 +46,7 @@ Update: replace the `.addon64` file. Uninstall: delete it. The ReShade icon keep
 ## Troubleshooting
 
 - No ReShade icon in SteamVR: check that `ReShadeVR.ini` is next to the game's `.exe`. If it is, start the game before SteamVR.
-- You installed ReShade for this game before with **OpenXR** ticked: open ReShade Setup, pick the game, choose **Uninstall**, then install again with **OpenXR** unticked.
+- You installed ReShade for this game before with the **OpenXR layer** ticked: open ReShade Setup, pick the game, choose **Uninstall**, then install again with the **OpenXR layer** unticked.
 - Menu looks zoomed in (Way 2, kept the game's own `ReShadeVR.ini`): add these lines to it:
 
   ```ini

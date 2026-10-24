@@ -5,7 +5,7 @@ Copies the locally built SteamVR add-on next to a SteamVR game's executable, or 
 .DESCRIPTION
 Test helper for SteamVR (OpenVR) games, which load the add-on per game. Run it yourself;
 it changes files in the game folder. ReShade itself must already be installed for the game
-with ReShade Setup (DirectX 10/11/12, OpenXR unticked). Defaults to Propagation: Paradise Hotel.
+with ReShade Setup (DirectX 10/11/12, OpenXR layer unticked). Defaults to Propagation: Paradise Hotel.
 
 Run it through install_steamvr_addon.bat in the repository root, not directly.
 #>
@@ -31,7 +31,7 @@ function Show-Status {
         Write-Host "ReShade DLL found: $($proxies -join ', ')"
     } else {
         Write-Host 'ReShade is NOT installed for this game (no dxgi.dll, d3d11.dll or d3d12.dll next to the .exe).'
-        Write-Host "Install it with ReShade Setup: pick '$GameExe', choose DirectX 10/11/12, leave OpenXR unticked."
+        Write-Host "Install it with ReShade Setup: pick '$GameExe', choose DirectX 10/11/12, leave OpenXR layer unticked."
     }
     if (Test-Path -LiteralPath $target) {
         $item = Get-Item -LiteralPath $target

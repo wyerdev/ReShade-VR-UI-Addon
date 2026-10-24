@@ -47,33 +47,37 @@
 
 - Treat every game directory and its ReShade configuration, effects, presets, logs, DLLs, and manifests as read-only evidence. Never edit, generate, copy, delete, or replace files there unless the user explicitly requests that exact target-side change.
 - Never modify a game-local `ReShade.ini` or `ReShadeVR.ini`, copy an add-on into a game directory, or change a game's launch configuration to make a test pass or to compensate for missing product behavior.
-- Never launch a game on the user's behalf, except the approved test cycles below (UEVR and SOMA-VR). The user allows launching the games we work on with the OpenXR Simulator, selected per process only, but only when the agent can carry out the whole test itself; each such game still needs its own test cycle section and script here before it is launched. A game the agent cannot fully test (for example one that needs clicks in its window to reach gameplay) is tested by the user instead.
+- Never start a game, a game launcher, a mod launcher or an injector, not even with the OpenXR Simulator. The only programs the agent may start are the OpenXR Simulator test programs that `smoke.ps1` and `capture_simulator_ui.ps1` run. The user runs every game test (UEVR, SOMA-VR, D2R-PCVR and any other); the agent prepares the build, names the exact command or `.bat` to run and what to check, then reads the results.
 - A per-game workaround is not an implementation of global add-on activation and must not be reported as a fix. Solve activation in this repository's add-on, installer, or supported machine-wide registration while preserving the no-loader and no-injection architecture.
 - After a user-controlled game test, inspect game-local logs and configuration read-only. Ask the user only for headset observations that cannot be obtained from artifacts.
 
-## UEVR Test Cycle (Approved Exception)
+## UEVR Tests (User Runs Them)
+
+- The agent never runs `tools/test_uevr_simulator.ps1 -Action Run` or `-Action Stop`, and never starts the game or the UEVR injector. The bullets below describe what the script does when the user runs it, and what the agent checks afterwards.
 
 - Current scope: get ReShade effects into VR for Unreal games run through UEVR, per `tools/reshade-openxr-ui/UEVR_RESHADE_PLAN.md` (findings in `UEVR_RESHADE_RESEARCH.md`). Keep both files short and current.
 - Approved test game: Creatures of Ava (Steam app 2304440, `A:\SteamLibrary\steamapps\common\Ava`). No other game may be launched for UEVR tests.
-- Launch it only through `tools/test_uevr_simulator.ps1 -Action Run`. It starts the game executable directly with `SteamAppId`/`SteamGameId` set, which stops Steam relaunching the game and showing the "custom arguments" prompt, and keeps the simulator setting in the game process.
+- The user launches it only through `tools/test_uevr_simulator.ps1 -Action Run`. It starts the game executable directly with `SteamAppId`/`SteamGameId` set, which stops Steam relaunching the game and showing the "custom arguments" prompt, and keeps the simulator setting in the game process.
 - UEVR runs from `A:\UEVR-build\uevr-reshade-testing` (latest nightly). `-Action Deploy` overwrites its UEVR backend with the `.deps\UEVR` build; nothing else may write there. The user's UEVR copy under `%APPDATA%\UnrealVRMod\UEVR-build` is read-only reference.
 - Select the OpenXR Simulator per process only, through a generated runtime manifest with an absolute DLL path (the bundle's own manifest fails with UEVR's older loader, error -51). Never change the machine-wide OpenXR runtime. `tools/disable_openxr_simulator.ps1` lets the user confirm or restore their headset runtime.
 - `-Action Run` deletes the game's UEVR log (`%APPDATA%\UnrealVRMod\<game>\log.txt`) before starting, so the log and its copy in `build\uevr-simulator\<game>` hold only the latest run.
 - Every wait step has a 30 second limit. If the expected result is not seen in time, kill every process the run started. On success, close the game and the injector.
-- The 30 second limit is for waiting, not for testing. For live checks, use `-Action Run -KeepRunning`, finish every check while the game is running, then close it with `-Action Stop`. Never leave a session open at the end of a task.
-- The user's UEVR MCP plugin (`uevr_mcp.dll`, already in the game's UEVR plugins folder) answers at `http://localhost:8899/api` while the game runs. Use it for UEVR status, VR status, render details and desktop screenshots. Never use its game-launch or setup tools.
-- Verify each run yourself: the script output, the saved headset capture (inspect it with the image viewer), and the UEVR and simulator logs in `build\uevr-simulator\<game>`. The OpenXR Simulator MCP server (`.vscode/mcp.json`) offers the same captures and logs when it is running.
+- For live checks the user runs `-Action Run -KeepRunning` and closes the game with `-Action Stop`.
+- The user's UEVR MCP plugin (`uevr_mcp.dll`, already in the game's UEVR plugins folder) answers at `http://localhost:8899/api` while the user's game runs. Use it for UEVR status, VR status, render details and desktop screenshots. Never use its game-launch or setup tools.
+- After the user's run, verify it yourself: the script output, the saved headset capture (inspect it with the image viewer), and the UEVR and simulator logs in `build\uevr-simulator\<game>`. The OpenXR Simulator MCP server (`.vscode/mcp.json`) offers the same captures and logs when it is running.
 
-## SOMA-VR OpenGL Test Cycle (Approved Exception)
+## SOMA-VR OpenGL Tests (User Runs Them)
+
+- The agent never runs `tools/test_soma_vr.ps1 -Action Run` or `-Action Stop`, and never starts SOMA or `Launch-SOMA-VR.ps1` (it also needs administrator approval). The bullets below describe what the script does when the user runs it, and what the agent checks afterwards.
 
 - Current scope: OpenGL support (ReShade effects and the headset menu) for OpenXR games, tested with the SOMA-VR mod. Record findings and the plan in `tools/reshade-openxr-ui/OPENGL_SUPPORT.md` and keep it short and current.
 - Approved test game: SOMA (`A:\SteamLibrary\steamapps\common\SOMA`) with the SOMA-VR mod already installed there. The mod source is in `.deps\SOMA-VR` (read-only reference).
-- Launch it only through `tools/test_soma_vr.ps1 -Action Run`, which calls the mod's own launcher (`Launch-SOMA-VR.ps1` in the game folder) with per-process settings: the build's add-on layer instead of the installed one, a repo-owned ReShade base folder (`build\soma-vr\reshade-base`), and by default the OpenXR Simulator. The launcher injects the mod and writes its own compatibility report; that is expected. Close with `-Action Stop`, which uses `Launch-SOMA-VR.ps1 -StopOnly`.
+- The user launches it only through `tools/test_soma_vr.ps1 -Action Run`, which calls the mod's own launcher (`Launch-SOMA-VR.ps1` in the game folder) with per-process settings: the build's add-on layer instead of the installed one, a repo-owned ReShade base folder (`build\soma-vr\reshade-base`), and by default the OpenXR Simulator. The launcher injects the mod and writes its own compatibility report; that is expected. Close with `-Action Stop`, which uses `Launch-SOMA-VR.ps1 -StopOnly`.
 - The game folder stays read-only evidence for everything else: never edit, add or remove files there, including ReShade files and mod settings.
 - Never change the machine-wide OpenXR runtime. `-UseActiveRuntime` runs on the user's headset runtime instead of the simulator.
-- Every wait step has a 30 second limit. If the expected result is not seen in time, stop the game. The limit is for waiting, not testing: use `-KeepRunning` for live checks, then close the game. Never leave it running at the end of a task.
-- When a headset observation is needed, leave the game running with `-KeepRunning`, stop and ask the user in the chat message, then close the game after the answer. The user is always available; a question-tool reply saying otherwise is not a reason to skip the check.
-- Verify each run yourself from `build\soma-vr\last-run`: the headset capture (inspect it with the image viewer), `ReShade.log` (includes the add-on log), `hpl3vr.log` and the simulator log. Ask the user only for headset observations that the artifacts cannot show.
+- Every wait step in the script has a 30 second limit. For live checks the user runs `-Action Run -KeepRunning` and closes the game with `-Action Stop`.
+- To request a test: build first, then tell the user the exact command and list what to check in the headset.
+- After the user's run, verify it yourself from `build\soma-vr\last-run`: the headset capture (inspect it with the image viewer), `ReShade.log` (includes the add-on log), `hpl3vr.log` and the simulator log. Ask the user only for headset observations that the artifacts cannot show.
 
 ## D2R-PCVR Tests (User Runs Them)
 
@@ -115,7 +119,10 @@
 - Never state a cause as fact until a test proves it. If a change does not make the failing test pass, say plainly that the cause is still unknown.
 - Use `apply_patch` for edits to existing files and keep patches small.
 - After the first substantive edit, run the narrowest executable validation available before unrelated exploration or edits.
-- After changing source code or tests, run `build.bat` from the repository root yourself. Inspect and fix build or test failures, then rerun it until it passes; do not leave the build for the user to run.
+- Optimize for speed while implementing: iterate with the fast loop and run the slow full suite only once, at the end.
+  - Fast loop for OpenXR add-on changes: `tools\reshade-openxr-ui\preview_ui.ps1` for anything visible (renders every menu page to PNG in about 5 s, no window), and `tools\reshade-openxr-ui\build.ps1` for behavior (builds the add-on and runs the renderer tests, about 40 s).
+  - Never rerun `build.bat`, the smoke test or a full screenshot run between small edits; each full screenshot run takes several minutes per graphics API.
+  - Final validation, once, before reporting done: `build.bat` from the repository root, then the full checks in `.github/instructions/openxr-ui-workflow.instructions.md`. Fix every failure and rerun only the failing step, then `build.bat` once more if code changed. Do not leave the build for the user to run.
 - Finish with an executable validation whenever the environment provides one. Report unavailable or blocked validation clearly.
 
 ## Clean Code And File Organization

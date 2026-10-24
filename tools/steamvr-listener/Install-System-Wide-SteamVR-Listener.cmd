@@ -22,9 +22,20 @@ if not exist "%SOURCE_LISTENER%" goto :incomplete
 if not exist "%CENTRAL_RESHADE%" goto :missing_reshade
 if not exist "%CENTRAL_APPS%" goto :missing_reshade
 
+rem fltmc only succeeds in a window with administrator rights.
 fltmc >nul 2>&1
-if errorlevel 1 goto :administrator_required
+if not errorlevel 1 goto :has_administrator
+if /I "%~1"=="--elevated" goto :administrator_required
+if defined RESHADE_OPENXR_UI_NONINTERACTIVE goto :administrator_required
+echo Asking Windows for administrator rights. Click Yes to continue.
+echo The install continues in a new window.
+rem Restart this script elevated and wait for it. The elevated copy pauses itself.
+set "ELEVATE_ARGUMENTS=/c ""%~f0" --elevated""
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "try { $p = Start-Process -FilePath $env:ComSpec -ArgumentList $env:ELEVATE_ARGUMENTS -Verb RunAs -PassThru -ErrorAction Stop; $null = $p.Handle; $p.WaitForExit(); exit $p.ExitCode } catch { exit 1223 }"
+if errorlevel 1223 if not errorlevel 1224 goto :administrator_required
+exit /b %ERRORLEVEL%
 
+:has_administrator
 if exist "%INSTALL_LISTENER%" "%INSTALL_LISTENER%" --stop
 if errorlevel 1 goto :failed
 if exist "%LEGACY_LISTENER%" "%LEGACY_LISTENER%" --stop
@@ -81,6 +92,7 @@ exit /b 1
 
 :administrator_required
 echo ReShade System-Wide SteamVR Listener requires administrator access to install.
+echo Windows did not give administrator rights. Nothing was installed.
 echo Right-click Install-System-Wide-SteamVR-Listener.cmd and select Run as administrator.
 if not defined RESHADE_OPENXR_UI_NONINTERACTIVE pause
 exit /b 1

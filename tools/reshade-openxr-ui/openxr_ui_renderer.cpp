@@ -8,9 +8,12 @@
 #include <imgui_impl_opengl3.h>
 
 #include "vr_frame_graph.hpp"
+#include "vr_ui_theme.hpp"
 #include "vr_ui_version.hpp"
+#include "vr_ui_fonts.inc"
 
 #include <algorithm>
+#include <array>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
@@ -78,46 +81,193 @@ namespace
 		}
 	};
 
-	constexpr size_t compact_techniques_per_page = 10;
-	constexpr size_t compact_visible_parameters = 5;
+	// Layout grid: every gap and size is a multiple of 4, mostly of 8, so all pages share one rhythm.
 	constexpr float outer_padding = 24.0f;
-	constexpr float main_footer_height = 149.0f;
-	constexpr float detail_footer_height = 83.0f;
+	constexpr float space_xs = 4.0f;
+	constexpr float space_sm = 8.0f;
+	constexpr float space_md = 16.0f;
+	constexpr float control_height = 32.0f;
+	constexpr float header_row_step = control_height + space_sm;
+	constexpr float list_row_height = 40.0f;
+	constexpr float list_row_gap = 6.0f;
+	constexpr float note_height = 20.0f;
+	constexpr float scrollbar_width = 32.0f;
+	constexpr float main_footer_height = control_height * 3.0f + space_sm * 3.0f + note_height;
+	constexpr float detail_footer_height = control_height;
 	constexpr float row_spacing = 3.0f;
 	constexpr uint32_t drag_release_frames = 3;
 	constexpr float joystick_scroll_dead_zone = 0.5f;
 	constexpr uint32_t joystick_scroll_repeat_frames = 8;
 	constexpr uint32_t save_feedback_frames = 180;
-	constexpr ImU32 default_value_color = IM_COL32(155, 210, 218, 255);
-	constexpr ImU32 changed_value_color = IM_COL32(255, 205, 72, 255);
+	constexpr uint32_t no_theme_applied = ~0u;
+
+	const vr_theme::palette &colors()
+	{
+		return vr_theme::current();
+	}
+
+	// The panel swapchain is usually sRGB, so the GPU converts every written color from linear light to sRGB, which lifts
+	// dark colors (a #1E1E2E background would show as a pale grey). Converting the vertex colors to linear first makes the
+	// written result match the theme exactly. Runs on the CPU over the frame's few thousand vertices and never waits on the GPU.
+	void convert_draw_data_to_linear(ImDrawData *draw_data)
+	{
+		static const auto table = [] {
+			std::array<uint8_t, 256> values = {};
+			for (size_t index = 0; index < values.size(); ++index)
+			{
+				const double encoded = static_cast<double>(index) / 255.0;
+				const double linear = encoded <= 0.04045 ? encoded / 12.92 : std::pow((encoded + 0.055) / 1.055, 2.4);
+				values[index] = static_cast<uint8_t>(std::lround(linear * 255.0));
+			}
+			return values;
+		}();
+		if (draw_data == nullptr)
+			return;
+		for (ImDrawList *const draw_list : draw_data->CmdLists)
+			for (ImDrawVert &vertex : draw_list->VtxBuffer)
+			{
+				const ImU32 color = vertex.col;
+				vertex.col = (color & IM_COL32_A_MASK) |
+					(static_cast<ImU32>(table[(color >> IM_COL32_R_SHIFT) & 0xFF]) << IM_COL32_R_SHIFT) |
+					(static_cast<ImU32>(table[(color >> IM_COL32_G_SHIFT) & 0xFF]) << IM_COL32_G_SHIFT) |
+					(static_cast<ImU32>(table[(color >> IM_COL32_B_SHIFT) & 0xFF]) << IM_COL32_B_SHIFT);
+			}
+	}
+
+	// How a button is filled. `toggled` marks an option that is switched on; `primary` is the one main action on a screen.
+	enum class button_tone
+	{
+		neutral,
+		toggled,
+		primary,
+		warning,
+		success,
+		danger,
+		destructive,
+	};
+
+	enum class button_icon
+	{
+		close,
+		previous,
+		next,
+		up,
+		down,
+		expand,
+		collapse,
+	};
+
+	ImFont *bold_font()
+	{
+		const ImFontAtlas *const atlas = ImGui::GetIO().Fonts;
+		return atlas->Fonts.Size > 1 ? atlas->Fonts[1] : nullptr;
+	}
+
+	constexpr float statistics_font_scale = 1.25f;
+
+	// ImGui 1.92 draws glyphs on first use. When its font image then runs out of room it drops sizes unused for two frames
+	// and repacks into a new texture, which in D3D12 can overwrite glyphs still in flight (missing pixel rows) and makes
+	// the backend wait for the GPU mid-game. Drawing every printable glyph in every size the panels use before the first
+	// frame means the image is uploaded once, at its final size, and never changes while the game runs.
+	void prebake_fonts()
+	{
+		ImFontAtlas *const atlas = ImGui::GetIO().Fonts;
+		if (atlas->Fonts.Size < 2)
+			return;
+		const struct
+		{
+			int font;
+			float size;
+		} uses[] = {
+			{ 0, vr_theme::font_body },
+			{ 0, vr_theme::font_control },
+			{ 0, vr_theme::font_small },
+			{ 0, vr_theme::font_body * statistics_font_scale },
+			{ 1, vr_theme::font_body },
+			{ 1, vr_theme::font_title },
+		};
+		for (const auto &use : uses)
+		{
+			ImFontBaked *const baked = atlas->Fonts[use.font]->GetFontBaked(use.size, 1.0f);
+			if (baked == nullptr)
+				continue;
+			for (ImWchar character = 0x20; character <= 0x7E; ++character)
+				baked->FindGlyph(character);
+			baked->FindGlyph(0xB7);
+		}
+	}
 
 	void apply_style()
 	{
 		ImGuiStyle &style = ImGui::GetStyle();
-		style.WindowPadding = { outer_padding, 18.0f };
-		style.WindowRounding = 0.0f;
-		style.WindowBorderSize = 0.0f;
-		style.FrameRounding = 3.0f;
+		style.FontSizeBase = vr_theme::font_body;
+		style.WindowPadding = { outer_padding, outer_padding };
+		style.WindowRounding = vr_theme::radius_panel;
+		style.WindowBorderSize = vr_theme::stroke_thin;
+		style.PopupRounding = vr_theme::radius_md;
+		style.PopupBorderSize = vr_theme::stroke_thin;
+		style.FrameRounding = vr_theme::radius_sm;
 		style.FrameBorderSize = 0.0f;
 		style.ItemSpacing = { 8.0f, row_spacing };
-		style.Colors[ImGuiCol_WindowBg] = { 0.018f, 0.028f, 0.040f, 0.96f };
-		style.Colors[ImGuiCol_Text] = { 0.84f, 0.94f, 0.96f, 1.0f };
-		style.Colors[ImGuiCol_TextDisabled] = { 0.42f, 0.50f, 0.52f, 1.0f };
+		style.Colors[ImGuiCol_WindowBg] = vr_theme::to_float4(colors().background);
+		style.Colors[ImGuiCol_PopupBg] = vr_theme::to_float4(colors().surface_raised);
+		style.Colors[ImGuiCol_Border] = vr_theme::to_float4(colors().border);
+		style.Colors[ImGuiCol_Separator] = vr_theme::to_float4(colors().border);
+		style.Colors[ImGuiCol_Text] = vr_theme::to_float4(colors().text);
+		style.Colors[ImGuiCol_TextDisabled] = vr_theme::to_float4(colors().text_secondary);
 	}
 
 	void draw_crosshair(ImDrawList *draw_list, const ImVec2 position)
 	{
-		const ImU32 shadow = IM_COL32(0, 0, 0, 255);
-		const ImU32 foreground = IM_COL32(235, 250, 255, 255);
-		const ImU32 accent = IM_COL32(0, 200, 225, 255);
-		draw_list->AddLine({ position.x - 11.0f, position.y }, { position.x + 11.0f, position.y }, shadow, 7.0f);
-		draw_list->AddLine({ position.x, position.y - 11.0f }, { position.x, position.y + 11.0f }, shadow, 7.0f);
-		draw_list->AddLine({ position.x - 9.0f, position.y }, { position.x + 9.0f, position.y }, foreground, 3.0f);
-		draw_list->AddLine({ position.x, position.y - 9.0f }, { position.x, position.y + 9.0f }, foreground, 3.0f);
-		draw_list->AddCircleFilled(position, 3.0f, accent);
+		const ImU32 outline = colors().shadow | IM_COL32_A_MASK;
+		draw_list->AddLine({ position.x - 11.0f, position.y }, { position.x + 11.0f, position.y }, outline, 7.0f);
+		draw_list->AddLine({ position.x, position.y - 11.0f }, { position.x, position.y + 11.0f }, outline, 7.0f);
+		draw_list->AddLine({ position.x - 9.0f, position.y }, { position.x + 9.0f, position.y }, colors().text, 3.0f);
+		draw_list->AddLine({ position.x, position.y - 9.0f }, { position.x, position.y + 9.0f }, colors().text, 3.0f);
+		draw_list->AddCircleFilled(position, 3.0f, colors().accent);
 	}
 
-	bool draw_text_button(const char *id, const char *label, const ImVec2 size, bool enabled = true, ImU32 background = 0)
+	struct button_colors
+	{
+		ImU32 fill;
+		ImU32 text;
+		ImU32 outline;
+	};
+
+	button_colors button_colors_for(button_tone tone, bool hovered, bool enabled)
+	{
+		// Status tones stay visible while a button is busy and therefore disabled, for example "Creating...".
+		const bool status = tone == button_tone::warning || tone == button_tone::success || tone == button_tone::danger;
+		if (!enabled && !status)
+			return { colors().surface, colors().text_disabled, 0 };
+		hovered = hovered && enabled;
+		switch (tone)
+		{
+		case button_tone::toggled:
+			return { hovered ? colors().surface_hover : colors().accent_muted, colors().text, colors().accent };
+		case button_tone::primary:
+			return { hovered ? colors().accent_hover : colors().accent, colors().text_on_color, 0 };
+		case button_tone::warning:
+			return { colors().warning, colors().text_on_color, hovered ? colors().text : 0 };
+		case button_tone::success:
+			return { colors().success, colors().text_on_color, hovered ? colors().text : 0 };
+		case button_tone::danger:
+			return { hovered ? colors().danger_hover : colors().danger, colors().text_on_color, 0 };
+		case button_tone::destructive:
+			return { hovered ? colors().danger : colors().surface_raised, hovered ? colors().text_on_color : colors().danger, 0 };
+		default:
+			return { hovered ? colors().surface_hover : colors().surface_raised, colors().text, 0 };
+		}
+	}
+
+	void draw_button_frame(ImDrawList *draw_list, ImVec2 minimum, ImVec2 maximum, const button_colors &look)
+	{
+		draw_list->AddRectFilled(minimum, maximum, look.fill, vr_theme::radius_sm);
+		if (look.outline != 0)
+			draw_list->AddRect(minimum, maximum, look.outline, vr_theme::radius_sm, 0, vr_theme::stroke_thin);
+	}
+
+	bool draw_text_button(const char *id, const char *label, const ImVec2 size, bool enabled = true, button_tone tone = button_tone::neutral)
 	{
 		ImGui::BeginDisabled(!enabled);
 		ImGui::InvisibleButton(id, size);
@@ -125,11 +275,74 @@ namespace
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		const ImVec2 maximum = ImGui::GetItemRectMax();
 		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-		draw_list->AddRectFilled(minimum, maximum,
-			background != 0 ? background : hovered ? IM_COL32(28, 82, 90, 255) : IM_COL32(18, 48, 55, 255), 3.0f);
+		const button_colors look = button_colors_for(tone, hovered, enabled);
+		draw_button_frame(draw_list, minimum, maximum, look);
+		ImGui::PushFont(nullptr, vr_theme::font_control);
 		const ImVec2 text_size = ImGui::CalcTextSize(label);
-		draw_list->AddText({ minimum.x + (size.x - text_size.x) * 0.5f, minimum.y + (size.y - text_size.y) * 0.5f },
-			enabled ? IM_COL32(222, 242, 245, 255) : IM_COL32(78, 90, 92, 255), label);
+		draw_list->AddText({ std::floor(minimum.x + (size.x - text_size.x) * 0.5f), std::floor(minimum.y + (size.y - text_size.y) * 0.5f) },
+			look.text, label);
+		ImGui::PopFont();
+		ImGui::EndDisabled();
+		return hovered;
+	}
+
+	// Simple line icons instead of "<", "^" or "X" characters, which read poorly at VR resolution.
+	bool draw_icon_button(const char *id, button_icon icon, const ImVec2 size, bool enabled = true)
+	{
+		ImGui::BeginDisabled(!enabled);
+		ImGui::InvisibleButton(id, size);
+		const bool hovered = enabled && ImGui::IsItemHovered();
+		const ImVec2 minimum = ImGui::GetItemRectMin();
+		const ImVec2 maximum = ImGui::GetItemRectMax();
+		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+		const button_colors look = button_colors_for(button_tone::neutral, hovered, enabled);
+		draw_button_frame(draw_list, minimum, maximum, look);
+
+		const ImVec2 center = { (minimum.x + maximum.x) * 0.5f, (minimum.y + maximum.y) * 0.5f };
+		const float half = std::clamp((std::min)(size.x, size.y) * 0.18f, 3.5f, 7.0f);
+		const float thickness = 2.5f;
+		switch (icon)
+		{
+		case button_icon::close:
+			draw_list->AddLine({ center.x - half, center.y - half }, { center.x + half, center.y + half }, look.text, thickness);
+			draw_list->AddLine({ center.x - half, center.y + half }, { center.x + half, center.y - half }, look.text, thickness);
+			break;
+		case button_icon::previous:
+		case button_icon::next:
+		{
+			const float direction = icon == button_icon::next ? 1.0f : -1.0f;
+			const ImVec2 points[3] = { { center.x - half * 0.5f * direction, center.y - half },
+				{ center.x + half * 0.5f * direction, center.y }, { center.x - half * 0.5f * direction, center.y + half } };
+			draw_list->AddPolyline(points, 3, look.text, ImDrawFlags_None, thickness);
+			break;
+		}
+		case button_icon::expand:
+		case button_icon::collapse:
+		{
+			// Four corner brackets: pointing out to grow the panel, pointing in to shrink it.
+			const float outer = half * 1.25f;
+			const float arm = half * 0.75f;
+			const bool outward = icon == button_icon::expand;
+			for (const float sx : { -1.0f, 1.0f })
+				for (const float sy : { -1.0f, 1.0f })
+				{
+					const float corner = outward ? outer : half * 0.55f;
+					const float reach = outward ? -arm : outer - corner;
+					const ImVec2 points[3] = { { center.x + sx * (corner + reach), center.y + sy * corner },
+						{ center.x + sx * corner, center.y + sy * corner }, { center.x + sx * corner, center.y + sy * (corner + reach) } };
+					draw_list->AddPolyline(points, 3, look.text, ImDrawFlags_None, thickness);
+				}
+			break;
+		}
+		default:
+		{
+			const float direction = icon == button_icon::down ? 1.0f : -1.0f;
+			const ImVec2 points[3] = { { center.x - half, center.y - half * 0.5f * direction },
+				{ center.x, center.y + half * 0.5f * direction }, { center.x + half, center.y - half * 0.5f * direction } };
+			draw_list->AddPolyline(points, 3, look.text, ImDrawFlags_None, thickness);
+			break;
+		}
+		}
 		ImGui::EndDisabled();
 		return hovered;
 	}
@@ -142,11 +355,12 @@ namespace
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		const ImVec2 maximum = ImGui::GetItemRectMax();
 		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-		draw_list->AddRectFilled(minimum, maximum, enabled && hovered ? IM_COL32(28, 82, 90, 255) : IM_COL32(18, 48, 55, 255), 3.0f);
+		const button_colors look = button_colors_for(button_tone::neutral, enabled && hovered, enabled);
+		draw_button_frame(draw_list, minimum, maximum, look);
 
 		const ImVec2 center = { (minimum.x + maximum.x) * 0.5f, (minimum.y + maximum.y) * 0.5f };
 		const float radius = std::clamp((std::min)(size.x, size.y) * 0.5f - 6.0f, 4.0f, 9.0f);
-		const ImU32 color = enabled ? IM_COL32(222, 242, 245, 255) : IM_COL32(78, 90, 92, 255);
+		const ImU32 color = look.text;
 		draw_list->PathArcTo(center, radius, -1.5707963268f, 3.8f, 24);
 		draw_list->PathStroke(color, ImDrawFlags_None, 2.5f);
 		const float head = radius * 0.6f;
@@ -162,7 +376,7 @@ namespace
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		const ImVec2 maximum = ImGui::GetItemRectMax();
 		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-		draw_list->AddRectFilled(minimum, maximum, hovered ? IM_COL32(28, 82, 90, 255) : IM_COL32(18, 48, 55, 255), 3.0f);
+		draw_button_frame(draw_list, minimum, maximum, button_colors_for(button_tone::neutral, hovered, true));
 
 		const ImVec2 center = { (minimum.x + maximum.x) * 0.5f, (minimum.y + maximum.y) * 0.5f };
 		ImVec2 points[10];
@@ -172,7 +386,7 @@ namespace
 			const float radius = index % 2 == 0 ? 10.0f : 4.5f;
 			points[index] = { center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius };
 		}
-		const ImU32 color = active ? IM_COL32(255, 205, 72, 255) : IM_COL32(170, 190, 194, 255);
+		const ImU32 color = active ? colors().warning : colors().text_secondary;
 		if (active)
 			for (size_t index = 0; index < 10; ++index)
 				draw_list->AddTriangleFilled(center, points[index], points[(index + 1) % 10], color);
@@ -181,23 +395,37 @@ namespace
 		return hovered;
 	}
 
+	// A rounded box that fills with the accent and shows a tick when on.
+	void draw_check_indicator(ImDrawList *draw_list, ImVec2 box_min, float box_size, bool checked, bool hovered)
+	{
+		const ImVec2 box_max = { box_min.x + box_size, box_min.y + box_size };
+		if (checked)
+		{
+			draw_list->AddRectFilled(box_min, box_max, hovered ? colors().accent_hover : colors().accent, vr_theme::radius_sm * 0.75f);
+			const float unit = box_size / 20.0f;
+			const ImVec2 tick[3] = { { box_min.x + 5.0f * unit, box_min.y + 10.5f * unit }, { box_min.x + 8.5f * unit, box_min.y + 14.0f * unit },
+				{ box_min.x + 15.0f * unit, box_min.y + 6.0f * unit } };
+			draw_list->AddPolyline(tick, 3, colors().text_on_color, ImDrawFlags_None, 2.5f);
+		}
+		else
+		{
+			draw_list->AddRectFilled(box_min, box_max, hovered ? colors().surface_hover : colors().surface_raised, vr_theme::radius_sm * 0.75f);
+			draw_list->AddRect(box_min, box_max, colors().control_idle, vr_theme::radius_sm * 0.75f, 0, vr_theme::stroke);
+		}
+	}
+
+	// Distance from a tick box's left edge to its label.
+	constexpr float tick_box_label_x = 36.0f;
+
 	bool draw_tick_box(const char *id, const char *label, bool checked, float width = 276.0f)
 	{
-		ImGui::InvisibleButton(id, { width, 34.0f });
+		ImGui::InvisibleButton(id, { width, control_height });
 		const bool hovered = ImGui::IsItemHovered();
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-		const ImVec2 box_min = { minimum.x + 7.0f, minimum.y + 7.0f };
-		const ImVec2 box_max = { box_min.x + 20.0f, box_min.y + 20.0f };
-		draw_list->AddRectFilled(box_min, box_max, checked ? IM_COL32(26, 196, 100, 255) :
-			hovered ? IM_COL32(92, 105, 110, 255) : IM_COL32(72, 82, 86, 255), 3.0f);
-		if (checked)
-		{
-			draw_list->AddLine({ box_min.x + 4.0f, box_min.y + 10.0f }, { box_min.x + 8.0f, box_min.y + 14.0f }, IM_COL32_WHITE, 2.0f);
-			draw_list->AddLine({ box_min.x + 8.0f, box_min.y + 14.0f }, { box_min.x + 17.0f, box_min.y + 5.0f }, IM_COL32_WHITE, 2.0f);
-		}
-		draw_list->AddText({ minimum.x + 36.0f, minimum.y + (34.0f - ImGui::GetFontSize()) * 0.5f },
-			IM_COL32(222, 242, 245, 255), label);
+		draw_check_indicator(draw_list, { minimum.x + 6.0f, minimum.y + 6.0f }, 20.0f, checked, hovered);
+		draw_list->AddText({ minimum.x + tick_box_label_x, std::floor(minimum.y + (control_height - ImGui::GetFontSize()) * 0.5f) },
+			hovered ? colors().accent_hover : colors().text, label);
 		return hovered;
 	}
 
@@ -236,13 +464,21 @@ namespace
 		}
 	}
 
+	// Square icon button that switches between the compact and the taller panel; hovering names the action.
+	bool draw_panel_size_button(bool expanded)
+	{
+		const bool hovered = draw_icon_button("expand", expanded ? button_icon::collapse : button_icon::expand, { control_height, control_height });
+		draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), expanded ? "Collapse panel" : "Expand panel");
+		return hovered;
+	}
+
 	// Status strip above the effect list. `text_max_x` leaves room for buttons on the right.
 	void draw_notice(const ImVec2 notice_min, const ImVec2 notice_max, float text_max_x, ImU32 accent, bool busy,
 		const char *message, const char *details)
 	{
 		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-		draw_list->AddRectFilled(notice_min, notice_max, IM_COL32(13, 29, 38, 255), 3.0f);
-		draw_list->AddRectFilled(notice_min, { notice_min.x + 5.0f, notice_max.y }, accent, 3.0f, ImDrawFlags_RoundCornersLeft);
+		draw_list->AddRectFilled(notice_min, notice_max, colors().surface_raised, vr_theme::radius_md);
+		draw_list->AddRectFilled(notice_min, { notice_min.x + 6.0f, notice_max.y }, accent, vr_theme::radius_md, ImDrawFlags_RoundCornersLeft);
 		if (busy)
 		{
 			// A segment sliding along the bottom edge shows that loading is still in progress.
@@ -258,8 +494,8 @@ namespace
 		const ImVec2 text_min = { notice_min.x + 16.0f, notice_min.y };
 		const ImVec2 text_max = { text_max_x, notice_max.y };
 		const std::string fitted = fit_text(message, text_max.x - text_min.x);
-		draw_list->AddText({ text_min.x, notice_min.y + (notice_max.y - notice_min.y - ImGui::GetFontSize()) * 0.5f },
-			IM_COL32(222, 242, 245, 255), fitted.c_str());
+		draw_list->AddText({ text_min.x, std::floor(notice_min.y + (notice_max.y - notice_min.y - ImGui::GetFontSize()) * 0.5f) },
+			colors().text, fitted.c_str());
 		draw_hover_details(text_min, text_max, message, details);
 	}
 
@@ -281,16 +517,23 @@ namespace
 		const float center_y = (minimum.y + maximum.y) * 0.5f;
 		const float track_min_x = minimum.x + 8.0f;
 		const float track_max_x = maximum.x - 8.0f;
-		draw_list->AddRectFilled({ track_min_x, center_y - 3.0f }, { track_max_x, center_y + 3.0f }, IM_COL32(30, 55, 61, 255), 3.0f);
-		draw_list->AddRectFilled({ track_min_x, center_y - 3.0f }, { track_min_x + (track_max_x - track_min_x) * fraction, center_y + 3.0f },
-			enabled ? IM_COL32(0, 174, 197, 255) : IM_COL32(62, 73, 76, 255), 3.0f);
+		const float knob_x = track_min_x + (track_max_x - track_min_x) * fraction;
+		// A value without a range (or an On/Off value) has nothing to slide, so no empty track is drawn.
+		if (enabled)
+		{
+			draw_list->AddRectFilled({ track_min_x, center_y - 3.0f }, { track_max_x, center_y + 3.0f }, colors().surface_hover, 3.0f);
+			draw_list->AddRectFilled({ track_min_x, center_y - 3.0f }, { knob_x, center_y + 3.0f }, colors().accent, 3.0f);
+		}
 		if (enabled && default_fraction >= 0.0f && default_fraction <= 1.0f)
 		{
 			const float default_x = track_min_x + (track_max_x - track_min_x) * default_fraction;
-			draw_list->AddLine({ default_x, center_y - 8.0f }, { default_x, center_y + 8.0f }, default_value_color, 2.0f);
+			draw_list->AddLine({ default_x, center_y - 9.0f }, { default_x, center_y + 9.0f }, colors().text_secondary, vr_theme::stroke);
 		}
-		draw_list->AddCircleFilled({ track_min_x + (track_max_x - track_min_x) * fraction, center_y }, 7.0f,
-			hovered ? IM_COL32(235, 250, 255, 255) : IM_COL32(170, 220, 226, 255));
+		if (enabled)
+		{
+			draw_list->AddCircleFilled({ knob_x, center_y }, 9.0f, hovered ? colors().accent_hover : colors().accent);
+			draw_list->AddCircleFilled({ knob_x, center_y }, 4.0f, colors().text);
+		}
 		ImGui::EndDisabled();
 		return { hovered, std::clamp((ImGui::GetIO().MousePos.x - track_min_x) / (track_max_x - track_min_x), 0.0f, 1.0f) };
 	}
@@ -307,9 +550,17 @@ namespace
 		const float center_x = (minimum.x + maximum.x) * 0.5f;
 		const float track_min_y = minimum.y + 8.0f;
 		const float track_max_y = maximum.y - 8.0f;
-		draw_list->AddRectFilled({ center_x - 4.0f, track_min_y }, { center_x + 4.0f, track_max_y }, IM_COL32(30, 55, 61, 255), 4.0f);
-		draw_list->AddCircleFilled({ center_x, track_min_y + (track_max_y - track_min_y) * fraction }, 10.0f,
-			hovered ? IM_COL32(235, 250, 255, 255) : IM_COL32(0, 174, 197, 255));
+		// The scroll bar appears only when the list is longer than the panel.
+		if (enabled)
+		{
+			draw_list->AddRectFilled({ center_x - 4.0f, track_min_y }, { center_x + 4.0f, track_max_y }, colors().surface_raised, 4.0f);
+			// A pill-shaped thumb reads as a scroll bar rather than a value slider.
+			const float thumb_y = track_min_y + (track_max_y - track_min_y) * fraction;
+			const float thumb_half = (std::min)(18.0f, (track_max_y - track_min_y) * 0.5f);
+			const float thumb_center = std::clamp(thumb_y, track_min_y + thumb_half, track_max_y - thumb_half);
+			draw_list->AddRectFilled({ center_x - 5.0f, thumb_center - thumb_half }, { center_x + 5.0f, thumb_center + thumb_half },
+				hovered ? colors().accent_hover : colors().control_idle, 5.0f);
+		}
 		ImGui::EndDisabled();
 		return { hovered, std::clamp((ImGui::GetIO().MousePos.y - track_min_y) / (track_max_y - track_min_y), 0.0f, 1.0f) };
 	}
@@ -377,6 +628,8 @@ namespace
 	dropdown_interaction draw_dropdown(dropdown_state &state, const char *id, const char *prefix, float height,
 		const char *const *options, size_t option_count, size_t selected, bool clicked)
 	{
+		const ImGuiID item_id = ImGui::GetID(id);
+		ImGui::PushFont(nullptr, vr_theme::font_control);
 		float widest_option = 0.0f;
 		for (size_t index = 0; index < option_count; ++index)
 			widest_option = (std::max)(widest_option, ImGui::CalcTextSize(options[index]).x);
@@ -386,7 +639,6 @@ namespace
 		const ImVec2 size = { std::ceil(text_left + ImGui::CalcTextSize(prefix).x + widest_option + text_gap + arrow_width), height };
 		const std::string label = std::string(prefix) + (selected < option_count ? options[selected] : "");
 
-		const ImGuiID item_id = ImGui::GetID(id);
 		ImGui::InvisibleButton(id, size);
 		dropdown_interaction interaction;
 		interaction.hovered = ImGui::IsItemHovered();
@@ -394,21 +646,21 @@ namespace
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		const ImVec2 maximum = ImGui::GetItemRectMax();
 		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-		draw_list->AddRectFilled(minimum, maximum, interaction.hovered || open ? IM_COL32(24, 66, 74, 255) : IM_COL32(10, 32, 38, 255), 3.0f);
-		draw_list->AddRect(minimum, maximum, interaction.hovered || open ? IM_COL32(0, 200, 225, 255) : IM_COL32(70, 130, 140, 255), 3.0f, 0, 1.5f);
+		const bool highlighted = interaction.hovered || open;
+		draw_list->AddRectFilled(minimum, maximum, highlighted ? colors().surface_hover : colors().surface_raised, vr_theme::radius_sm);
+		draw_list->AddRect(minimum, maximum, highlighted ? colors().accent : colors().border, vr_theme::radius_sm, 0, vr_theme::stroke_thin);
 
 		const float arrow_left = maximum.x - arrow_width;
-		draw_list->AddLine({ arrow_left, minimum.y + 5.0f }, { arrow_left, maximum.y - 5.0f }, IM_COL32(70, 130, 140, 255), 1.0f);
 		const ImVec2 arrow_center = { arrow_left + arrow_width * 0.5f, (minimum.y + maximum.y) * 0.5f };
-		const float half = (std::min)(arrow_width * 0.22f, 7.0f);
-		const ImU32 text_color = IM_COL32(222, 242, 245, 255);
-		if (open)
-			draw_list->AddTriangleFilled({ arrow_center.x - half, arrow_center.y + half * 0.5f }, { arrow_center.x + half, arrow_center.y + half * 0.5f },
-				{ arrow_center.x, arrow_center.y - half * 0.7f }, text_color);
-		else
-			draw_list->AddTriangleFilled({ arrow_center.x - half, arrow_center.y - half * 0.5f }, { arrow_center.x + half, arrow_center.y - half * 0.5f },
-				{ arrow_center.x, arrow_center.y + half * 0.7f }, text_color);
-		draw_list->AddText({ minimum.x + text_left, minimum.y + (size.y - ImGui::GetFontSize()) * 0.5f }, text_color, label.c_str());
+		const float half = (std::min)(arrow_width * 0.18f, 6.0f);
+		const ImU32 text_color = colors().text;
+		const ImU32 arrow_color = highlighted ? colors().accent_hover : colors().text_secondary;
+		const float direction = open ? -1.0f : 1.0f;
+		const ImVec2 chevron[3] = { { arrow_center.x - half, arrow_center.y - half * 0.5f * direction },
+			{ arrow_center.x, arrow_center.y + half * 0.5f * direction }, { arrow_center.x + half, arrow_center.y - half * 0.5f * direction } };
+		draw_list->AddPolyline(chevron, 3, arrow_color, ImDrawFlags_None, 2.5f);
+		draw_list->AddText({ minimum.x + text_left, std::floor(minimum.y + (size.y - ImGui::GetFontSize()) * 0.5f) }, text_color, label.c_str());
+		ImGui::PopFont();
 
 		if (clicked && interaction.hovered && !open)
 		{
@@ -444,20 +696,22 @@ namespace
 		const ImVec2 list_max = { state.box_max.x, list_min.y + row_height * static_cast<float>(state.options.size()) };
 		const ptrdiff_t hovered = pointer_visible ? dropdown_option_at(state, pointer, display_height) : -1;
 		ImDrawList *const draw_list = ImGui::GetForegroundDrawList();
-		draw_list->AddRectFilled({ list_min.x + 4.0f, list_min.y + 4.0f }, { list_max.x + 4.0f, list_max.y + 4.0f }, IM_COL32(0, 0, 0, 140), 4.0f);
-		draw_list->AddRectFilled(list_min, list_max, IM_COL32(12, 34, 42, 255), 3.0f);
+		ImGui::PushFont(nullptr, vr_theme::font_control);
+		draw_list->AddRectFilled({ list_min.x + 4.0f, list_min.y + 6.0f }, { list_max.x + 4.0f, list_max.y + 6.0f }, colors().shadow, vr_theme::radius_md);
+		draw_list->AddRectFilled(list_min, list_max, colors().surface_raised, vr_theme::radius_md);
 		for (size_t index = 0; index < state.options.size(); ++index)
 		{
 			const ImVec2 row_min = { list_min.x, list_min.y + row_height * static_cast<float>(index) };
 			const ImVec2 row_max = { list_max.x, row_min.y + row_height };
 			if (static_cast<ptrdiff_t>(index) == hovered)
-				draw_list->AddRectFilled(row_min, row_max, IM_COL32(28, 82, 90, 255), 3.0f);
+				draw_list->AddRectFilled({ row_min.x + 3.0f, row_min.y + 2.0f }, { row_max.x - 3.0f, row_max.y - 2.0f }, colors().surface_hover, vr_theme::radius_sm);
 			if (index == state.selected)
-				draw_list->AddRectFilled({ row_min.x + 4.0f, row_min.y + 6.0f }, { row_min.x + 8.0f, row_max.y - 6.0f }, IM_COL32(0, 200, 225, 255), 2.0f);
-			draw_list->AddText({ row_min.x + 18.0f, row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f },
-				index == state.selected ? IM_COL32(255, 255, 255, 255) : IM_COL32(200, 225, 230, 255), state.options[index].c_str());
+				draw_list->AddRectFilled({ row_min.x + 6.0f, row_min.y + 7.0f }, { row_min.x + 10.0f, row_max.y - 7.0f }, colors().accent, 2.0f);
+			draw_list->AddText({ row_min.x + 18.0f, std::floor(row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f) },
+				index == state.selected ? colors().text : colors().text_secondary, state.options[index].c_str());
 		}
-		draw_list->AddRect(list_min, list_max, IM_COL32(0, 200, 225, 255), 3.0f, 0, 1.5f);
+		draw_list->AddRect(list_min, list_max, colors().accent, vr_theme::radius_md, 0, vr_theme::stroke_thin);
+		ImGui::PopFont();
 	}
 }
 
@@ -513,6 +767,52 @@ namespace openxr_ui
 		bool save_as_uppercase = true;
 		std::string save_as_name;
 		dropdown_state dropdown;
+		uint32_t applied_theme = no_theme_applied;
+		bool srgb_target = false;
+
+		// The thumbstick moves a list one row per push, then keeps moving while held.
+		void update_joystick_scroll(float scroll_y, size_t &scroll, size_t maximum_scroll)
+		{
+			if (dragging != drag_target::none)
+			{
+				joystick_scroll_direction = 0;
+				joystick_scroll_frame_count = 0;
+				return;
+			}
+			const int scroll_direction = scroll_y > joystick_scroll_dead_zone ? -1 : scroll_y < -joystick_scroll_dead_zone ? 1 : 0;
+			bool advance_scroll = false;
+			if (scroll_direction != joystick_scroll_direction)
+			{
+				joystick_scroll_direction = scroll_direction;
+				joystick_scroll_frame_count = 0;
+				advance_scroll = scroll_direction != 0;
+			}
+			else if (scroll_direction != 0 && ++joystick_scroll_frame_count >= joystick_scroll_repeat_frames)
+			{
+				joystick_scroll_frame_count = 0;
+				advance_scroll = true;
+			}
+			if (advance_scroll && scroll_direction < 0 && scroll > 0)
+				--scroll;
+			else if (advance_scroll && scroll_direction > 0 && scroll < maximum_scroll)
+				++scroll;
+		}
+
+		// Each panel has its own ImGui context, so each applies a newly selected theme to its own style.
+		void apply_selected_theme()
+		{
+			if (applied_theme == vr_theme::selected_theme())
+				return;
+			apply_style();
+			applied_theme = vr_theme::selected_theme();
+		}
+
+		void finish_frame()
+		{
+			ImGui::Render();
+			if (srgb_target)
+				convert_draw_data_to_linear(ImGui::GetDrawData());
+		}
 	};
 
 	panel_renderer::panel_renderer() :
@@ -557,11 +857,16 @@ namespace openxr_ui
 		io.IniFilename = nullptr;
 		io.LogFilename = nullptr;
 		io.DisplaySize = { static_cast<float>(width), static_cast<float>(height) };
+		// The atlas only reads the embedded font bytes; it must not free them.
 		ImFontConfig font_config;
-		font_config.SizePixels = 22.0f;
+		font_config.FontDataOwnedByAtlas = false;
 		io.Fonts->Clear();
-		io.Fonts->AddFontDefault(&font_config);
-		apply_style();
+		io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char *>(vr_ui_fonts::regular), static_cast<int>(sizeof(vr_ui_fonts::regular)),
+			vr_theme::font_body, &font_config);
+		io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char *>(vr_ui_fonts::bold), static_cast<int>(sizeof(vr_ui_fonts::bold)),
+			vr_theme::font_body, &font_config);
+		_implementation->apply_selected_theme();
+		prebake_fonts();
 
 		_implementation->width = width;
 		_implementation->height = height;
@@ -669,6 +974,27 @@ namespace openxr_ui
 		return renderer.opengl_framebuffer != 0;
 	}
 
+	void panel_renderer::select_theme(uint32_t theme)
+	{
+		vr_theme::select_theme(theme);
+	}
+
+	void panel_renderer::show_page(page target, uint64_t technique_id, const std::string &save_as_name)
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		_implementation->save_as_dialog_open = target == page::save_as;
+		_implementation->save_as_name = save_as_name;
+		_implementation->selected_technique = target == page::effect_detail ? technique_id : 0;
+		_implementation->technique_scroll = 0;
+		_implementation->parameter_scroll = 0;
+	}
+
+	void panel_renderer::set_srgb_target(bool srgb)
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		_implementation->srgb_target = srgb;
+	}
+
 	void panel_renderer::notify_save_result(bool succeeded)
 	{
 		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
@@ -729,6 +1055,8 @@ namespace openxr_ui
 			}
 		}
 
+		vr_theme::select_theme(input.theme);
+		_implementation->apply_selected_theme();
 		ImGui::NewFrame();
 		ImGui::SetNextWindowPos({ 0.0f, 0.0f });
 		ImGui::SetNextWindowSize(io.DisplaySize);
@@ -744,21 +1072,28 @@ namespace openxr_ui
 
 		if (_implementation->save_as_dialog_open)
 		{
+			ImGui::PushFont(bold_font(), vr_theme::font_title);
 			ImGui::TextUnformatted("Save preset as");
+			ImGui::PopFont();
 			ImGui::SameLine();
-			ImGui::TextDisabled("|  Graphics: %s", graphics_api_label);
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.0f);
+			ImGui::TextDisabled("Graphics: %s", graphics_api_label);
 			ImGui::SetCursorScreenPos({ io.DisplaySize.x - outer_padding - 34.0f, 18.0f });
-			const bool close_dialog_hovered = draw_text_button("close_save_as", "X", { 34.0f, 30.0f });
+			const bool close_dialog_hovered = draw_icon_button("close_save_as", button_icon::close, { 34.0f, 30.0f });
 
 			ImGui::SetCursorScreenPos({ outer_padding, 58.0f });
-			ImGui::TextUnformatted("Preset name");
+			ImGui::TextDisabled("Preset name");
 			const ImVec2 name_min = { outer_padding, 88.0f };
 			const ImVec2 name_max = { io.DisplaySize.x - outer_padding, 136.0f };
-			ImGui::GetWindowDrawList()->AddRectFilled(name_min, name_max, IM_COL32(13, 29, 38, 255), 3.0f);
-			ImGui::GetWindowDrawList()->AddRect(name_min, name_max, IM_COL32(0, 174, 197, 255), 3.0f, 0, 2.0f);
-			const std::string displayed_name = fit_text(_implementation->save_as_name.c_str(), name_max.x - name_min.x - 24.0f);
-			ImGui::GetWindowDrawList()->AddText({ name_min.x + 12.0f, name_min.y + (name_max.y - name_min.y - ImGui::GetFontSize()) * 0.5f },
-				IM_COL32(235, 250, 255, 255), displayed_name.c_str());
+			ImGui::GetWindowDrawList()->AddRectFilled(name_min, name_max, colors().surface, vr_theme::radius_md);
+			ImGui::GetWindowDrawList()->AddRect(name_min, name_max, colors().accent, vr_theme::radius_md, 0, vr_theme::stroke);
+			const std::string displayed_name = fit_text(_implementation->save_as_name.c_str(), name_max.x - name_min.x - 32.0f);
+			const ImVec2 name_text_position = { name_min.x + 16.0f, std::floor(name_min.y + (name_max.y - name_min.y - ImGui::GetFontSize()) * 0.5f) };
+			ImGui::GetWindowDrawList()->AddText(name_text_position, colors().text, displayed_name.c_str());
+			// A caret after the name shows where typed letters go.
+			const float caret_x = name_text_position.x + ImGui::CalcTextSize(displayed_name.c_str()).x + 3.0f;
+			ImGui::GetWindowDrawList()->AddRectFilled({ caret_x, name_text_position.y }, { caret_x + 2.5f, name_text_position.y + ImGui::GetFontSize() },
+				colors().accent);
 
 			auto draw_keyboard_row = [&](const char *keys, float start_x, float y) {
 				for (size_t index = 0; keys[index] != '\0'; ++index)
@@ -781,7 +1116,7 @@ namespace openxr_ui
 
 			ImGui::SetCursorScreenPos({ 56.0f, 366.0f });
 			const bool case_hovered = draw_text_button("case", _implementation->save_as_uppercase ? "ABC" : "abc", { 104.0f, 42.0f }, true,
-				_implementation->save_as_uppercase ? IM_COL32(22, 132, 72, 255) : 0);
+				_implementation->save_as_uppercase ? button_tone::toggled : button_tone::neutral);
 			ImGui::SetCursorScreenPos({ 168.0f, 366.0f });
 			const bool space_hovered = draw_text_button("space", "Space", { 320.0f, 42.0f });
 			ImGui::SetCursorScreenPos({ 496.0f, 366.0f });
@@ -796,7 +1131,7 @@ namespace openxr_ui
 			const char *const create_label = _implementation->save_as_feedback < 0 ? "Failed" : "Create";
 			ImGui::SetCursorScreenPos({ io.DisplaySize.x - outer_padding - 160.0f, 430.0f });
 			const bool create_hovered = draw_text_button("create_preset", create_label, { 160.0f, 46.0f }, valid_name,
-				_implementation->save_as_feedback < 0 ? IM_COL32(166, 48, 48, 255) : IM_COL32(22, 132, 72, 255));
+				_implementation->save_as_feedback < 0 ? button_tone::danger : button_tone::primary);
 
 			if (input.select_clicked && (close_dialog_hovered || cancel_hovered))
 			{
@@ -826,88 +1161,101 @@ namespace openxr_ui
 				if ((_implementation->show_hidden || !entry.hidden) && (!_implementation->show_favourites_only || entry.favourite))
 					displayed_techniques.push_back(&entry);
 
-			const size_t visible_techniques = input.expanded ? compact_techniques_per_page * 2 : compact_techniques_per_page;
-			const size_t maximum_scroll = displayed_techniques.size() > visible_techniques ? displayed_techniques.size() - visible_techniques : 0;
-			_implementation->technique_scroll = (std::min)(_implementation->technique_scroll, maximum_scroll);
-			if (_implementation->dragging == implementation::drag_target::none)
+			char page_text[128];
+			char page_details[96];
+			char version_suffix[24];
 			{
-				const int scroll_direction = input.scroll_y > joystick_scroll_dead_zone ? -1 :
-					input.scroll_y < -joystick_scroll_dead_zone ? 1 : 0;
-				bool advance_scroll = false;
-				if (scroll_direction != _implementation->joystick_scroll_direction)
-				{
-					_implementation->joystick_scroll_direction = scroll_direction;
-					_implementation->joystick_scroll_frame_count = 0;
-					advance_scroll = scroll_direction != 0;
-				}
-				else if (scroll_direction != 0 && ++_implementation->joystick_scroll_frame_count >= joystick_scroll_repeat_frames)
-				{
-					_implementation->joystick_scroll_frame_count = 0;
-					advance_scroll = true;
-				}
-				if (advance_scroll && scroll_direction < 0 && _implementation->technique_scroll > 0)
-					--_implementation->technique_scroll;
-				else if (advance_scroll && scroll_direction > 0 && _implementation->technique_scroll < maximum_scroll)
-					++_implementation->technique_scroll;
+				char version_label[16];
+				openxr_ui::format_version_label(version_label);
+				std::snprintf(version_suffix, sizeof(version_suffix), "  \xC2\xB7  %s", version_label);
 			}
-			else
-			{
-				_implementation->joystick_scroll_direction = 0;
-				_implementation->joystick_scroll_frame_count = 0;
-			}
-			char page_text[96];
-			std::snprintf(page_text, sizeof(page_text), "%zu shown  |  %s", displayed_techniques.size(), graphics_api_label);
+			std::snprintf(page_details, sizeof(page_details), "%zu shown  \xC2\xB7  %s", displayed_techniques.size(), graphics_api_label);
+			std::snprintf(page_text, sizeof(page_text), "%s%s", page_details, version_suffix);
 			const ImVec2 header_origin = ImGui::GetCursorScreenPos();
-			ImGui::TextUnformatted("ReShade Techniques");
-			ImGui::SameLine();
-			ImGui::TextDisabled("%s", page_text);
-			ImGui::SetCursorScreenPos({ ImGui::GetWindowWidth() - outer_padding - 34.0f, header_origin.y });
-			const bool close_hovered = draw_text_button("close", "X", { 34.0f, 30.0f });
-			ImGui::SetCursorScreenPos({ ImGui::GetWindowWidth() - outer_padding - 162.0f, header_origin.y });
-			const bool expand_hovered = draw_text_button("expand", input.expanded ? "Collapse" : "Expand", { 120.0f, 30.0f });
-			ImGui::SetCursorScreenPos({ ImGui::GetWindowWidth() - outer_padding - 270.0f, header_origin.y });
-			const bool pin_hovered = draw_text_button("pin", "Pin UI", { 100.0f, 30.0f }, true,
-				input.panel_locked ? IM_COL32(22, 132, 72, 255) : 0);
+			const float right_edge = ImGui::GetWindowWidth() - outer_padding;
+			ImDrawList *const header_draw_list = ImGui::GetWindowDrawList();
+			ImGui::PushFont(bold_font(), vr_theme::font_title);
+			const char *const title = "ReShade Techniques";
+			header_draw_list->AddText({ header_origin.x, std::floor(header_origin.y + (control_height - ImGui::GetFontSize()) * 0.5f) },
+				colors().text, title);
+			const float subtitle_x = header_origin.x + ImGui::CalcTextSize(title).x + space_md;
+			ImGui::PopFont();
+			ImGui::SetCursorScreenPos({ right_edge - control_height, header_origin.y });
+			const bool close_hovered = draw_icon_button("close", button_icon::close, { control_height, control_height });
+			ImGui::SetCursorScreenPos({ right_edge - control_height * 2.0f - space_sm, header_origin.y });
+			const bool expand_hovered = draw_panel_size_button(input.expanded);
+			const float pin_x = right_edge - control_height * 2.0f - space_sm * 2.0f - 96.0f;
+			ImGui::SetCursorScreenPos({ pin_x, header_origin.y });
+			const bool pin_hovered = draw_text_button("pin", "Pin UI", { 96.0f, control_height }, true,
+				input.panel_locked ? button_tone::toggled : button_tone::neutral);
+			// The FPS counter is part of the panel's view, so its switch sits right next to Pin UI and Expand.
+			// The box is as wide as its label so it groups tightly with them.
+			const char *const statistics_label = "Always show FPS";
+			const float statistics_box_width = std::ceil(tick_box_label_x + ImGui::CalcTextSize(statistics_label).x + space_sm);
+			const float statistics_x = pin_x - space_sm - statistics_box_width;
+			ImGui::SetCursorScreenPos({ statistics_x, header_origin.y });
+			const bool statistics_hovered = draw_tick_box("always_show_statistics", statistics_label, input.always_show_statistics, statistics_box_width);
+			{
+				// The version is always shown in full; only the count and graphics details shorten when space runs out.
+				ImGui::PushFont(nullptr, vr_theme::font_small);
+				const float details_width = statistics_x - space_md - subtitle_x - ImGui::CalcTextSize(version_suffix).x;
+				const std::string fitted_page_text = fit_text(page_details, details_width) + version_suffix;
+				header_draw_list->AddText({ subtitle_x, std::floor(header_origin.y + (control_height - ImGui::GetFontSize()) * 0.5f) + 1.0f },
+					colors().text_secondary, fitted_page_text.c_str());
+				ImGui::PopFont();
+				draw_hover_details({ subtitle_x, header_origin.y }, { statistics_x - space_md, header_origin.y + control_height }, page_text);
+			}
 
-			ImGui::SetCursorScreenPos({ header_origin.x, header_origin.y + 36.0f });
-			const bool active_first_hovered = draw_text_button("active_first", "Active first", { 166.0f, 30.0f });
-			ImGui::SetCursorScreenPos({ header_origin.x + 174.0f, header_origin.y + 36.0f });
-			const bool favourites_only_hovered = draw_text_button("favourites_only", "Starred only", { 166.0f, 30.0f }, true,
-				_implementation->show_favourites_only ? IM_COL32(184, 138, 20, 255) : 0);
-			ImGui::SetCursorScreenPos({ header_origin.x + 348.0f, header_origin.y + 36.0f });
-			const bool show_hidden_hovered = draw_text_button("show_hidden", _implementation->show_hidden ? "Hide hidden" : "Show hidden", { 154.0f, 30.0f }, true,
-				_implementation->show_hidden ? IM_COL32(22, 132, 72, 255) : 0);
+			const float filter_y = header_origin.y + header_row_step;
+			ImGui::SetCursorScreenPos({ header_origin.x, filter_y });
+			const bool active_first_hovered = draw_text_button("active_first", "Active first", { 144.0f, control_height });
+			ImGui::SetCursorScreenPos({ header_origin.x + 152.0f, filter_y });
+			const bool favourites_only_hovered = draw_text_button("favourites_only", "Starred only", { 144.0f, control_height }, true,
+				_implementation->show_favourites_only ? button_tone::toggled : button_tone::neutral);
+			ImGui::SetCursorScreenPos({ header_origin.x + 304.0f, filter_y });
+			const bool show_hidden_hovered = draw_text_button("show_hidden", _implementation->show_hidden ? "Hide hidden" : "Show hidden", { 144.0f, control_height }, true,
+				_implementation->show_hidden ? button_tone::toggled : button_tone::neutral);
+			ImGui::SetCursorScreenPos({ right_edge - 176.0f, filter_y });
+			const bool disable_all_hovered = draw_text_button("disable_all",
+				input.shaders_temporarily_disabled ? "Restore shaders" : "Disable all", { 176.0f, control_height }, true,
+				input.shaders_temporarily_disabled ? button_tone::warning : button_tone::neutral);
 
-			ImGui::SetCursorScreenPos({ header_origin.x, header_origin.y + 72.0f });
-			ImGui::TextUnformatted("Current preset:");
-			ImGui::SameLine();
-			const float preset_controls_x = ImGui::GetWindowWidth() - outer_padding - 430.0f;
-			const float preset_name_width = preset_controls_x - ImGui::GetCursorScreenPos().x - 8.0f;
-			const std::string preset_label = fit_text(input.preset_name.empty() ? "No preset" : input.preset_name.c_str(), preset_name_width);
-			ImGui::TextUnformatted(preset_label.c_str());
-			ImGui::SameLine(preset_controls_x);
-			const bool previous_preset_hovered = draw_text_button("previous_preset", "<", { 34.0f, 30.0f }, !input.shaders_temporarily_disabled);
-			ImGui::SameLine();
-			const bool next_preset_hovered = draw_text_button("next_preset", ">", { 34.0f, 30.0f }, !input.shaders_temporarily_disabled);
-			ImGui::SameLine();
+			const float preset_y = header_origin.y + header_row_step * 2.0f;
+			const float preset_controls_x = right_edge - 408.0f;
+			{
+				const float text_y = std::floor(preset_y + (control_height - ImGui::GetFontSize()) * 0.5f);
+				header_draw_list->AddText({ header_origin.x, text_y }, colors().text_secondary, "Preset");
+				const float name_x = header_origin.x + ImGui::CalcTextSize("Preset").x + space_sm + space_xs;
+				ImGui::PushFont(bold_font(), 0.0f);
+				const std::string preset_label = fit_text(input.preset_name.empty() ? "No preset" : input.preset_name.c_str(),
+					preset_controls_x - space_md - name_x);
+				header_draw_list->AddText({ name_x, text_y }, colors().text, preset_label.c_str());
+				ImGui::PopFont();
+			}
+			ImGui::SetCursorScreenPos({ preset_controls_x, preset_y });
+			const bool previous_preset_hovered = draw_icon_button("previous_preset", button_icon::previous, { control_height, control_height }, !input.shaders_temporarily_disabled);
+			ImGui::SetCursorScreenPos({ preset_controls_x + 40.0f, preset_y });
+			const bool next_preset_hovered = draw_icon_button("next_preset", button_icon::next, { control_height, control_height }, !input.shaders_temporarily_disabled);
 			const char *const save_label = input.preset_dirty ? "Save" : _implementation->save_feedback > 0 ? "Saved" : _implementation->save_feedback < 0 ? "Failed" : "Save";
-			const ImU32 save_color = input.preset_dirty ? IM_COL32(184, 138, 20, 255) :
-				_implementation->save_feedback > 0 ? IM_COL32(22, 132, 72, 255) :
-				_implementation->save_feedback < 0 ? IM_COL32(166, 48, 48, 255) :
-				IM_COL32(22, 132, 72, 255);
-			const bool save_hovered = draw_text_button("save", save_label, { 90.0f, 30.0f }, !input.shaders_temporarily_disabled, save_color);
-			ImGui::SameLine();
+			const button_tone save_tone = input.preset_dirty ? button_tone::primary :
+				_implementation->save_feedback > 0 ? button_tone::success :
+				_implementation->save_feedback < 0 ? button_tone::danger : button_tone::neutral;
+			ImGui::SetCursorScreenPos({ preset_controls_x + 80.0f, preset_y });
+			const bool save_hovered = draw_text_button("save", save_label, { 88.0f, control_height }, !input.shaders_temporarily_disabled, save_tone);
 			const char *const save_as_label = _implementation->save_as_feedback == 2 ? "Creating..." :
 				_implementation->save_as_feedback > 0 ? "Created" : _implementation->save_as_feedback < 0 ? "Failed" : "Save As";
-			const ImU32 save_as_color = _implementation->save_as_feedback == 2 ? IM_COL32(184, 138, 20, 255) :
-				_implementation->save_as_feedback > 0 ? IM_COL32(22, 132, 72, 255) :
-				_implementation->save_as_feedback < 0 ? IM_COL32(166, 48, 48, 255) : 0;
-			const bool save_as_hovered = draw_text_button("save_as", save_as_label, { 150.0f, 30.0f },
-				!input.shaders_temporarily_disabled && _implementation->save_as_feedback != 2, save_as_color);
-			ImGui::SameLine();
-			const bool delete_preset_hovered = draw_text_button("delete_preset", "Delete", { 90.0f, 30.0f },
-				!input.shaders_temporarily_disabled && _implementation->save_as_feedback != 2, IM_COL32(166, 48, 48, 255));
-			ImGui::SetCursorScreenPos({ header_origin.x, header_origin.y + 108.0f });
+			const button_tone save_as_tone = _implementation->save_as_feedback == 2 ? button_tone::warning :
+				_implementation->save_as_feedback > 0 ? button_tone::success :
+				_implementation->save_as_feedback < 0 ? button_tone::danger : button_tone::neutral;
+			ImGui::SetCursorScreenPos({ preset_controls_x + 176.0f, preset_y });
+			const bool save_as_hovered = draw_text_button("save_as", save_as_label, { 128.0f, control_height },
+				!input.shaders_temporarily_disabled && _implementation->save_as_feedback != 2, save_as_tone);
+			ImGui::SetCursorScreenPos({ preset_controls_x + 312.0f, preset_y });
+			const bool delete_preset_hovered = draw_text_button("delete_preset", "Delete", { 96.0f, control_height },
+				!input.shaders_temporarily_disabled && _implementation->save_as_feedback != 2, button_tone::destructive);
+			const float divider_y = preset_y + control_height + space_sm;
+			header_draw_list->AddRectFilled({ header_origin.x, divider_y - 1.0f }, { right_edge, divider_y + 1.0f }, colors().surface);
+			ImGui::SetCursorScreenPos({ header_origin.x, divider_y + space_sm });
 			if (input.select_clicked && close_hovered && _implementation->dragging == implementation::drag_target::none)
 				result.action = render_result::command::hide_panel;
 			else if (input.select_clicked && expand_hovered && _implementation->dragging == implementation::drag_target::none)
@@ -929,7 +1277,6 @@ namespace openxr_ui
 				_implementation->show_hidden = !_implementation->show_hidden;
 				_implementation->technique_scroll = 0;
 			}
-			ImGui::Separator();
 			if (input.effect_subfolders.state != effect_subfolder_state::none)
 			{
 				const effect_subfolder_status &subfolders = input.effect_subfolders;
@@ -938,7 +1285,7 @@ namespace openxr_ui
 				const char *blocked_reason = offered && input.shaders_temporarily_disabled ? "Turn shaders back on first." : nullptr;
 				const bool drops_unsaved_changes = offered && blocked_reason == nullptr && input.preset_dirty;
 				char message[160];
-				ImU32 accent = IM_COL32(184, 138, 20, 255);
+				ImU32 accent = colors().warning;
 				const char *details = nullptr;
 				switch (subfolders.state)
 				{
@@ -961,7 +1308,7 @@ namespace openxr_ui
 				case effect_subfolder_state::saving:
 				case effect_subfolder_state::loading:
 					std::snprintf(message, sizeof(message), "Loading effects... %u s. Effects are off until it finishes.", subfolders.loading_seconds);
-					accent = IM_COL32(0, 174, 197, 255);
+					accent = colors().accent;
 					details = "ReShade is building every effect again, including the ones from the subfolders. "
 						"All effects are switched off until it is done, and the list is empty meanwhile.\n\n"
 						"The first time this can take up to a minute, because the new effects have never been built before. "
@@ -969,7 +1316,7 @@ namespace openxr_ui
 					break;
 				case effect_subfolder_state::loaded:
 					std::snprintf(message, sizeof(message), "Effects from subfolders loaded. No restart needed.");
-					accent = IM_COL32(26, 196, 100, 255);
+					accent = colors().success;
 					details = "ReShade.ini now includes the subfolders, so they also load at the next game start.";
 					break;
 				case effect_subfolder_state::restart_needed:
@@ -979,7 +1326,7 @@ namespace openxr_ui
 					break;
 				default:
 					std::snprintf(message, sizeof(message), "Could not change ReShade.ini.");
-					accent = IM_COL32(220, 70, 70, 255);
+					accent = colors().danger;
 					details = "ReShade did not save the setting, for example because ReShade.ini is read-only.\n\n"
 						"To fix it by hand, open ReShade.ini, find EffectSearchPaths and add \\** to the end of each folder, "
 						"for example .\\reshade-shaders\\Shaders\\**. Then restart the game.";
@@ -1002,7 +1349,7 @@ namespace openxr_ui
 					ImGui::SetCursorScreenPos({ buttons_x, button_y });
 					primary_hovered = draw_text_button("subfolders_load", drops_unsaved_changes ? "Load anyway" : "Load subfolders",
 						{ 188.0f, button_size.y }, blocked_reason == nullptr,
-						drops_unsaved_changes ? IM_COL32(184, 138, 20, 255) : IM_COL32(22, 132, 72, 255));
+						drops_unsaved_changes ? button_tone::warning : button_tone::primary);
 					buttons_x += 196.0f;
 					ImGui::SetCursorScreenPos({ buttons_x, button_y });
 					dismiss_hovered = draw_text_button("subfolders_not_now", "Not now", { 110.0f, button_size.y });
@@ -1018,7 +1365,7 @@ namespace openxr_ui
 					result.action = render_result::command::include_effect_subfolders;
 				else if (can_click && dismiss_hovered)
 					result.action = render_result::command::dismiss_effect_subfolder_notice;
-				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + 6.0f });
+				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + space_sm });
 			}
 			if (!input.effect_runtime_available)
 			{
@@ -1042,27 +1389,32 @@ namespace openxr_ui
 				const ImVec2 notice_min = ImGui::GetCursorScreenPos();
 				const ImVec2 notice_max = { ImGui::GetWindowWidth() - outer_padding, notice_min.y + 40.0f };
 				draw_notice(notice_min, notice_max, notice_max.x - 10.0f,
-					input.reshade_loaded ? IM_COL32(0, 174, 197, 255) : IM_COL32(220, 70, 70, 255), input.reshade_loaded, message, details);
-				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + 6.0f });
+					input.reshade_loaded ? colors().accent : colors().danger, input.reshade_loaded, message, details);
+				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + space_sm });
 			}
 			else if (snapshot.techniques.empty() && (input.effect_subfolders.state == effect_subfolder_state::saving ||
 				input.effect_subfolders.state == effect_subfolder_state::loading))
 			{
-				ImGui::TextColored(ImVec4(0.0f, 0.68f, 0.77f, 1.0f), "ReShade is loading effects");
+				ImGui::TextColored(vr_theme::to_float4(colors().accent), "ReShade is loading effects");
 				ImGui::TextWrapped("The list and all effects come back when loading finishes.");
 				ImGui::Separator();
 			}
 			else if (snapshot.techniques.empty())
 			{
-				ImGui::TextColored(ImVec4(1.0f, 0.62f, 0.22f, 1.0f), "No ReShade techniques found");
+				ImGui::TextColored(vr_theme::to_float4(colors().warning), "No ReShade techniques found");
 				ImGui::TextWrapped("Check EffectSearchPaths in ReShadeVR.ini or ReShade.ini.");
 				ImGui::Separator();
 			}
 
-			const float list_height = ImGui::GetContentRegionAvail().y - main_footer_height;
-			const float row_height = (list_height - row_spacing * (visible_techniques - 1)) / visible_techniques;
+			// As many rows of at least list_row_height as fit between the header and the settings below.
 			const ImVec2 list_min = ImGui::GetCursorScreenPos();
-			const float row_width = ImGui::GetContentRegionAvail().x - 42.0f;
+			const float list_height = display_height - outer_padding - main_footer_height - space_md - list_min.y;
+			const size_t visible_techniques = std::max<size_t>(1, static_cast<size_t>((list_height + list_row_gap) / (list_row_height + list_row_gap)));
+			const float row_height = std::floor((list_height - list_row_gap * static_cast<float>(visible_techniques - 1)) / static_cast<float>(visible_techniques));
+			const size_t maximum_scroll = displayed_techniques.size() > visible_techniques ? displayed_techniques.size() - visible_techniques : 0;
+			_implementation->technique_scroll = (std::min)(_implementation->technique_scroll, maximum_scroll);
+			_implementation->update_joystick_scroll(input.scroll_y, _implementation->technique_scroll, maximum_scroll);
+			const float row_width = ImGui::GetContentRegionAvail().x - scrollbar_width - space_sm;
 			const size_t first = _implementation->technique_scroll;
 			const size_t last = (std::min)(first + visible_techniques, displayed_techniques.size());
 			for (size_t index = first; index < first + visible_techniques; ++index)
@@ -1071,11 +1423,13 @@ namespace openxr_ui
 				const ImVec2 size = { row_width, row_height };
 				ImGui::InvisibleButton("technique", size);
 				const bool row_hovered = ImGui::IsItemHovered();
-				const ImVec2 next_row = ImGui::GetCursorScreenPos();
 				const ImVec2 minimum = ImGui::GetItemRectMin();
+				const ImVec2 next_row = { minimum.x, minimum.y + row_height + list_row_gap };
 				const ImVec2 maximum = ImGui::GetItemRectMax();
 				ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-				draw_list->AddRectFilled(minimum, maximum, IM_COL32(13, 29, 38, 255), 3.0f);
+				// Empty slots below the last effect stay blank instead of showing a stack of empty bars.
+				if (index < last)
+					draw_list->AddRectFilled(minimum, maximum, row_hovered ? colors().surface_raised : colors().surface, vr_theme::radius_md);
 
 				if (index < last)
 				{
@@ -1083,42 +1437,44 @@ namespace openxr_ui
 					ImGui::SetCursorScreenPos({ minimum.x + 4.0f, minimum.y + 2.0f });
 					ImGui::InvisibleButton("toggle", { 40.0f, row_height - 4.0f });
 					const bool toggle_hovered = ImGui::IsItemHovered();
-					const ImVec2 indicator_min = { minimum.x + 12.0f, minimum.y + (row_height - 16.0f) * 0.5f };
-					const ImVec2 indicator_max = { indicator_min.x + 16.0f, indicator_min.y + 16.0f };
-					draw_list->AddRectFilled(indicator_min, indicator_max, entry.enabled ? IM_COL32(26, 196, 100, 255) : IM_COL32(72, 82, 86, 255), 3.0f);
-					if (entry.enabled)
-					{
-						draw_list->AddLine({ indicator_min.x + 3.0f, indicator_min.y + 8.0f }, { indicator_min.x + 7.0f, indicator_min.y + 12.0f }, IM_COL32_WHITE, 2.0f);
-						draw_list->AddLine({ indicator_min.x + 7.0f, indicator_min.y + 12.0f }, { indicator_min.x + 14.0f, indicator_min.y + 4.0f }, IM_COL32_WHITE, 2.0f);
-					}
-					const ImVec2 text_min = { minimum.x + 50.0f, minimum.y + (row_height - ImGui::GetFontSize()) * 0.5f };
+					draw_check_indicator(draw_list, { minimum.x + 12.0f, std::floor(minimum.y + (row_height - 18.0f) * 0.5f) }, 18.0f, entry.enabled, toggle_hovered);
+					const ImVec2 text_min = { minimum.x + 50.0f, std::floor(minimum.y + (row_height - ImGui::GetFontSize()) * 0.5f) };
 					char label[320];
 					std::snprintf(label, sizeof(label), "%s  [%s]", entry.name.c_str(), entry.effect_name.c_str());
-					const ImVec2 text_max = { maximum.x - 348.0f, maximum.y };
-					const std::string fitted_label = fit_text(label, text_max.x - text_min.x);
-					draw_list->AddText(text_min, entry.has_non_default_values ? changed_value_color : IM_COL32(222, 242, 245, 255), fitted_label.c_str());
+					const ImVec2 text_max = { maximum.x - 344.0f, maximum.y };
+					// The technique name leads; the effect file follows in smaller, quieter text when there is room.
+					const std::string fitted_name = fit_text(entry.name.c_str(), text_max.x - text_min.x);
+					const ImU32 name_color = entry.has_non_default_values ? colors().changed_value : entry.hidden ? colors().text_secondary : colors().text;
+					draw_list->AddText(text_min, name_color, fitted_name.c_str());
+					const float effect_x = text_min.x + ImGui::CalcTextSize(fitted_name.c_str()).x + 12.0f;
+					if (effect_x + 40.0f < text_max.x)
+					{
+						ImGui::PushFont(nullptr, vr_theme::font_small);
+						const std::string fitted_effect = fit_text(entry.effect_name.c_str(), text_max.x - effect_x);
+						draw_list->AddText({ effect_x, std::floor(minimum.y + (row_height - ImGui::GetFontSize()) * 0.5f) + 1.0f },
+							colors().text_disabled, fitted_effect.c_str());
+						ImGui::PopFont();
+					}
 					draw_hover_details(text_min, text_max, label, entry.tooltip.c_str());
 					const auto order_it = std::find_if(snapshot.techniques.begin(), snapshot.techniques.end(), [&entry](const technique &candidate) {
 						return candidate.id == entry.id;
 					});
 					const bool can_move_up = order_it != snapshot.techniques.end() && order_it != snapshot.techniques.begin();
 					const bool can_move_down = order_it != snapshot.techniques.end() && order_it + 1 != snapshot.techniques.end();
-					ImGui::SetCursorScreenPos({ maximum.x - 338.0f, minimum.y + 4.0f });
-					const bool move_up_hovered = draw_text_button("move_up", "^", { 34.0f, row_height - 8.0f }, !input.shaders_temporarily_disabled && can_move_up);
-					ImGui::SameLine();
-					ImGui::SetCursorScreenPos({ maximum.x - 298.0f, minimum.y + 4.0f });
-					const bool move_down_hovered = draw_text_button("move_down", "v", { 34.0f, row_height - 8.0f }, !input.shaders_temporarily_disabled && can_move_down);
-					const bool move_controls_hovered = ImGui::IsMouseHoveringRect(
-						{ maximum.x - 338.0f, minimum.y + 4.0f }, { maximum.x - 264.0f, maximum.y - 4.0f });
-					ImGui::SameLine();
-					ImGui::SetCursorScreenPos({ maximum.x - 258.0f, minimum.y + 4.0f });
-					const bool favourite_hovered = draw_star_button("favourite", { 40.0f, row_height - 8.0f }, entry.favourite);
-					ImGui::SameLine();
-					ImGui::SetCursorScreenPos({ maximum.x - 212.0f, minimum.y + 4.0f });
-					const bool hide_hovered = draw_text_button("hide", entry.hidden ? "Unhide" : "Hide", { 100.0f, row_height - 8.0f });
-					ImGui::SameLine();
-					ImGui::SetCursorScreenPos({ maximum.x - 106.0f, minimum.y + 4.0f });
-					const bool open_hovered = draw_text_button("open", "Open", { 100.0f, row_height - 8.0f }, !input.shaders_temporarily_disabled);
+					// Row buttons, right to left: Open, Hide, star, down, up; 8 px apart and 4 px inside the row.
+					const float button_y = minimum.y + space_xs;
+					const float button_height = row_height - space_xs * 2.0f;
+					ImGui::SetCursorScreenPos({ maximum.x - 332.0f, button_y });
+					const bool move_up_hovered = draw_icon_button("move_up", button_icon::up, { 32.0f, button_height }, !input.shaders_temporarily_disabled && can_move_up);
+					ImGui::SetCursorScreenPos({ maximum.x - 292.0f, button_y });
+					const bool move_down_hovered = draw_icon_button("move_down", button_icon::down, { 32.0f, button_height }, !input.shaders_temporarily_disabled && can_move_down);
+					const bool move_controls_hovered = ImGui::IsMouseHoveringRect({ maximum.x - 332.0f, button_y }, { maximum.x - 260.0f, button_y + button_height });
+					ImGui::SetCursorScreenPos({ maximum.x - 252.0f, button_y });
+					const bool favourite_hovered = draw_star_button("favourite", { 40.0f, button_height }, entry.favourite);
+					ImGui::SetCursorScreenPos({ maximum.x - 204.0f, button_y });
+					const bool hide_hovered = draw_text_button("hide", entry.hidden ? "Unhide" : "Hide", { 96.0f, button_height });
+					ImGui::SetCursorScreenPos({ maximum.x - 100.0f, button_y });
+					const bool open_hovered = draw_text_button("open", "Open", { 96.0f, button_height }, !input.shaders_temporarily_disabled);
 					if (input.select_clicked && open_hovered && _implementation->dragging == implementation::drag_target::none)
 					{
 						_implementation->selected_technique = entry.id;
@@ -1155,10 +1511,10 @@ namespace openxr_ui
 				ImGui::PopID();
 			}
 
-			const ImVec2 footer_min = ImGui::GetCursorScreenPos();
-			ImGui::SetCursorScreenPos({ list_min.x + row_width + 8.0f, list_min.y });
+			const ImVec2 footer_min = { list_min.x, list_min.y + list_height + space_md };
+			ImGui::SetCursorScreenPos({ list_min.x + row_width + space_sm, list_min.y });
 			const float scroll_fraction = maximum_scroll > 0 ? static_cast<float>(_implementation->technique_scroll) / static_cast<float>(maximum_scroll) : 0.0f;
-			const slider_interaction scroll_slider = draw_vertical_slider("technique_scroll", { 34.0f, list_height }, scroll_fraction, maximum_scroll > 0);
+			const slider_interaction scroll_slider = draw_vertical_slider("technique_scroll", { scrollbar_width, list_height }, scroll_fraction, maximum_scroll > 0);
 			if (input.select_clicked && scroll_slider.hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				_implementation->dragging = implementation::drag_target::technique_scroll;
@@ -1174,20 +1530,24 @@ namespace openxr_ui
 			}
 
 			// The left column holds UI behaviour, the right column game-start settings; the gap keeps the two apart.
-			const float settings_column_x = footer_min.x + 440.0f;
+			const float settings_column_x = footer_min.x + 488.0f;
+			const float footer_row_2 = footer_min.y + header_row_step;
+			const float footer_row_3 = footer_min.y + header_row_step * 2.0f;
 			ImGui::SetCursorScreenPos(footer_min);
-			const bool statistics_hovered = draw_tick_box("always_show_statistics", "Always show FPS", input.always_show_statistics, 230.0f);
-			ImGui::SetCursorScreenPos({ settings_column_x, footer_min.y + 2.0f });
+			const dropdown_interaction theme_choice = draw_dropdown(_implementation->dropdown, "theme", "Theme: ", control_height,
+				vr_theme::theme_names, vr_theme::theme_count, input.theme,
+				input.select_clicked && _implementation->dragging == implementation::drag_target::none);
+			ImGui::SetCursorScreenPos({ settings_column_x, footer_min.y });
 			const char *frame_rate_options[max_frame_rate_divisor];
 			for (uint32_t divisor = 1; divisor <= max_frame_rate_divisor; ++divisor)
 				frame_rate_options[divisor - 1] = frame_rate_divisor_name(divisor);
-			const dropdown_interaction frame_rate = draw_dropdown(_implementation->dropdown, "frame_rate_divisor", "FPS target: ", 30.0f,
+			const dropdown_interaction frame_rate = draw_dropdown(_implementation->dropdown, "frame_rate_divisor", "FPS target: ", control_height,
 				frame_rate_options, max_frame_rate_divisor, input.frame_rate_divisor - 1,
 				input.select_clicked && _implementation->dragging == implementation::drag_target::none);
 
 			// Both settings are read by ReShade only at game start, so they share one restart note.
 			const std::string restart_first = "Restart the game to apply your change.\n\n";
-			ImGui::SetCursorScreenPos({ settings_column_x, footer_min.y + 37.0f });
+			ImGui::SetCursorScreenPos({ settings_column_x, footer_row_2 });
 			const char *const performance_label = "Performance mode (on = faster shaders)";
 			const bool performance_hovered = draw_tick_box("performance_mode", performance_label, input.performance_mode, 520.0f);
 			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), performance_label,
@@ -1196,7 +1556,7 @@ namespace openxr_ui
 				"How much this helps depends on how many and how heavy the shaders you use are. "
 				"Shader settings can then not be changed; shaders can still be switched on and off. "
 				"Applies after a game restart.").c_str());
-			ImGui::SetCursorScreenPos({ settings_column_x, footer_min.y + 74.0f });
+			ImGui::SetCursorScreenPos({ settings_column_x, footer_row_3 });
 			const char *const depth_label = "Depth buffer (off = faster in OpenGL)";
 			const bool depth_hovered = draw_tick_box("depth_buffer", depth_label, !input.depth_detection_disabled, 520.0f);
 			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), depth_label,
@@ -1206,15 +1566,13 @@ namespace openxr_ui
 				"In SOMA-VR (OpenGL) turning it off gave about 30 FPS more. In DirectX games ReShade costs only a few FPS in total, "
 				"so turning this off makes little difference there. Applies after a game restart.").c_str());
 			const bool restart_pending = input.performance_mode_restart_pending || input.depth_detection_restart_pending;
-			ImGui::GetWindowDrawList()->AddText({ settings_column_x + 36.0f, footer_min.y + 111.0f + (34.0f - ImGui::GetFontSize()) * 0.5f },
-				restart_pending ? changed_value_color : IM_COL32(150, 170, 174, 255),
+			ImGui::PushFont(nullptr, vr_theme::font_small);
+			ImGui::GetWindowDrawList()->AddText({ settings_column_x + 36.0f, footer_row_3 + header_row_step },
+				restart_pending ? colors().changed_value : colors().text_secondary,
 				restart_pending ? "Restart the game to apply your change." : "These two apply after a game restart.");
-			char version_label[16];
-			openxr_ui::format_version_label(version_label);
-			ImGui::GetWindowDrawList()->AddText({ ImGui::GetWindowWidth() - outer_padding - ImGui::CalcTextSize(version_label).x,
-				footer_min.y + 111.0f + (34.0f - ImGui::GetFontSize()) * 0.5f }, IM_COL32(150, 170, 174, 255), version_label);
+			ImGui::PopFont();
 
-			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 37.0f });
+			ImGui::SetCursorScreenPos({ footer_min.x, footer_row_2 });
 			const bool starts_open_hovered = draw_tick_box("starts_open", "UI starts open", input.ui_starts_open, 220.0f);
 			// The game still sees every button and key press, so each choice may also do something in the game or in a mod such as UEVR.
 			const char *const shortcut_details =
@@ -1225,23 +1583,20 @@ namespace openxr_ui
 				"UEVR opens its own menu with L3+R3 and Insert, so in UEVR games pick a hold or B+Y, and End or Page Up. "
 				"Controller and key cannot both be Off.";
 			const bool interaction_free = input.select_clicked && _implementation->dragging == implementation::drag_target::none;
-			const ImVec2 shortcut_row = { footer_min.x, footer_min.y + 74.0f };
+			const ImVec2 shortcut_row = { footer_min.x, footer_row_3 };
 			const char *const shortcut_label = "Open UI";
 			// Lines up with the tick boxes above; the two lists share their height and baseline with the FPS target list.
-			ImGui::GetWindowDrawList()->AddText({ shortcut_row.x + 7.0f, shortcut_row.y + (34.0f - ImGui::GetFontSize()) * 0.5f },
-				IM_COL32(222, 242, 245, 255), shortcut_label);
-			ImGui::SetCursorScreenPos({ shortcut_row.x + 7.0f + ImGui::CalcTextSize(shortcut_label).x + 12.0f, shortcut_row.y + 2.0f });
-			const dropdown_interaction button_choice = draw_dropdown(_implementation->dropdown, "menu_button", "", 30.0f,
+			ImGui::GetWindowDrawList()->AddText({ shortcut_row.x + 7.0f, std::floor(shortcut_row.y + (control_height - ImGui::GetFontSize()) * 0.5f) },
+				colors().text, shortcut_label);
+			ImGui::SetCursorScreenPos({ shortcut_row.x + 7.0f + ImGui::CalcTextSize(shortcut_label).x + space_md, shortcut_row.y });
+			const dropdown_interaction button_choice = draw_dropdown(_implementation->dropdown, "menu_button", "", control_height,
 				menu_button_names, menu_button_count, input.menu_button, interaction_free);
 			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Open UI: controller buttons", shortcut_details);
-			ImGui::SetCursorScreenPos({ ImGui::GetItemRectMax().x + 8.0f, shortcut_row.y + 2.0f });
-			const dropdown_interaction key_choice = draw_dropdown(_implementation->dropdown, "menu_key", "", 30.0f,
+			ImGui::SetCursorScreenPos({ ImGui::GetItemRectMax().x + space_sm, shortcut_row.y });
+			const dropdown_interaction key_choice = draw_dropdown(_implementation->dropdown, "menu_key", "", control_height,
 				menu_key_names, menu_key_count, input.menu_key, interaction_free);
 			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Open UI: keyboard key", shortcut_details);
-			ImGui::SetCursorScreenPos({ footer_min.x, footer_min.y + 111.0f });
-			const bool disable_all_hovered = draw_text_button("disable_all",
-				input.shaders_temporarily_disabled ? "Restore shaders" : "Disable all", { 200.0f, 34.0f }, true,
-				input.shaders_temporarily_disabled ? IM_COL32(22, 132, 72, 255) : 0);
+
 			if (input.select_clicked && previous_preset_hovered && _implementation->dragging == implementation::drag_target::none)
 				result.action = render_result::command::previous_preset;
 			else if (input.select_clicked && next_preset_hovered && _implementation->dragging == implementation::drag_target::none)
@@ -1291,6 +1646,11 @@ namespace openxr_ui
 				result.action = render_result::command::set_frame_rate_divisor;
 				result.value = static_cast<double>(frame_rate.option + 1);
 			}
+			else if (theme_choice.chosen && theme_choice.option != input.theme)
+			{
+				result.action = render_result::command::set_theme;
+				result.value = static_cast<double>(theme_choice.option);
+			}
 			else if (input.select_clicked && depth_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				result.action = render_result::command::set_depth_detection_disabled;
@@ -1300,29 +1660,45 @@ namespace openxr_ui
 		else
 		{
 			const technique &selected = *selected_it;
-			const bool back_hovered = draw_text_button("back", "Back", { 64.0f, 30.0f });
-			ImGui::SameLine();
+			const ImVec2 detail_header = ImGui::GetCursorScreenPos();
+			const float right_edge = ImGui::GetWindowWidth() - outer_padding;
+			const bool back_hovered = draw_text_button("back", "Back", { 80.0f, control_height });
 			char selected_label[320];
 			std::snprintf(selected_label, sizeof(selected_label), "%s  [%s]", selected.name.c_str(), selected.effect_name.c_str());
-			const float controls_x = ImGui::GetWindowWidth() - outer_padding - 446.0f;
-			const float selected_text_width = controls_x - ImGui::GetCursorScreenPos().x - 8.0f;
-			const std::string fitted_selected_label = fit_text(selected_label, selected_text_width);
-			ImGui::TextUnformatted(fitted_selected_label.c_str());
-			draw_hover_details(ImGui::GetItemRectMin(), { ImGui::GetItemRectMin().x + selected_text_width, ImGui::GetItemRectMax().y }, selected_label, selected.tooltip.c_str());
-			ImGui::SameLine(controls_x);
-			const bool toggle_hovered = draw_text_button("toggle", selected.enabled ? "Disable" : "Enable", { 104.0f, 30.0f });
-			ImGui::SameLine();
-			const bool reset_all_hovered = draw_text_button("reset_all", "Reset All", { 124.0f, 30.0f });
-			ImGui::SameLine();
-			const bool revert_restore_hovered = draw_text_button("revert_restore", selected.has_restore_state ? "Restore" : "Revert", { 104.0f, 30.0f },
+			const float controls_x = right_edge - 440.0f;
+			const float title_x = detail_header.x + 80.0f + space_md;
+			const float selected_text_width = controls_x - title_x - 8.0f;
+			{
+				ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+				ImGui::PushFont(bold_font(), 0.0f);
+				const std::string fitted_name = fit_text(selected.name.c_str(), selected_text_width);
+				const float title_y = std::floor(detail_header.y + (control_height - ImGui::GetFontSize()) * 0.5f);
+				draw_list->AddText({ title_x, title_y }, colors().text, fitted_name.c_str());
+				const float effect_x = title_x + ImGui::CalcTextSize(fitted_name.c_str()).x + space_sm + space_xs;
+				ImGui::PopFont();
+				if (effect_x + 40.0f < title_x + selected_text_width)
+				{
+					ImGui::PushFont(nullptr, vr_theme::font_small);
+					const std::string fitted_effect = fit_text(selected.effect_name.c_str(), title_x + selected_text_width - effect_x);
+					draw_list->AddText({ effect_x, std::floor(detail_header.y + (control_height - ImGui::GetFontSize()) * 0.5f) + 1.0f },
+						colors().text_disabled, fitted_effect.c_str());
+					ImGui::PopFont();
+				}
+			}
+			draw_hover_details({ title_x, detail_header.y }, { title_x + selected_text_width, detail_header.y + control_height }, selected_label, selected.tooltip.c_str());
+			ImGui::SetCursorScreenPos({ controls_x, detail_header.y });
+			const bool toggle_hovered = draw_text_button("toggle", selected.enabled ? "Disable" : "Enable", { 104.0f, control_height });
+			ImGui::SetCursorScreenPos({ controls_x + 112.0f, detail_header.y });
+			const bool reset_all_hovered = draw_text_button("reset_all", "Reset All", { 120.0f, control_height });
+			ImGui::SetCursorScreenPos({ controls_x + 240.0f, detail_header.y });
+			const bool revert_restore_hovered = draw_text_button("revert_restore", selected.has_restore_state ? "Restore" : "Revert", { 104.0f, control_height },
 				(selected.has_restore_state || selected.differs_from_saved) && !input.shaders_temporarily_disabled);
-			ImGui::SameLine();
+			ImGui::SetCursorScreenPos({ controls_x + 352.0f, detail_header.y });
 			const char *const save_label = input.preset_dirty ? "Save" : _implementation->save_feedback > 0 ? "Saved" : _implementation->save_feedback < 0 ? "Failed" : "Save";
-			const ImU32 save_color = input.preset_dirty ? IM_COL32(184, 138, 20, 255) :
-				_implementation->save_feedback > 0 ? IM_COL32(22, 132, 72, 255) :
-				_implementation->save_feedback < 0 ? IM_COL32(166, 48, 48, 255) :
-				IM_COL32(22, 132, 72, 255);
-			const bool save_hovered = draw_text_button("save", save_label, { 90.0f, 30.0f }, true, save_color);
+			const button_tone save_tone = input.preset_dirty ? button_tone::primary :
+				_implementation->save_feedback > 0 ? button_tone::success :
+				_implementation->save_feedback < 0 ? button_tone::danger : button_tone::neutral;
+			const bool save_hovered = draw_text_button("save", save_label, { 88.0f, control_height }, true, save_tone);
 			if (input.select_clicked && back_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				_implementation->selected_technique = 0;
@@ -1345,28 +1721,26 @@ namespace openxr_ui
 			}
 			else if (input.select_clicked && save_hovered && _implementation->dragging == implementation::drag_target::none)
 				result.action = render_result::command::save_preset;
-			ImGui::Separator();
+
+			// One line each for the effect description and the performance-mode note; the full text shows on hover.
+			float content_y = detail_header.y + control_height + space_md;
+			const auto draw_note_line = [&](const char *text, ImU32 color) {
+				ImGui::PushFont(nullptr, vr_theme::font_small);
+				const std::string fitted = fit_text(text, right_edge - detail_header.x);
+				ImGui::GetWindowDrawList()->AddText({ detail_header.x, content_y }, color, fitted.c_str());
+				ImGui::PopFont();
+				draw_hover_details({ detail_header.x, content_y }, { right_edge, content_y + note_height }, text);
+				content_y += note_height + space_sm;
+			};
 			if (!selected.tooltip.empty())
-			{
-				ImGui::PushStyleColor(ImGuiCol_Text, default_value_color);
-				ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
-				ImGui::TextUnformatted(selected.tooltip.c_str());
-				ImGui::PopTextWrapPos();
-				ImGui::PopStyleColor();
-				ImGui::Spacing();
-			}
+				draw_note_line(selected.tooltip.c_str(), colors().text_secondary);
 			if (input.performance_mode_active)
-			{
-				ImGui::PushStyleColor(ImGuiCol_Text, changed_value_color);
-				ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
-				ImGui::TextUnformatted(input.performance_mode ?
+				draw_note_line(input.performance_mode ?
 					"Performance mode is on, so this effect's values are fixed and cannot be shown. "
 					"Turn off Performance mode and restart the game to adjust them." :
-					"Performance mode is still active until the game restarts. Restart the game to adjust this effect's values.");
-				ImGui::PopTextWrapPos();
-				ImGui::PopStyleColor();
-				ImGui::Spacing();
-			}
+					"Performance mode is still active until the game restarts. Restart the game to adjust this effect's values.",
+					colors().changed_value);
+			ImGui::SetCursorScreenPos({ detail_header.x, content_y });
 
 			struct component_reference
 			{
@@ -1379,39 +1753,14 @@ namespace openxr_ui
 					for (uint32_t component = 0; component < entry.values.size(); ++component)
 						components.push_back({ &entry, component });
 
-			const size_t visible_parameters = input.expanded ? compact_visible_parameters * 2 : compact_visible_parameters;
+			const ImVec2 list_min = ImGui::GetCursorScreenPos();
+			const float list_height = display_height - outer_padding - detail_footer_height - space_md - list_min.y;
+			const size_t visible_parameters = std::max<size_t>(1, static_cast<size_t>((list_height + list_row_gap) / (list_row_height + list_row_gap)));
+			const float row_height = std::floor((list_height - list_row_gap * static_cast<float>(visible_parameters - 1)) / static_cast<float>(visible_parameters));
 			const size_t maximum_scroll = components.size() > visible_parameters ? components.size() - visible_parameters : 0;
 			_implementation->parameter_scroll = (std::min)(_implementation->parameter_scroll, maximum_scroll);
-			if (_implementation->dragging == implementation::drag_target::none)
-			{
-				const int scroll_direction = input.scroll_y > joystick_scroll_dead_zone ? -1 :
-					input.scroll_y < -joystick_scroll_dead_zone ? 1 : 0;
-				bool advance_scroll = false;
-				if (scroll_direction != _implementation->joystick_scroll_direction)
-				{
-					_implementation->joystick_scroll_direction = scroll_direction;
-					_implementation->joystick_scroll_frame_count = 0;
-					advance_scroll = scroll_direction != 0;
-				}
-				else if (scroll_direction != 0 && ++_implementation->joystick_scroll_frame_count >= joystick_scroll_repeat_frames)
-				{
-					_implementation->joystick_scroll_frame_count = 0;
-					advance_scroll = true;
-				}
-				if (advance_scroll && scroll_direction < 0 && _implementation->parameter_scroll > 0)
-					--_implementation->parameter_scroll;
-				else if (advance_scroll && scroll_direction > 0 && _implementation->parameter_scroll < maximum_scroll)
-					++_implementation->parameter_scroll;
-			}
-			else
-			{
-				_implementation->joystick_scroll_direction = 0;
-				_implementation->joystick_scroll_frame_count = 0;
-			}
-			const float list_height = ImGui::GetContentRegionAvail().y - detail_footer_height;
-			const float row_height = (list_height - row_spacing * (visible_parameters - 1)) / visible_parameters;
-			const ImVec2 list_min = ImGui::GetCursorScreenPos();
-			const float row_width = ImGui::GetContentRegionAvail().x - 42.0f;
+			_implementation->update_joystick_scroll(input.scroll_y, _implementation->parameter_scroll, maximum_scroll);
+			const float row_width = ImGui::GetContentRegionAvail().x - scrollbar_width - space_sm;
 			const size_t first = _implementation->parameter_scroll;
 			const size_t last = (std::min)(first + visible_parameters, components.size());
 			for (size_t index = first; index < first + visible_parameters; ++index)
@@ -1419,7 +1768,8 @@ namespace openxr_ui
 				ImGui::PushID(static_cast<int>(index));
 				const ImVec2 row_min = ImGui::GetCursorScreenPos();
 				const ImVec2 row_max = { row_min.x + row_width, row_min.y + row_height };
-				ImGui::GetWindowDrawList()->AddRectFilled(row_min, row_max, IM_COL32(13, 29, 38, 255), 3.0f);
+				if (index < last)
+					ImGui::GetWindowDrawList()->AddRectFilled(row_min, row_max, colors().surface, vr_theme::radius_md);
 				if (index < last)
 				{
 					const component_reference &reference = components[index];
@@ -1429,9 +1779,12 @@ namespace openxr_ui
 						std::snprintf(label, sizeof(label), "%s", entry.name.c_str());
 					else
 						std::snprintf(label, sizeof(label), "%s [%u]", entry.name.c_str(), reference.component + 1);
-					constexpr float label_font_size = 18.0f;
-					const ImVec2 label_min = { row_min.x + 10.0f, row_min.y };
-					const ImVec2 label_max = { row_max.x - 10.0f, row_min.y + label_font_size + 3.0f };
+					// One line per value: name, slider, value, step buttons, reset. Columns are fixed so every row lines up.
+					constexpr float label_width = 232.0f;
+					const float control_y = row_min.y + space_xs;
+					const float control_size = row_height - space_xs * 2.0f;
+					const ImVec2 label_min = { row_min.x + space_md, row_min.y };
+					const ImVec2 label_max = { label_min.x + label_width, row_max.y };
 					const std::string fitted_label = fit_text(label, label_max.x - label_min.x);
 					const bool changed_from_default = openxr_ui::component_differs_from_default(entry, reference.component);
 
@@ -1447,10 +1800,9 @@ namespace openxr_ui
 					const bool has_default = reference.component < entry.default_values.size();
 					const float default_fraction = has_slider && has_default ?
 						static_cast<float>((entry.default_values[reference.component] - entry.minimum) / (entry.maximum - entry.minimum)) : -1.0f;
-					const float control_height = row_height - label_font_size - 7.0f;
-					const float control_y = row_max.y - control_height - 3.0f;
-					ImGui::SetCursorScreenPos({ row_max.x - 810.0f, control_y });
-					const slider_interaction value_slider = draw_slider("value_slider", { 424.0f, control_height }, slider_fraction, has_slider, default_fraction);
+					const float slider_x = label_max.x + space_md;
+					ImGui::SetCursorScreenPos({ slider_x, control_y });
+					const slider_interaction value_slider = draw_slider("value_slider", { row_max.x - 352.0f - slider_x, control_size }, slider_fraction, has_slider, default_fraction);
 					if (input.select_clicked && value_slider.hovered && _implementation->dragging == implementation::drag_target::none)
 					{
 						_implementation->dragging = implementation::drag_target::value_slider;
@@ -1460,29 +1812,29 @@ namespace openxr_ui
 					}
 
 					const ImVec2 value_size = ImGui::CalcTextSize(value_text);
-					ImGui::GetWindowDrawList()->AddText({ row_max.x - 294.0f - value_size.x, control_y + (control_height - ImGui::GetFontSize()) * 0.5f },
-						changed_from_default ? changed_value_color : default_value_color, value_text);
+					ImGui::GetWindowDrawList()->AddText({ row_max.x - 280.0f - value_size.x, std::floor(control_y + (control_size - ImGui::GetFontSize()) * 0.5f) },
+						changed_from_default ? colors().changed_value : colors().text_secondary, value_text);
 
 					bool coarse_decrease_hovered = false;
 					bool decrease_hovered = false;
 					bool increase_hovered = false;
 					bool coarse_increase_hovered = false;
-					ImGui::SetCursorScreenPos({ row_max.x - 286.0f, control_y });
+					ImGui::SetCursorScreenPos({ row_max.x - 268.0f, control_y });
 					if (entry.type == parameter_type::boolean)
-						increase_hovered = draw_text_button("change", "Toggle", { 104.0f, control_height });
+						increase_hovered = draw_text_button("change", "Toggle", { 104.0f, control_size });
 					else
 					{
-						coarse_decrease_hovered = draw_text_button("coarse_decrease", "-10x", { 60.0f, control_height });
-						ImGui::SameLine();
-						decrease_hovered = draw_text_button("decrease", "-", { 42.0f, control_height });
-						ImGui::SameLine();
-						increase_hovered = draw_text_button("increase", "+", { 42.0f, control_height });
-						ImGui::SameLine();
-						coarse_increase_hovered = draw_text_button("coarse_increase", "+10x", { 60.0f, control_height });
+						coarse_decrease_hovered = draw_text_button("coarse_decrease", "-10x", { 56.0f, control_size });
+						ImGui::SetCursorScreenPos({ row_max.x - 204.0f, control_y });
+						decrease_hovered = draw_text_button("decrease", "-", { 40.0f, control_size });
+						ImGui::SetCursorScreenPos({ row_max.x - 156.0f, control_y });
+						increase_hovered = draw_text_button("increase", "+", { 40.0f, control_size });
+						ImGui::SetCursorScreenPos({ row_max.x - 108.0f, control_y });
+						coarse_increase_hovered = draw_text_button("coarse_increase", "+10x", { 56.0f, control_size });
 					}
-					ImGui::SameLine();
+					ImGui::SetCursorScreenPos({ row_max.x - 44.0f, control_y });
 					const bool can_reset = entry.resettable && changed_from_default;
-					const bool reset_hovered = draw_reset_button("reset", { 42.0f, control_height }, can_reset);
+					const bool reset_hovered = draw_reset_button("reset", { 40.0f, control_size }, can_reset);
 					if (reset_hovered && ImGui::BeginTooltip())
 					{
 						char default_text[64] = "";
@@ -1529,18 +1881,18 @@ namespace openxr_ui
 							result.target_id = entry.id;
 						}
 					}
-					ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), label_font_size, label_min,
-						changed_from_default ? changed_value_color : IM_COL32(222, 242, 245, 255), fitted_label.c_str());
+					ImGui::GetWindowDrawList()->AddText({ label_min.x, std::floor(row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f) },
+						changed_from_default ? colors().changed_value : colors().text, fitted_label.c_str());
 					draw_hover_details(label_min, label_max, label, entry.tooltip.c_str());
 				}
-				ImGui::SetCursorScreenPos({ row_min.x, row_max.y + row_spacing });
+				ImGui::SetCursorScreenPos({ row_min.x, row_max.y + list_row_gap });
 				ImGui::PopID();
 			}
 
-			const ImVec2 footer_min = ImGui::GetCursorScreenPos();
-			ImGui::SetCursorScreenPos({ list_min.x + row_width + 8.0f, list_min.y });
+			const ImVec2 footer_min = { list_min.x, list_min.y + list_height + space_md };
+			ImGui::SetCursorScreenPos({ list_min.x + row_width + space_sm, list_min.y });
 			const float scroll_fraction = maximum_scroll > 0 ? static_cast<float>(_implementation->parameter_scroll) / static_cast<float>(maximum_scroll) : 0.0f;
-			const slider_interaction scroll_slider = draw_vertical_slider("parameter_scroll", { 34.0f, list_height }, scroll_fraction, maximum_scroll > 0);
+			const slider_interaction scroll_slider = draw_vertical_slider("parameter_scroll", { scrollbar_width, list_height }, scroll_fraction, maximum_scroll > 0);
 			if (input.select_clicked && scroll_slider.hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				_implementation->dragging = implementation::drag_target::parameter_scroll;
@@ -1555,13 +1907,19 @@ namespace openxr_ui
 				_implementation->parameter_scroll = static_cast<size_t>(std::round(drag_fraction * static_cast<float>(maximum_scroll)));
 			}
 
-			ImGui::SetCursorScreenPos(footer_min);
-			ImGui::TextDisabled("%zu values  |  API: %s", components.size(), graphics_api_label);
-			ImGui::SameLine(ImGui::GetWindowWidth() - outer_padding - 228.0f);
-			const bool pin_hovered = draw_text_button("pin", "Pin UI", { 100.0f, 34.0f }, true,
-				input.panel_locked ? IM_COL32(22, 132, 72, 255) : 0);
-			ImGui::SameLine();
-			const bool expand_hovered = draw_text_button("expand", input.expanded ? "Collapse" : "Expand", { 120.0f, 34.0f });
+			{
+				char footer_text[96];
+				std::snprintf(footer_text, sizeof(footer_text), "%zu values  \xC2\xB7  %s", components.size(), graphics_api_label);
+				ImGui::PushFont(nullptr, vr_theme::font_small);
+				ImGui::GetWindowDrawList()->AddText({ footer_min.x, std::floor(footer_min.y + (control_height - ImGui::GetFontSize()) * 0.5f) },
+					colors().text_secondary, footer_text);
+				ImGui::PopFont();
+			}
+			ImGui::SetCursorScreenPos({ right_edge - control_height - space_sm - 96.0f, footer_min.y });
+			const bool pin_hovered = draw_text_button("pin", "Pin UI", { 96.0f, control_height }, true,
+				input.panel_locked ? button_tone::toggled : button_tone::neutral);
+			ImGui::SetCursorScreenPos({ right_edge - control_height, footer_min.y });
+			const bool expand_hovered = draw_panel_size_button(input.expanded);
 			if (result.action == render_result::command::none && input.select_clicked && expand_hovered &&
 				_implementation->dragging == implementation::drag_target::none)
 				result.action = render_result::command::toggle_panel_size;
@@ -1573,14 +1931,15 @@ namespace openxr_ui
 		if (_implementation->save_feedback_frame_count != 0)
 		{
 			const char *const message = _implementation->save_feedback > 0 ? "Preset saved" : "Preset save failed";
+			ImGui::PushFont(bold_font(), 0.0f);
 			const ImVec2 text_size = ImGui::CalcTextSize(message);
-			const ImVec2 minimum = { (io.DisplaySize.x - text_size.x) * 0.5f - 18.0f, 54.0f };
-			const ImVec2 maximum = { minimum.x + text_size.x + 36.0f, minimum.y + text_size.y + 18.0f };
+			const ImVec2 minimum = { std::floor((io.DisplaySize.x - text_size.x) * 0.5f) - 22.0f, 54.0f };
+			const ImVec2 maximum = { minimum.x + text_size.x + 44.0f, minimum.y + text_size.y + 20.0f };
 			ImDrawList *const foreground = ImGui::GetForegroundDrawList();
-			foreground->AddRectFilled(minimum, maximum,
-				_implementation->save_feedback > 0 ? IM_COL32(18, 116, 62, 245) : IM_COL32(156, 38, 38, 245), 4.0f);
-			foreground->AddRect(minimum, maximum, IM_COL32(225, 250, 235, 255), 4.0f, 0, 2.0f);
-			foreground->AddText({ minimum.x + 18.0f, minimum.y + 9.0f }, IM_COL32_WHITE, message);
+			foreground->AddRectFilled({ minimum.x + 3.0f, minimum.y + 5.0f }, { maximum.x + 3.0f, maximum.y + 5.0f }, colors().shadow, vr_theme::radius_md);
+			foreground->AddRectFilled(minimum, maximum, _implementation->save_feedback > 0 ? colors().success : colors().danger, vr_theme::radius_md);
+			foreground->AddText({ minimum.x + 22.0f, minimum.y + 10.0f }, colors().text_on_color, message);
+			ImGui::PopFont();
 			if (--_implementation->save_feedback_frame_count == 0)
 				_implementation->save_feedback = 0;
 		}
@@ -1591,7 +1950,7 @@ namespace openxr_ui
 		if (input.pointer_visible)
 			draw_crosshair(ImGui::GetForegroundDrawList(), pointer);
 		ImGui::End();
-		ImGui::Render();
+		_implementation->finish_frame();
 		return result;
 	}
 
@@ -1681,12 +2040,13 @@ namespace openxr_ui
 		io.DisplaySize = { static_cast<float>(_implementation->width), static_cast<float>(_implementation->height) };
 		io.DeltaTime = 1.0f / 90.0f;
 		io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+		_implementation->apply_selected_theme();
 		ImGui::NewFrame();
 		ImGui::SetNextWindowPos({ 0.0f, 0.0f });
 		ImGui::SetNextWindowSize(io.DisplaySize);
 		ImGui::Begin("Frame statistics", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs);
-		ImGui::SetWindowFontScale(1.25f);
+		ImGui::SetWindowFontScale(statistics_font_scale);
 		if (statistics.revision == 0)
 			ImGui::TextUnformatted("-- FPS");
 		else
@@ -1700,7 +2060,7 @@ namespace openxr_ui
 		ImGui::TextUnformatted(cpu_label);
 		openxr_ui::draw_frame_graph(statistics, ImGui::GetContentRegionAvail());
 		ImGui::End();
-		ImGui::Render();
+		_implementation->finish_frame();
 	}
 
 	void panel_renderer::submit(ID3D11RenderTargetView *render_target)

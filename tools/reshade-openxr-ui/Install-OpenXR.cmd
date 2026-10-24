@@ -1,9 +1,10 @@
 @echo off
 setlocal EnableExtensions
 
-rem Console colour codes so errors show in red.
+rem Console colour codes so errors show in red and success in green.
 for /F %%A in ('echo prompt $E^| cmd') do set "ESC=%%A"
 set "RED=%ESC%[91m"
+set "GREEN=%ESC%[92m"
 set "RESET=%ESC%[0m"
 
 set "SOURCE_ADDON=%~dp0ReShade-OpenXR-UI.addon64"
@@ -36,8 +37,18 @@ if not exist "%CENTRAL_APPS%" goto :missing_reshade
 
 rem fltmc only succeeds in a window with administrator rights.
 fltmc >nul 2>&1
-if errorlevel 1 goto :administrator_required
+if not errorlevel 1 goto :has_administrator
+if /I "%~1"=="--elevated" goto :administrator_required
+if defined RESHADE_OPENXR_UI_NONINTERACTIVE goto :administrator_required
+echo Asking Windows for administrator rights. Click Yes to continue.
+echo The install continues in a new window.
+rem Restart this script elevated and wait for it. The elevated copy pauses itself.
+set "ELEVATE_ARGUMENTS=/c ""%~f0" --elevated""
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "try { $p = Start-Process -FilePath $env:ComSpec -ArgumentList $env:ELEVATE_ARGUMENTS -Verb RunAs -PassThru -ErrorAction Stop; $null = $p.Handle; $p.WaitForExit(); exit $p.ExitCode } catch { exit 1223 }"
+if errorlevel 1223 if not errorlevel 1224 goto :administrator_required
+exit /b %ERRORLEVEL%
 
+:has_administrator
 set "LAYER_STATE=0"
 reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /t REG_DWORD /reg:64 2>nul | findstr /R /C:"REG_DWORD *0x1" >nul
 if not errorlevel 1 set "LAYER_STATE=1"
@@ -66,11 +77,11 @@ set "FAILURE_STEP=checking that the add-on is switched on for OpenXR games"
 reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /t REG_DWORD /reg:64 >nul 2>&1
 if errorlevel 1 goto :failed
 
-echo ----------------------------------------------------------------
+echo %GREEN%----------------------------------------------------------------
 echo  DONE: ReShade VR UI Add-on for OpenXR is installed.
 echo ----------------------------------------------------------------
-echo It starts automatically in OpenXR games that have ReShade
-echo installed with full add-on support.
+echo It starts automatically in games where ReShade with full add-on
+echo support is installed with the OpenXR layer ticked.%RESET%
 if not defined RESHADE_OPENXR_UI_NONINTERACTIVE pause
 exit /b 0
 
@@ -90,8 +101,8 @@ echo %RED%----------------------------------------------------------------
 echo  ERROR: ReShade is not installed. Nothing was installed.
 echo ----------------------------------------------------------------
 echo The add-on needs ReShade with full add-on support.
-echo Install it from https://reshade.me/ for one of your games, with
-echo OpenXR ticked, then run %~nx0 again.%RESET%
+echo Install it from https://reshade.me/ for one of your games, with the
+echo OpenXR layer ticked, then run %~nx0 again.%RESET%
 if not defined RESHADE_OPENXR_UI_NONINTERACTIVE pause
 exit /b 1
 
@@ -99,8 +110,8 @@ exit /b 1
 echo %RED%----------------------------------------------------------------
 echo  ERROR: No administrator rights. Nothing was installed.
 echo ----------------------------------------------------------------
-echo This window was started without administrator rights, so Windows
-echo blocks the 2 steps above.
+echo Windows did not give administrator rights (the permission
+echo request was declined), so Windows blocks the 2 steps above.
 echo.
 echo To fix it:
 echo   1. Close this window.
