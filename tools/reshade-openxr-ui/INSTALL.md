@@ -6,8 +6,6 @@ For 64-bit OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for Unreal ga
 
 **Download:** [newest version](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest) (the file starting with `ReShade-VR-UI-Addon-OpenXR`).
 
-Stuck? See [Help](#help) and [Troubleshooting](#troubleshooting) at the end.
-
 ## Install
 
 1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
@@ -16,31 +14,31 @@ Stuck? See [Help](#help) and [Troubleshooting](#troubleshooting) at the end.
 4. Close all games and SteamVR.
 5. Extract the add-on ZIP. Double-click `Install-OpenXR.cmd`. When Windows asks for permission, click **Yes**.
 6. Start the game. For UEVR, set UEVR to **OpenXR** before you inject.
-7. In the headset, press both thumbsticks in (`L3 + R3`) or the `Insert` key. The menu opens. Turn effects on there.
+7. Press both thumbsticks in (`L3 + R3`) or the `Insert` key to open the menu in the headset. Turn effects on there.
 
-UEVR uses the same buttons for its own menu. Pick other ones on the add-on menu's **Settings / Gestures** page, under **Controller buttons** and **Keyboard key**.
+UEVR uses the same buttons for its own menu. To use other buttons, change **Controller buttons** and **Keyboard key** on the menu's **Settings / Gestures** page.
 
 **UEVR games: effects that need depth (MXAO, depth of field, depth fog) do not work.**
 
 ## Features
 
-### Switch Between Two Presets With One Button
+### Head Gesture To Switch Presets
 
-Make one preset for dark places and one for bright places, or one for indoors and one for outdoors. Then switch between them while you play, without opening the menu: raise a hand to the side of your head and press a button, like switching on a head torch.
+Raise a hand to the side of your head and press a button to switch to the next preset, for example from a preset for dark scenes to one for bright scenes.
 
-1. Make your presets: in the menu, set up the effects and click **Save as...** to save each one under its own name.
-2. Go to **Settings / Gestures** and pick a choice in the **Next preset** list, for example **Head Gesture: Left Trigger**. It is **Off** at first.
-3. Close the menu, raise that hand to the side of your head and press the button. Each press moves to the next preset.
+1. Save each preset with **Save as...** in the menu.
+2. On **Settings / Gestures**, set **Next preset** to **Head Gesture: Left Trigger** (or another button).
+3. In the game, raise your left hand to the side of your head and pull the trigger.
 
-No hand movement wanted? Pick **L3+R3**, and set **Controller buttons** to **Hold L3+R3**. A quick click of both thumbsticks then switches preset, and a long hold opens the menu.
+If you only have one preset, the gesture turns effects on and off. To use buttons only, set **Next preset** to **L3+R3** and **Controller buttons** to **Hold L3+R3**.
 
-With only one preset, each press turns effects off and on instead: a quick way to compare the game with and without them.
+### Pin The Menu
 
-### More Tips
+Turn your head to the side and click the pin button at the top right of the menu. The menu stays there until the game closes.
 
-- **Keep the menu to one side:** turn your head to the right (or wherever suits you) and click the pin button at the top right of the menu. The menu stays in that spot: look ahead to play, glance to the side to change something. It stays there when you close and reopen the menu, until the game closes.
-- **Always see your FPS:** on **Settings / Gestures**, switch on **Show when menu is closed** under **FPS counter**. The counter sits just above the menu, so with the pin it stays in that spot too. Green bars in its graph are on time; yellow and red bars are stutters.
-- **See more at once:** the button with four corners, next to the pin, makes the menu twice as tall.
+### Pin The FPS Counter
+
+On **Settings / Gestures**, switch on **Show when menu is closed**, then pin the menu. Your FPS now always shows in that spot.
 
 ## Update Or Uninstall
 
@@ -49,9 +47,9 @@ With only one preset, each press turns effects off and on instead: a quick way t
 
 ## OpenGL Games: More FPS
 
-In OpenGL games (for example SOMA-VR), ReShade's depth helper costs a lot of FPS (about 30 FPS in SOMA-VR).
+In OpenGL games (for example SOMA-VR), ReShade's depth effects support costs a lot of FPS (about 30 FPS in SOMA-VR).
 
-For more FPS: untick **Depth buffer (off = faster in OpenGL)** in the menu and restart the game. Effects that need depth (for example MXAO, depth of field, fog) then stop working. Tick it again to get them back. The setting is saved per game.
+For more FPS: on **Settings / Gestures**, switch off **Enable depth-based effects** and restart the game. Effects that need depth (for example MXAO, depth of field, fog) then stop working. Switch it on again to get them back. The setting is saved per game.
 
 ## Help
 
@@ -63,15 +61,15 @@ For more FPS: untick **Depth buffer (off = faster in OpenGL)** in the menu and r
 ## Troubleshooting
 
 - `No administrator rights`: nothing was changed. Run the file again and click **Yes** when Windows asks for permission (see [Help](#help)).
-- `Waiting for ReShade...`: wait a moment. In OpenGL games it stays until the game shows its normal 3D view.
+- `Waiting for ReShade...`: wait a moment. In OpenGL games this message stays until the game shows its normal 3D view.
 - No menu or no effects: check that you installed ReShade **with full add-on support** and ticked the **OpenXR layer**. For UEVR, check that UEVR is set to **OpenXR**.
-- Still no menu: the game may be a SteamVR game. Open ReShade Setup, pick the game, choose **Uninstall**, then follow the SteamVR install steps. The OpenXR add-on can stay installed.
+- Still no menu: the game may be a SteamVR game. Open ReShade Setup, pick the game, choose **Uninstall**, then follow the SteamVR install steps. You can leave the OpenXR add-on installed.
 - Still no effects: an old ReShade copy in the game folder can block them. Open ReShade Setup, pick the game, choose **Uninstall**, then install again (steps 2 and 3).
 - Anything else: close the game and delete `ReShade.log` next to the game's `.exe`. Start the game until the problem shows, close it, then give the new `ReShade.log` to an AI assistant (for example ChatGPT or Copilot) and ask what is wrong.
 
 ## Where It Installs
 
-- Files go to `C:\Program Files\ReShade VR UI Add-on`. Admin rights are needed to write there and to switch the add-on on for all OpenXR games (registry key `HKEY_LOCAL_MACHINE\Software\Khronos\OpenXR\1\ApiLayers\Implicit`).
+- Files go to `C:\Program Files\ReShade VR UI Add-on`. Admin rights are needed to put them there and to turn the add-on on for all OpenXR games (registry key `HKEY_LOCAL_MACHINE\Software\Khronos\OpenXR\1\ApiLayers\Implicit`).
 - Admin rights also make it work in games that run as administrator, such as SOMA with the SOMA-VR mod.
 - Settings and logs are in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Uninstalling keeps them.
 - The installer does not change game folders.

@@ -13,23 +13,24 @@
   administrator window. The SteamVR add-on is just copied into the game
   folder.
 - Games or mods that bring their own ReShade (for example the D2R-PCVR mod for
-  Diablo II: Resurrected): the add-on notices this by itself. Its panel then
+  Diablo II: Resurrected): the add-on detects this by itself. Its menu then
   controls the game's ReShade, and it adds no headset effects of its own. Tested
   in D2R-PCVR. See
   [MOD_OWN_RESHADE_CONFLICT.md](MOD_OWN_RESHADE_CONFLICT.md).
-- Controllers: Oculus Touch style controllers work best. Other controllers use
-  a basic fallback with fewer controls.
-- The **Head gesture** (switch preset by bringing a hand to the head and
-  pressing a button) works only in OpenXR games, not yet in SteamVR (OpenVR)
-  games, and needs Oculus Touch style controllers. The game also receives the
-  button press. The **L3+R3** choice does nothing while the menu shortcut is
-  also L3+R3; pick **Hold L3+R3** for the menu to use both.
-- The **UI starts open** setting applies from the next game start.
-- The FPS counter measures how often the game hands a frame to the headset.
-  It does not show frames the headset software fills in by itself
+- Controllers: Oculus Touch style controllers work best. Other controllers get
+  fewer controls.
+- The head gesture for switching presets (**Next preset** on **Settings / Gestures**)
+  works only in OpenXR games, not yet in SteamVR (OpenVR) games, and needs
+  Oculus Touch style controllers. The game also receives the button press.
+  The **L3+R3** choice does nothing while **Controller buttons** is also
+  **L3+R3**; pick **Hold L3+R3** there to use both.
+- **Open when the game starts** takes effect the next time you start the game.
+- The FPS counter counts the frames the game sends to the headset.
+  It does not count frames the headset software makes up by itself
   (reprojection, motion smoothing).
 - The FPS counter does not notice when the headset software runs the game at
-  half rate. Pick **FPS target** yourself so the graph colours match.
+  half speed. Set **FPS graph target** (SteamVR: **FPS target**) yourself so
+  the graph colours are right.
 - The **CPU** line is the frame time minus the time the game spent waiting
   for the headset software. It is not graphics card (GPU) time. If the game
   waits for the graphics card inside its own work, that wait counts as CPU.
@@ -41,57 +42,58 @@
   but have not been tried.
 - ReShade must run only as the OpenXR layer. A ReShade `opengl32.dll` in the
   game folder stops effects reaching the headset.
-- ReShade's built-in **Generic Depth** helper is expensive in OpenGL (about
-  30 FPS in SOMA-VR). Untick **Depth buffer (off = faster in OpenGL)** in the
-  panel and restart the game to save that; shaders that need depth then get
-  none.
-- The **Depth buffer** and **Performance mode** tick boxes take effect only
-  after a game restart, because ReShade reads them once at start.
+- ReShade's built-in **Generic Depth** add-on is slow in OpenGL (it costs
+  about 30 FPS in SOMA-VR). Switch off **Enable depth-based effects** in the
+  menu and restart the game to get those FPS back; effects that need depth
+  then stop working.
+- **Enable depth-based effects** and **Faster shaders** only take effect
+  after you restart the game, because ReShade reads them once at start.
 - With no effects switched on, ReShade itself still costs a few FPS in OpenGL
   (about 5 in SOMA-VR). This is ReShade, not the add-on.
-- ReShade also runs on the game's desktop window, so its own menu (**Home**)
-  works there. While the headset shows effects, the add-on switches ReShade's
-  effects off on the monitor window to save performance; they come back if
-  the headset effects stop.
-- Effects apply to the game's 3D view only. Flat title or menu screens that a
+- ReShade also runs in the game's window on the monitor, so its own menu
+  (**Home**) works there. While the headset shows effects, the add-on turns
+  ReShade's effects off on the monitor to save FPS; they come back if the
+  headset effects stop.
+- Effects only apply to the game's 3D view. Flat title or menu screens that a
   mod shows as a floating panel get no effects.
 
 ## SteamVR (OpenVR) Games
 
-- The add-on's page inside ReShade's own SteamVR dashboard
+- The add-on's page in ReShade's SteamVR menu
   (**Add-ons** > **ReShade VR UI Add-on for SteamVR**) shows only the FPS
-  line, graph and FPS target; effects and presets are controlled in ReShade's
-  own menu. There is no separate panel.
-- The FPS line and graph are on that page only; there is no always-on counter.
-- The add-on changes three settings for the game: it writes `ReShadeVR.ini`
+  line, graph and FPS target. You control effects and presets in ReShade's
+  own menu. There is no separate add-on menu.
+- The FPS line and graph are only on that page; the FPS counter can't be
+  pinned.
+- The add-on changes three things for the game: it creates `ReShadeVR.ini`
   (without that file the ReShade icon does not appear in SteamVR; the add-on
-  also sets a smaller menu text size there once), turns off ReShade's
-  desktop/VR effect sync in `ReShade.ini`, and turns effects off on the
-  monitor window while the headset shows them.
+  also sets a smaller menu text size there once), stops ReShade copying
+  effect changes between the monitor and the headset (in `ReShade.ini`),
+  and turns effects off on the monitor while the headset shows them.
 
 ## UEVR (Unreal Games)
 
 - UEVR must be set to **OpenXR**, not OpenVR.
-- ReShade installed in the game folder is not supported with UEVR. Uninstall
-  it there or rename its `dxgi.dll`, and use ReShade only as an OpenXR layer.
+- ReShade installed in the game folder does not work with UEVR. Uninstall
+  it there or rename its `dxgi.dll`, and only use ReShade as an OpenXR layer.
 - **No depth effects.** Effects that need to know how far away things are
   (for example MXAO ambient occlusion, depth of field, depth fog) get no depth
-  information. Colour, sharpening and tone effects work. The panel shows a
+  information. Colour, sharpening and tone effects work. The menu shows a
   note about this above the effect list.
-- Both eyes are processed as one wide picture. Whole-screen effects such as
+- Both eyes are handled as one wide picture. Whole-screen effects such as
   vignette or lens effects stretch across both eyes instead of each eye.
-  Official ReShade VR behaves the same way.
-- ReShade's own VR menu is not shown. Use the add-on's panel instead.
-- A new game starts with no effects switched on.
+  Official ReShade VR does the same.
+- ReShade's own VR menu does not show. Use the add-on's menu instead.
+- A new game starts with all effects off.
 - "Waiting for ReShade..." shows until the game draws its first 3D view.
 
 Not tested yet (may or may not work):
 
-- UEVR's 2D-screen mode and extreme compatibility mode (not handled).
+- UEVR's 2D-screen mode and extreme compatibility mode.
 - Headset software other than the OpenXR Simulator and Pimax, such as SteamVR
   or Virtual Desktop.
 
 Not caused by the add-on:
 
-- The game needs a force close at the end, also without ReShade.
+- The game has to be force-closed when you quit, even without ReShade.
 - DirectX 12 error messages about UEVR's "Game UI Texture" come from UEVR.

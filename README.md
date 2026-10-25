@@ -1,33 +1,10 @@
 # ReShade VR UI Add-on
 
-Control ReShade's effects from inside your VR headset.
-
-ReShade adds effects like sharpening or colour changes to games. This add-on gives you a menu in the headset to turn them on and off and adjust them, without taking the headset off.
-
-## Features
-
-- **Headset menu:** turn effects on and off, change their settings, and save, switch or delete presets, all inside VR.
-- **Switch between two presets with one button (OpenXR games):** for example one preset for dark places and one for bright places, or indoors and outdoors. Raise a hand to the side of your head and press a button, like switching on a head torch. With one preset, the same button turns effects off and on for a quick before-and-after check. [How to set it up](tools/reshade-openxr-ui/INSTALL.md#switch-between-two-presets-with-one-button).
-- **Pin the menu (OpenXR games):** pin it to one side, then look ahead to play and glance aside to change something.
-- **FPS counter:** shows the frame rate and a graph of the last 5 seconds. In OpenXR games it can stay visible while the menu is closed.
-
-More tips: [More Tips](tools/reshade-openxr-ui/INSTALL.md#more-tips) in the install guide.
-
-## What It Looks Like
-
-**Effects page:** turn effects on and off, star favourites, hide ones you never use, change their order, and pick, save or delete presets. **Open** shows an effect's settings.
-
-![Effects page of the headset menu](tools/reshade-openxr-ui/images/menu-effects.png)
-
-**Settings / Gestures page:** choose the button that opens the menu, the preset button, the FPS counter and the colour theme. The rings mark the preset button setting, keeping the FPS counter visible, and the pin button.
-
-![Settings / Gestures page of the headset menu](tools/reshade-openxr-ui/images/menu-settings.png)
+Adds a menu inside your VR headset for ReShade effects. Turn effects on and off, change their settings and **switch presets with head gestures**, without taking the headset off.
 
 ## Download
 
 **[⬇ Download the newest version](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest)**
-
-The download page has the files and the install steps.
 
 ## Which One Do I Need?
 
@@ -37,11 +14,22 @@ The download page has the files and the install steps.
 | SteamVR game | [SteamVR](tools/reshade-openxr-ui/INSTALL-SteamVR.md) |
 | Vulkan or 32-bit VR game | [Vulkan and 32-bit](tools/reshade-openxr-ui/INSTALL-Vulkan-32bit.md) (nothing to download) |
 
-Not sure? [Which type is my game?](#which-type-is-my-game) below shows two ways to find out.
+Not sure? See [Which type is my game?](#which-type-is-my-game)
+
+## Features
+
+- **Headset menu:** turn effects on and off, change their settings, and save or switch presets.
+- **Head gesture to switch presets (OpenXR games):** raise a hand to the side of your head and press a button to switch to the next preset, for example from a preset for dark scenes to one for bright scenes.
+- **Pin the menu (OpenXR games):** keep it to one side, out of your way.
+- **Pin the FPS counter (OpenXR games):** always see your FPS, even with the menu closed.
+
+![Settings page of the headset menu, with Next preset, Show when menu is closed and the pin button ringed](tools/reshade-openxr-ui/images/menu-settings.png)
+
+![Effects page of the headset menu](tools/reshade-openxr-ui/images/menu-effects.png)
 
 ## Which Type Is My Game?
 
-Played with UEVR? It's **OpenXR**. Otherwise, pick one of these two options:
+Playing it with UEVR? Then it's **OpenXR**. Otherwise, use one of these two options:
 
 **Option 1: Check the game folder (about a minute)**
 
@@ -54,13 +42,13 @@ To check for Vulkan or 32-bit, look the game up on [PCGamingWiki](https://www.pc
 **Option 2: Just try OpenXR**
 
 1. Follow the [OpenXR steps](tools/reshade-openxr-ui/INSTALL.md).
-2. If no menu shows in the headset, it's probably a SteamVR game. Uninstall ReShade for that game in ReShade Setup, then follow the [SteamVR steps](tools/reshade-openxr-ui/INSTALL-SteamVR.md).
+2. If the menu doesn't show up in the headset, it's probably a SteamVR game. Uninstall ReShade for that game in ReShade Setup, then follow the [SteamVR steps](tools/reshade-openxr-ui/INSTALL-SteamVR.md).
 
-The OpenXR add-on can stay installed; it does nothing in other games.
+You can leave the OpenXR add-on installed. It does nothing in other games.
 
 ## Something Not Working?
 
-Each install guide ends with **Help** (unzipping, finding the game folder) and **Troubleshooting**.
+The end of each install guide has **Help** (unzipping, finding the game folder) and **Troubleshooting**.
 
 ## For Developers
 

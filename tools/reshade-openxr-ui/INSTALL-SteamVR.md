@@ -1,17 +1,15 @@
 # ReShade In SteamVR Games
 
-In SteamVR games, ReShade has its own menu in the SteamVR dashboard: press the controller's menu button and click the ReShade icon. **The icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.** This download gives you that file. Set up each game on its own.
+In SteamVR games, ReShade has its own menu in the SteamVR dashboard: press the controller's menu button and click the ReShade icon. **The icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.** This download includes that file. You set up each game separately.
 
 ![The ReShade icon in the SteamVR dashboard, with ReShade's menu open above it](https://raw.githubusercontent.com/wyerdev/ReShade-VR-UI-Addon/main/tools/reshade-openxr-ui/images/steamvr-dashboard-reshade-icon.png)
 
 **Download:** [newest version](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest) (the file starting with `ReShade-VR-UI-Addon-SteamVR`).
 
-Pick one way per game:
+For each game, pick one way:
 
-- **Way 1: Automatic.** For 64-bit DirectX 11 and 12 games. The add-on makes `ReShadeVR.ini` for you and adds extras.
+- **Way 1: Automatic.** For 64-bit DirectX 11 and 12 games. The add-on creates `ReShadeVR.ini` for you and adds extras.
 - **Way 2: Manual.** For any game. You copy `ReShadeVR.ini` yourself.
-
-Stuck? See [Help](#help) and [Troubleshooting](#troubleshooting) at the end.
 
 ## Way 1: Automatic (With The Add-on)
 
@@ -24,13 +22,13 @@ Extras you get:
 
 - ReShade's menu opens by itself.
 - FPS counter: in ReShade's menu, open **Add-ons** and click **ReShade VR UI Add-on for SteamVR**.
-- Effects are drawn only in the headset, not again on the monitor. This might save FPS.
-- Preset changes no longer bounce between the monitor and the headset.
-- Smaller menu text, so the menu isn't zoomed in.
+- Effects are drawn only in the headset, not also on the monitor, which can save FPS.
+- Preset changes no longer flip back and forth between the monitor and the headset.
+- Smaller menu text, so the menu doesn't look zoomed in.
 
-Update: replace the `.addon64` file. Uninstall: delete it. The ReShade icon keeps appearing.
+Update: replace the `.addon64` file. Uninstall: delete it. The ReShade icon stays in SteamVR.
 
-## Way 2: Manual (ReShade Alone)
+## Way 2: Manual (ReShade Only)
 
 1. Download ReShade from [reshade.me](https://reshade.me/).
 2. Run ReShade Setup and pick the game's `.exe`. Choose the graphics type the game uses (DirectX or Vulkan). Leave the **OpenXR layer** unticked.
@@ -59,4 +57,4 @@ Update: replace the `.addon64` file. Uninstall: delete it. The ReShade icon keep
 
 ## What The Add-on Changes
 
-It writes these settings for you: `ReShadeVR.ini` with a smaller menu text size, and `SyncEffectRuntimes=0` in `ReShade.ini`. They stay after you delete the add-on.
+It changes two files for you: `ReShadeVR.ini` gets a smaller menu text size, and `ReShade.ini` gets `SyncEffectRuntimes=0`. These changes stay after you delete the add-on.
