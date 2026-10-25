@@ -4,6 +4,11 @@ Control ReShade's effects from inside your VR headset.
 
 ReShade adds effects like sharpening or colour changes to games. This add-on gives you a menu in the headset to turn them on and off and adjust them, without taking the headset off.
 
+## Features
+
+- **Headset menu:** turn effects on and off, change their settings, and save, switch or delete presets, all inside VR.
+- **Switch presets without the menu (OpenXR games):** raise a hand to your head and press a button, like switching on a head torch, or click both thumbsticks. With one preset it turns effects off and on. [How to set it up](tools/reshade-openxr-ui/INSTALL.md#switch-presets-without-the-menu).
+
 ## Download
 
 **[⬇ Download the newest version](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest)**

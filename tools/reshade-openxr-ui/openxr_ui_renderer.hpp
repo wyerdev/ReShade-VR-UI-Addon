@@ -3,6 +3,7 @@
 #include "openxr_ui_model.hpp"
 #include "vr_frame_statistics.hpp"
 #include "vr_menu_shortcut.hpp"
+#include "vr_preset_gesture.hpp"
 #include "vr_ui_themes.hpp"
 
 #include <cstdint>
@@ -66,6 +67,8 @@ namespace openxr_ui
 		uint32_t theme = vr_theme::default_theme;
 		// The add-on runs its own effect runtime (UEVR games), which gets no depth buffer.
 		bool depth_effects_unavailable = false;
+		// Choice from vr_preset_gesture.hpp.
+		uint32_t preset_gesture = preset_gesture_off;
 	};
 
 	struct render_result
@@ -102,6 +105,7 @@ namespace openxr_ui
 			include_effect_subfolders,
 			dismiss_effect_subfolder_notice,
 			set_theme,
+			set_preset_gesture,
 		};
 
 		command action = command::none;

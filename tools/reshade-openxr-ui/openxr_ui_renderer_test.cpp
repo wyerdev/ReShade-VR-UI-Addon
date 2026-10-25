@@ -31,10 +31,55 @@ namespace
 		return false;
 	}
 
+	bool preset_gesture_logic_works()
+	{
+		// Hand against the left temple fires; held out to aim, on the chest, or below the chin does not.
+		if (!openxr_ui::hand_near_head(-0.12f, 0.02f, -0.03f) || openxr_ui::hand_near_head(-0.10f, -0.05f, -0.40f) ||
+			openxr_ui::hand_near_head(0.0f, -0.35f, -0.10f) || openxr_ui::hand_near_head(-0.05f, -0.15f, -0.05f))
+		{
+			std::fputs("Preset gesture hand-near-head rule accepted or rejected the wrong hand position.\n", stderr);
+			return false;
+		}
+		openxr_ui::preset_gesture_tracker tracker;
+		if (tracker.press_started(false) || !tracker.press_started(true) || tracker.press_started(true) ||
+			tracker.press_started(false) || !tracker.press_started(true))
+		{
+			std::fputs("Preset gesture fired other than once per button press.\n", stderr);
+			return false;
+		}
+		openxr_ui::preset_gesture_tracker release_tracker;
+		if (release_tracker.press_ended(false) || release_tracker.press_ended(true) || !release_tracker.press_ended(false) ||
+			release_tracker.press_ended(false))
+		{
+			std::fputs("L3+R3 preset gesture fired other than once per release.\n", stderr);
+			return false;
+		}
+		if (openxr_ui::stick_gesture_allowed(openxr_ui::menu_button_both_sticks, false) ||
+			!openxr_ui::stick_gesture_allowed(openxr_ui::menu_button_hold_both_sticks, false) ||
+			openxr_ui::stick_gesture_allowed(openxr_ui::menu_button_hold_both_sticks, true) ||
+			!openxr_ui::stick_gesture_allowed(openxr_ui::menu_button_b_and_y, true) ||
+			openxr_ui::preset_gesture_button_for(openxr_ui::preset_gesture_both_sticks) != openxr_ui::preset_gesture_button::none)
+		{
+			std::fputs("L3+R3 preset gesture clashed with the L3+R3 menu shortcut.\n", stderr);
+			return false;
+		}
+		if (openxr_ui::preset_gesture_button_for(openxr_ui::preset_gesture_off) != openxr_ui::preset_gesture_button::none ||
+			openxr_ui::preset_gesture_button_for(openxr_ui::preset_gesture_left_x) != openxr_ui::preset_gesture_button::face ||
+			openxr_ui::preset_gesture_button_for(openxr_ui::preset_gesture_right_grip) != openxr_ui::preset_gesture_button::grip ||
+			!openxr_ui::preset_gesture_uses_left_hand(openxr_ui::preset_gesture_left_trigger) ||
+			openxr_ui::preset_gesture_uses_left_hand(openxr_ui::preset_gesture_right_trigger))
+		{
+			std::fputs("Preset gesture choice mapped to the wrong hand or button.\n", stderr);
+			return false;
+		}
+		return true;
+	}
 }
 
 int main()
 {
+	if (!preset_gesture_logic_works())
+		return 1;
 	ComPtr<ID3D11Device> device;
 	ComPtr<ID3D11DeviceContext> context;
 	if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0,
@@ -473,6 +518,21 @@ int main()
 	if (renderer.render(render_target.Get(), snapshot, menu_key_pick_off_without_button).action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Keyboard menu drop-down allowed Off while the controller shortcut is also Off.\n", stderr);
+		return 1;
+	}
+	// The head gesture list sits next to "UI starts open"; eight 32-pixel rows open above it, starting at y 268.
+	const openxr_ui::render_input gesture_open = { true, 300.0f, 542.0f, true };
+	if (renderer.render(render_target.Get(), snapshot, gesture_open).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("Head gesture drop-down changed the setting instead of opening its list.\n", stderr);
+		return 1;
+	}
+	const openxr_ui::render_input gesture_pick_left_trigger = { true, 300.0f, 316.0f, true };
+	const openxr_ui::render_result gesture_result = renderer.render(render_target.Get(), snapshot, gesture_pick_left_trigger);
+	if (gesture_result.action != openxr_ui::render_result::command::set_preset_gesture ||
+		gesture_result.value != static_cast<double>(openxr_ui::preset_gesture_left_trigger))
+	{
+		std::fputs("Head gesture drop-down did not pick Left Trigger from its list.\n", stderr);
 		return 1;
 	}
 	const openxr_ui::render_input starts_open_toggle = { true, 100.0f, 542.0f, true, false, false, false, 0.0f, false, true };

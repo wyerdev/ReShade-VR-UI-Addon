@@ -47,6 +47,7 @@ namespace
 	uint32_t s_theme = vr_theme::default_theme;
 	uint32_t s_menu_button = openxr_ui::menu_button_both_sticks;
 	uint32_t s_menu_key = openxr_ui::menu_key_insert;
+	uint32_t s_preset_gesture = openxr_ui::preset_gesture_off;
 	bool s_ui_settings_loaded = false;
 	bool s_performance_mode = false;
 	bool s_performance_mode_at_start = false;
@@ -313,6 +314,8 @@ namespace
 			s_menu_key = key < openxr_ui::menu_key_count ? key : openxr_ui::menu_key_insert;
 			if (s_menu_button == openxr_ui::menu_button_off && s_menu_key == openxr_ui::menu_key_off)
 				s_menu_key = openxr_ui::menu_key_insert;
+			const UINT gesture = GetPrivateProfileIntW(L"UI", L"PresetGesture", openxr_ui::preset_gesture_off, path.c_str());
+			s_preset_gesture = gesture < openxr_ui::preset_gesture_count ? gesture : openxr_ui::preset_gesture_off;
 			wchar_t theme_name[64] = L"";
 			GetPrivateProfileStringW(L"UI", L"Theme", L"", theme_name, static_cast<DWORD>(std::size(theme_name)), path.c_str());
 			char theme_name_utf8[192] = "";
@@ -1415,44 +1418,69 @@ bool openxr_ui_are_shaders_temporarily_disabled()
 	return s_shaders_temporarily_disabled;
 }
 
+namespace
+{
+	// Caller holds s_mutex.
+	bool toggle_all_techniques_locked()
+	{
+		if (s_effect_runtime == nullptr || s_techniques->techniques.empty())
+			return false;
+
+		auto updated = std::make_shared<openxr_ui::technique_snapshot>(*s_techniques);
+		if (!s_shaders_temporarily_disabled)
+		{
+			s_temporary_technique_states.clear();
+			for (openxr_ui::technique &entry : updated->techniques)
+			{
+				s_temporary_technique_states.emplace(entry.id, entry.enabled);
+				if (entry.enabled)
+				{
+					s_effect_runtime->set_technique_state({ entry.id }, false);
+					entry.enabled = s_effect_runtime->get_technique_state({ entry.id });
+				}
+			}
+			s_shaders_temporarily_disabled = true;
+			log_runtime_message(reshade::log::level::info, "controller temporarily disabled all shaders without saving the preset.");
+		}
+		else
+		{
+			for (openxr_ui::technique &entry : updated->techniques)
+			{
+				const auto saved_it = s_temporary_technique_states.find(entry.id);
+				if (saved_it == s_temporary_technique_states.end())
+					continue;
+				s_effect_runtime->set_technique_state({ entry.id }, saved_it->second);
+				entry.enabled = s_effect_runtime->get_technique_state({ entry.id });
+			}
+			s_temporary_technique_states.clear();
+			s_shaders_temporarily_disabled = false;
+			log_runtime_message(reshade::log::level::info, "controller restored the shader states captured before temporary disable.");
+		}
+		s_techniques = std::move(updated);
+		return true;
+	}
+}
+
 bool openxr_ui_toggle_all_techniques()
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);
-	if (s_effect_runtime == nullptr || s_techniques->techniques.empty())
-		return false;
+	return toggle_all_techniques_locked();
+}
 
-	auto updated = std::make_shared<openxr_ui::technique_snapshot>(*s_techniques);
-	if (!s_shaders_temporarily_disabled)
+bool openxr_ui_gesture_switch_preset()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	if (s_effect_runtime == nullptr || s_inherited_preset_copy.is_pending() || s_pending_preset_delete.is_pending())
+		return false;
+	// Effects switched off by the gesture or by Disable all come back first, so the gesture never strands them off.
+	if (s_shaders_temporarily_disabled)
+		return toggle_all_techniques_locked();
+	if (openxr_ui::switch_to_sibling_preset(s_effect_runtime, false))
 	{
-		s_temporary_technique_states.clear();
-		for (openxr_ui::technique &entry : updated->techniques)
-		{
-			s_temporary_technique_states.emplace(entry.id, entry.enabled);
-			if (entry.enabled)
-			{
-				s_effect_runtime->set_technique_state({ entry.id }, false);
-				entry.enabled = s_effect_runtime->get_technique_state({ entry.id });
-			}
-		}
-		s_shaders_temporarily_disabled = true;
-		log_runtime_message(reshade::log::level::info, "controller temporarily disabled all shaders without saving the preset.");
+		log_runtime_message(reshade::log::level::info, "preset gesture switched to the next ReShade preset.");
+		return true;
 	}
-	else
-	{
-		for (openxr_ui::technique &entry : updated->techniques)
-		{
-			const auto saved_it = s_temporary_technique_states.find(entry.id);
-			if (saved_it == s_temporary_technique_states.end())
-				continue;
-			s_effect_runtime->set_technique_state({ entry.id }, saved_it->second);
-			entry.enabled = s_effect_runtime->get_technique_state({ entry.id });
-		}
-		s_temporary_technique_states.clear();
-		s_shaders_temporarily_disabled = false;
-		log_runtime_message(reshade::log::level::info, "controller restored the shader states captured before temporary disable.");
-	}
-	s_techniques = std::move(updated);
-	return true;
+	return toggle_all_techniques_locked();
 }
 
 bool openxr_ui_is_preset_dirty()
@@ -1641,6 +1669,27 @@ bool openxr_ui_set_menu_key(uint32_t key)
 	s_menu_key = key;
 	char message[96];
 	std::snprintf(message, sizeof(message), "keyboard menu key is %s.", openxr_ui::menu_key_names[key]);
+	log_runtime_message(reshade::log::level::info, message);
+	return true;
+}
+
+uint32_t openxr_ui_get_preset_gesture()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_preset_gesture;
+}
+
+bool openxr_ui_set_preset_gesture(uint32_t gesture)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	if (gesture >= openxr_ui::preset_gesture_count ||
+		!save_menu_shortcut(L"PresetGesture", gesture, "failed to save the preset gesture setting."))
+		return false;
+	s_preset_gesture = gesture;
+	char message[96];
+	std::snprintf(message, sizeof(message), "preset gesture is %s.", openxr_ui::preset_gesture_names[gesture]);
 	log_runtime_message(reshade::log::level::info, message);
 	return true;
 }

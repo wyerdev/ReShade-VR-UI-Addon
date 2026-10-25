@@ -1584,7 +1584,19 @@ namespace openxr_ui
 			ImGui::PopFont();
 
 			ImGui::SetCursorScreenPos({ footer_min.x, footer_row_2 });
-			const bool starts_open_hovered = draw_tick_box("starts_open", "UI starts open", input.ui_starts_open, 220.0f);
+			const char *const starts_open_label = "UI starts open";
+			const bool starts_open_hovered = draw_tick_box("starts_open", starts_open_label, input.ui_starts_open,
+				std::ceil(tick_box_label_x + ImGui::CalcTextSize(starts_open_label).x + space_sm));
+			ImGui::SetCursorScreenPos({ ImGui::GetItemRectMax().x + space_md, footer_row_2 });
+			const dropdown_interaction gesture_choice = draw_dropdown(_implementation->dropdown, "preset_gesture", "Head gesture: ", control_height,
+				preset_gesture_names, preset_gesture_count, input.preset_gesture,
+				input.select_clicked && _implementation->dragging == implementation::drag_target::none);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Head gesture: switch preset",
+				"Bring the chosen hand up to the side of your head, like switching on a head torch, and press the chosen button. "
+				"That switches to the next preset. With only one preset, it turns all effects off, and on again the next time.\n\n"
+				"L3+R3 needs no hand movement: click both thumbsticks and let go. It does nothing while the menu shortcut is "
+				"also L3+R3; with Hold L3+R3, a quick click switches preset and a long hold shows the menu.\n\n"
+				"Works only while this menu is closed. The game also receives the button press.");
 			// The game still sees every button and key press, so each choice may also do something in the game or in a mod such as UEVR.
 			const char *const shortcut_details =
 				"Shows or hides this menu. The game also receives the press.\n\n"
@@ -1636,6 +1648,11 @@ namespace openxr_ui
 			{
 				result.action = render_result::command::set_menu_key;
 				result.value = static_cast<double>(key_choice.option);
+			}
+			else if (gesture_choice.chosen && gesture_choice.option != input.preset_gesture)
+			{
+				result.action = render_result::command::set_preset_gesture;
+				result.value = static_cast<double>(gesture_choice.option);
 			}
 			else if (input.select_clicked && starts_open_hovered && _implementation->dragging == implementation::drag_target::none)
 			{

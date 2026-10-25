@@ -22,6 +22,17 @@ UEVR uses the same buttons for its own menu. Pick other buttons in the add-on me
 
 **UEVR games: effects that need depth (MXAO, depth of field, depth fog) do not work.**
 
+## Features
+
+### Switch Presets Without The Menu
+
+Raise a hand to your head and press a button, like switching on a head torch. Each press moves to the next preset. With only one preset, it turns effects off and on.
+
+1. Open the menu and pick a choice in the **Head gesture** list, for example **Left Trigger**. It is **Off** at first.
+2. Close the menu, raise that hand to the side of your head and press the button.
+
+No hand movement wanted? Pick **L3+R3**, and set **Open UI** to **Hold L3+R3**. A quick click of both thumbsticks then switches preset, and a long hold opens the menu.
+
 ## Update Or Uninstall
 
 - Update: close games and SteamVR, extract the new ZIP, then run `Install-OpenXR.cmd` and click **Yes** when Windows asks for permission.

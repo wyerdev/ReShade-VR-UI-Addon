@@ -102,6 +102,7 @@ For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingV
 - Per-shader Revert to the last successful preset save and Restore to the captured live state
 - Preset navigation, save, named Save As, and delete
 - Controller pointer, trigger interaction, thumbstick scrolling, and a choice of controller buttons or keyboard key to show and hide the panel
+- **Head gesture** list next to **UI starts open** (OpenXR games): bring the chosen hand (Left or Right) up to the side of the head, like switching on a head torch, and press the chosen button (Trigger, Grip, X or A) while the menu is closed. That switches to the next preset; with only one preset it turns all effects off, and on again the next time. **L3+R3** needs no hand movement: click both thumbsticks and let go. It does nothing while the menu shortcut is also **L3+R3**; with **Hold L3+R3**, a quick click switches preset and a long hold shows the menu. Off by default; saved as `PresetGesture=<number>` under `[UI]` in `settings.ini`. The hand position is read only on the frame the button goes down, so the gesture adds no per-frame waits
 - Active graphics API indicator for Direct3D 11, Direct3D 12 and OpenGL sessions
 - Distinct diagnostics for a missing OpenXR effect runtime and an empty technique inventory
 - Compact and expanded panel layouts

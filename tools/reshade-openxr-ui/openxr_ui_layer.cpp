@@ -124,6 +124,19 @@ namespace
 		XrAction right_b_action = XR_NULL_HANDLE;
 		XrAction left_y_action = XR_NULL_HANDLE;
 		XrAction scroll_action = XR_NULL_HANDLE;
+		// Preset gesture; each has a left and a right hand subaction. The right trigger reuses select_action.
+		XrAction hand_pose_action = XR_NULL_HANDLE;
+		XrAction gesture_trigger_action = XR_NULL_HANDLE;
+		XrAction gesture_grip_action = XR_NULL_HANDLE;
+		XrAction gesture_face_action = XR_NULL_HANDLE;
+		XrPath left_grip_pose_path = XR_NULL_PATH;
+		XrPath right_grip_pose_path = XR_NULL_PATH;
+		XrPath left_trigger_path = XR_NULL_PATH;
+		XrPath left_squeeze_path = XR_NULL_PATH;
+		XrPath right_squeeze_path = XR_NULL_PATH;
+		XrPath left_x_click_path = XR_NULL_PATH;
+		XrPath right_a_click_path = XR_NULL_PATH;
+		bool gesture_actions_ready = false;
 		XrPath right_hand_path = XR_NULL_PATH;
 		XrPath left_hand_path = XR_NULL_PATH;
 		XrPath oculus_profile = XR_NULL_PATH;
@@ -199,6 +212,10 @@ namespace
 		bool panel_image_ready = false;
 		uint64_t statistics_image_revision = 0;
 		XrSpace aim_space = XR_NULL_HANDLE;
+		XrSpace left_hand_space = XR_NULL_HANDLE;
+		XrSpace right_hand_space = XR_NULL_HANDLE;
+		uint32_t preset_gesture = openxr_ui::preset_gesture_off;
+		openxr_ui::preset_gesture_tracker preset_gesture_press;
 		bool actions_attached = false;
 		bool input_focused = true;
 		bool should_render = true;
@@ -439,6 +456,57 @@ namespace
 		dispatch.SuggestInteractionProfileBindings(dispatch.instance, &suggestion);
 	}
 
+	// Failing here only disables the preset gesture; the menu's own actions still work.
+	bool initialize_gesture_actions(instance_dispatch &dispatch)
+	{
+		const XrPath both_hands[] = { dispatch.left_hand_path, dispatch.right_hand_path };
+		const auto create = [&dispatch, &both_hands](XrActionType type, const char *name, const char *localized_name, XrAction &action) {
+			XrActionCreateInfo action_info = { XR_TYPE_ACTION_CREATE_INFO };
+			action_info.countSubactionPaths = 2;
+			action_info.subactionPaths = both_hands;
+			action_info.actionType = type;
+			strcpy_s(action_info.actionName, name);
+			strcpy_s(action_info.localizedActionName, localized_name);
+			return XR_SUCCEEDED(dispatch.CreateAction(dispatch.action_set, &action_info, &action));
+		};
+		return create(XR_ACTION_TYPE_POSE_INPUT, "preset_gesture_hand", "Preset Gesture Hand", dispatch.hand_pose_action) &&
+			create(XR_ACTION_TYPE_BOOLEAN_INPUT, "preset_gesture_trigger", "Preset Gesture Trigger", dispatch.gesture_trigger_action) &&
+			create(XR_ACTION_TYPE_BOOLEAN_INPUT, "preset_gesture_grip", "Preset Gesture Grip", dispatch.gesture_grip_action) &&
+			create(XR_ACTION_TYPE_BOOLEAN_INPUT, "preset_gesture_face", "Preset Gesture X or A", dispatch.gesture_face_action) &&
+			string_to_path(dispatch, "/user/hand/left/input/grip/pose", dispatch.left_grip_pose_path) &&
+			string_to_path(dispatch, "/user/hand/right/input/grip/pose", dispatch.right_grip_pose_path) &&
+			string_to_path(dispatch, "/user/hand/left/input/trigger/value", dispatch.left_trigger_path) &&
+			string_to_path(dispatch, "/user/hand/left/input/squeeze/value", dispatch.left_squeeze_path) &&
+			string_to_path(dispatch, "/user/hand/right/input/squeeze/value", dispatch.right_squeeze_path) &&
+			string_to_path(dispatch, "/user/hand/left/input/x/click", dispatch.left_x_click_path) &&
+			string_to_path(dispatch, "/user/hand/right/input/a/click", dispatch.right_a_click_path);
+	}
+
+	std::vector<XrActionSuggestedBinding> oculus_bindings(const instance_dispatch &dispatch)
+	{
+		std::vector<XrActionSuggestedBinding> bindings = {
+			{ dispatch.aim_action, dispatch.aim_path },
+			{ dispatch.select_action, dispatch.trigger_path },
+			{ dispatch.right_menu_toggle_action, dispatch.right_thumbstick_click_path },
+			{ dispatch.left_menu_toggle_action, dispatch.left_thumbstick_click_path },
+			{ dispatch.left_menu_button_action, dispatch.left_menu_click_path },
+			{ dispatch.right_b_action, dispatch.right_b_click_path },
+			{ dispatch.left_y_action, dispatch.left_y_click_path },
+			{ dispatch.scroll_action, dispatch.thumbstick_path },
+		};
+		if (dispatch.gesture_actions_ready)
+			bindings.insert(bindings.end(), {
+				{ dispatch.hand_pose_action, dispatch.left_grip_pose_path },
+				{ dispatch.hand_pose_action, dispatch.right_grip_pose_path },
+				{ dispatch.gesture_trigger_action, dispatch.left_trigger_path },
+				{ dispatch.gesture_grip_action, dispatch.left_squeeze_path },
+				{ dispatch.gesture_grip_action, dispatch.right_squeeze_path },
+				{ dispatch.gesture_face_action, dispatch.left_x_click_path },
+				{ dispatch.gesture_face_action, dispatch.right_a_click_path },
+			});
+		return bindings;
+	}
+
 	bool initialize_actions(instance_dispatch &dispatch, XrInstance instance)
 	{
 		dispatch.instance = instance;
@@ -518,6 +586,9 @@ namespace
 		strcpy_s(action_info.localizedActionName, "Menu Scroll");
 		if (XR_FAILED(dispatch.CreateAction(dispatch.action_set, &action_info, &dispatch.scroll_action)))
 			return false;
+		dispatch.gesture_actions_ready = initialize_gesture_actions(dispatch);
+		if (!dispatch.gesture_actions_ready)
+			openxr_ui_log_message("head gesture unavailable: its controller actions could not be created.", true);
 
 		if (!string_to_path(dispatch, "/interaction_profiles/oculus/touch_controller", dispatch.oculus_profile) ||
 			!string_to_path(dispatch, "/interaction_profiles/khr/simple_controller", dispatch.simple_profile) ||
@@ -533,16 +604,7 @@ namespace
 			!string_to_path(dispatch, "/user/hand/left/input/y/click", dispatch.left_y_click_path))
 			return false;
 
-		suggest_bindings(dispatch, dispatch.oculus_profile, {
-			{ dispatch.aim_action, dispatch.aim_path },
-			{ dispatch.select_action, dispatch.trigger_path },
-			{ dispatch.right_menu_toggle_action, dispatch.right_thumbstick_click_path },
-			{ dispatch.left_menu_toggle_action, dispatch.left_thumbstick_click_path },
-			{ dispatch.left_menu_button_action, dispatch.left_menu_click_path },
-			{ dispatch.right_b_action, dispatch.right_b_click_path },
-			{ dispatch.left_y_action, dispatch.left_y_click_path },
-			{ dispatch.scroll_action, dispatch.thumbstick_path },
-		});
+		suggest_bindings(dispatch, dispatch.oculus_profile, oculus_bindings(dispatch));
 		suggest_bindings(dispatch, dispatch.simple_profile, {
 			{ dispatch.aim_action, dispatch.aim_path },
 			{ dispatch.select_action, dispatch.select_path },
@@ -563,14 +625,8 @@ namespace
 		};
 		if (profile == dispatch.oculus_profile)
 		{
-			append(dispatch.aim_action, dispatch.aim_path);
-			append(dispatch.select_action, dispatch.trigger_path);
-			append(dispatch.right_menu_toggle_action, dispatch.right_thumbstick_click_path);
-			append(dispatch.left_menu_toggle_action, dispatch.left_thumbstick_click_path);
-			append(dispatch.left_menu_button_action, dispatch.left_menu_click_path);
-			append(dispatch.right_b_action, dispatch.right_b_click_path);
-			append(dispatch.left_y_action, dispatch.left_y_click_path);
-			append(dispatch.scroll_action, dispatch.thumbstick_path);
+			for (const XrActionSuggestedBinding &binding : oculus_bindings(dispatch))
+				append(binding.action, binding.binding);
 		}
 		else if (profile == dispatch.simple_profile)
 		{
@@ -762,6 +818,14 @@ namespace
 			action_space_info.subactionPath = state.dispatch->right_hand_path;
 			action_space_info.poseInActionSpace = action_identity;
 			state.dispatch->CreateActionSpace(state.session, &action_space_info, &state.aim_space);
+			if (state.dispatch->gesture_actions_ready)
+			{
+				action_space_info.action = state.dispatch->hand_pose_action;
+				action_space_info.subactionPath = state.dispatch->left_hand_path;
+				state.dispatch->CreateActionSpace(state.session, &action_space_info, &state.left_hand_space);
+				action_space_info.subactionPath = state.dispatch->right_hand_path;
+				state.dispatch->CreateActionSpace(state.session, &action_space_info, &state.right_hand_space);
+			}
 		}
 		openxr_ui_log_message("native VIEW-space quad initialized with private ImGui technique renderer.");
 		openxr_ui_log_message(state.api == graphics_api::d3d11 ? "native quad graphics backend: D3D11." :
@@ -863,6 +927,7 @@ namespace
 				state.menu_key,
 				openxr_ui_get_theme(),
 				state.effects != nullptr,
+				state.preset_gesture,
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
@@ -948,6 +1013,13 @@ namespace
 			case openxr_ui::render_result::command::set_menu_key:
 				if (openxr_ui_set_menu_key(static_cast<uint32_t>(render_result.value)))
 					state.menu_key = static_cast<uint32_t>(render_result.value);
+				break;
+			case openxr_ui::render_result::command::set_preset_gesture:
+				if (openxr_ui_set_preset_gesture(static_cast<uint32_t>(render_result.value)))
+				{
+					state.preset_gesture = static_cast<uint32_t>(render_result.value);
+					state.preset_gesture_press = {};
+				}
 				break;
 			case openxr_ui::render_result::command::set_ui_starts_open:
 				if (openxr_ui_set_ui_starts_open(render_result.state))
@@ -1158,6 +1230,51 @@ namespace
 		return read_boolean_action(state, dispatch.simple_menu_toggle_action, dispatch.right_hand_path, first) && first;
 	}
 
+	// Fires when both sticks are let go, so holding them for the "Hold L3+R3" menu shortcut does not also switch presets.
+	void update_stick_preset_gesture(session_state &state)
+	{
+		const instance_dispatch &dispatch = *state.dispatch;
+		bool right = false;
+		bool left = false;
+		const bool pressed = read_boolean_action(state, dispatch.right_menu_toggle_action, dispatch.right_hand_path, right) &&
+			read_boolean_action(state, dispatch.left_menu_toggle_action, dispatch.left_hand_path, left) && right && left;
+		if (!state.preset_gesture_press.press_ended(pressed) || state.panel_visible ||
+			!openxr_ui::stick_gesture_allowed(state.menu_button, state.menu_chord_triggered))
+			return;
+		if (!openxr_ui_gesture_switch_preset())
+			openxr_ui_log_message("preset gesture recognised, but no preset change was possible right now.");
+	}
+
+	// Costs one button read per frame; the hand is located only on the frame the button goes down.
+	void update_preset_gesture(session_state &state, XrTime display_time)
+	{
+		if (state.preset_gesture == openxr_ui::preset_gesture_both_sticks)
+			return update_stick_preset_gesture(state);
+		const instance_dispatch &dispatch = *state.dispatch;
+		const openxr_ui::preset_gesture_button button = openxr_ui::preset_gesture_button_for(state.preset_gesture);
+		if (button == openxr_ui::preset_gesture_button::none || !dispatch.gesture_actions_ready)
+			return;
+		const bool left = openxr_ui::preset_gesture_uses_left_hand(state.preset_gesture);
+		const XrAction action =
+			button == openxr_ui::preset_gesture_button::trigger ? (left ? dispatch.gesture_trigger_action : dispatch.select_action) :
+			button == openxr_ui::preset_gesture_button::grip ? dispatch.gesture_grip_action : dispatch.gesture_face_action;
+		bool pressed = false;
+		read_boolean_action(state, action, left ? dispatch.left_hand_path : dispatch.right_hand_path, pressed);
+		// While the menu is open the buttons belong to the menu, so a press there never switches presets.
+		if (!state.preset_gesture_press.press_started(pressed) || state.panel_visible)
+			return;
+		const XrSpace hand_space = left ? state.left_hand_space : state.right_hand_space;
+		if (hand_space == XR_NULL_HANDLE)
+			return;
+		XrSpaceLocation location = { XR_TYPE_SPACE_LOCATION };
+		if (XR_FAILED(dispatch.LocateSpace(hand_space, state.view_space, display_time, &location)) ||
+			(location.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) == 0 ||
+			!openxr_ui::hand_near_head(location.pose.position.x, location.pose.position.y, location.pose.position.z))
+			return;
+		if (!openxr_ui_gesture_switch_preset())
+			openxr_ui_log_message("preset gesture recognised, but no preset change was possible right now.");
+	}
+
 	void update_interaction(session_state &state, XrTime display_time)
 	{
 		state.pointer_visible = false;
@@ -1222,6 +1339,7 @@ namespace
 			state.menu_chord_triggered = true;
 		}
 		state.menu_chord_was_pressed = menu_chord_pressed;
+		update_preset_gesture(state, display_time);
 
 		get_info.action = state.dispatch->scroll_action;
 		XrActionStateVector2f scroll_state = { XR_TYPE_ACTION_STATE_VECTOR2F };
@@ -1340,6 +1458,10 @@ namespace
 		destroy_quad_target(state, state.statistics);
 		if (state.aim_space != XR_NULL_HANDLE)
 			state.dispatch->DestroySpace(state.aim_space);
+		if (state.left_hand_space != XR_NULL_HANDLE)
+			state.dispatch->DestroySpace(state.left_hand_space);
+		if (state.right_hand_space != XR_NULL_HANDLE)
+			state.dispatch->DestroySpace(state.right_hand_space);
 		if (state.local_space != XR_NULL_HANDLE)
 			state.dispatch->DestroySpace(state.local_space);
 		if (state.view_space != XR_NULL_HANDLE)
@@ -1526,6 +1648,7 @@ extern "C" XrResult XRAPI_CALL xrCreateSession(XrInstance instance, const XrSess
 	state->frame_timing.set_frame_rate_divisor(openxr_ui_get_frame_rate_divisor());
 	state->menu_button = openxr_ui_get_menu_button();
 	state->menu_key = openxr_ui_get_menu_key();
+	state->preset_gesture = openxr_ui_get_preset_gesture();
 	openxr_ui::panel_renderer::select_theme(openxr_ui_get_theme());
 	state->panel_visible = state->ui_starts_open;
 	if (create_info != nullptr)

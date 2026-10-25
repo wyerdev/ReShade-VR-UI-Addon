@@ -3,6 +3,7 @@
 #include "openxr_ui_model.hpp"
 #include "vr_frame_statistics.hpp"
 #include "vr_menu_shortcut.hpp"
+#include "vr_preset_gesture.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -45,6 +46,11 @@ uint32_t openxr_ui_get_menu_key();
 bool openxr_ui_set_menu_key(uint32_t key);
 // True while the chosen key is held and a window of this game is in front. Cheap enough to call every frame.
 bool openxr_ui_menu_key_down(uint32_t key);
+// Values from vr_preset_gesture.hpp; Off by default.
+uint32_t openxr_ui_get_preset_gesture();
+bool openxr_ui_set_preset_gesture(uint32_t gesture);
+// Next preset; with only one preset, turns effects off, and on again on the next call.
+bool openxr_ui_gesture_switch_preset();
 bool openxr_ui_get_always_show_statistics();
 bool openxr_ui_set_always_show_statistics(bool enabled);
 // 1 = full headset rate, 2 = half, 3 = third; colours the FPS graph.

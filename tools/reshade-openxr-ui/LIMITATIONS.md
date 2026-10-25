@@ -19,6 +19,11 @@
   [MOD_OWN_RESHADE_CONFLICT.md](MOD_OWN_RESHADE_CONFLICT.md).
 - Controllers: Oculus Touch style controllers work best. Other controllers use
   a basic fallback with fewer controls.
+- The **Head gesture** (switch preset by bringing a hand to the head and
+  pressing a button) works only in OpenXR games, not yet in SteamVR (OpenVR)
+  games, and needs Oculus Touch style controllers. The game also receives the
+  button press. The **L3+R3** choice does nothing while the menu shortcut is
+  also L3+R3; pick **Hold L3+R3** for the menu to use both.
 - The **UI starts open** setting applies from the next game start.
 - The FPS counter measures how often the game hands a frame to the headset.
   It does not show frames the headset software fills in by itself
