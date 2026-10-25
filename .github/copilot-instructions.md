@@ -26,6 +26,11 @@
 - This repository is owned and published independently from upstream ReShade.
 - Never commit or push changes to the upstream ReShade repository as part of work here.
 - The checkout under `.deps\reshade` is an external, ignored build dependency. Do not copy it into this repository or include it in release packages.
+- Never put changes to another project's code into this repository: no patches, changed copies, builds or installers for other projects (mods, ReShade, UEVR and so on), unless the user explicitly approves that exact addition. Work on another project stays outside this repository.
+- Fixes to another project live only in its own ignored checkout under `.deps`, together with any notes, scripts and helper files for it. Committed files must not describe, link to or install such fixes. Facts about how this add-on behaves with another project (for example that a mod crashed with a second ReShade effect runtime) stay in the repository with the project named; never generalize or remove them. This repository becomes public, and its Git history cannot be cleaned afterwards.
+- Never create Git links to other repositories (submodules or nested checkouts added with `git add`). `.deps` must contain no tracked entries; check with `git ls-files .deps`.
+- Before suggesting any commit, list the staged and unstaged files (`git status --short`) and confirm none of them is another project's code, a change to it, or a file that only serves another project. Report anything doubtful to the user instead of suggesting the commit.
+- Only these Git commands are allowed: `status`, `diff`, `log`, `show`, `ls-files`, `ls-tree`, `rev-list` and `grep`. Do not try others, even read-only ones such as `branch`, `tag`, `remote`, `config` or `stash list`; the hook blocks them. Use `gh` for GitHub information.
 - `RESHADE-dependency.md` is an informational snapshot, not a pinned revision. Preserve user edits and regenerate it only through `setup-reshade.ps1` when the dependency checkout changes.
 - Git is read-only for the agent. Only the user stages, unstages, commits, pushes, or otherwise changes Git state (branches, stash, reset, restore, remotes, config). The agent may run only read commands such as `git status`, `git diff`, `git log` and `git show`.
 - Every commit message the agent writes for the user must be a Conventional Commit (`docs: ...`, `fix: ...` and so on), following [Commit Messages](#commit-messages). A message without a type prefix is wrong, because the release changelog leaves it out.
@@ -102,7 +107,8 @@
 - Before answering a question about how something works, read the existing docs, and answer from what was already found. Do not reason it out again from scratch if not needed.
 - When the user asks to fix the instructions or docs, change the files in the same turn and say which lines changed.
 - Instructions state general rules. Never write a rule or example around the specific case that prompted it (a particular commit, file, picture or bug), not even reworded; describe the general pattern so it applies to every similar case. When adding a rule, add no example unless the rule cannot be understood without one.
-- When the user asks for something to be its own thing (its own guide, file or download), make it a separate file in that same turn. Don't fold it into an existing file as a section.
+
+- When the user asks for something to be its own thing (its own guide, file or download), make it a separate file in that same turn. Don't fold it into an existing file as a section.
 - Each install guide covers only its own case and never links to the other guides. Choosing the right guide happens only in the "Which download do I need?" table in `RELEASE_NOTES.md` and in the README files.
 
 ## Commit Messages
@@ -126,6 +132,7 @@
   - Fast loop for OpenXR add-on changes: `tools\reshade-openxr-ui\preview_ui.ps1` for anything visible (renders every menu page to PNG in about 5 s, no window), and `tools\reshade-openxr-ui\build.ps1` for behavior (builds the add-on and runs the renderer tests, about 40 s).
   - Never rerun `build.bat`, the smoke test or a full screenshot run between small edits; each full screenshot run takes several minutes per graphics API.
   - Final validation, once, before reporting done: `build.bat` from the repository root, then the full checks in `.github/instructions/openxr-ui-workflow.instructions.md`. Fix every failure and rerun only the failing step, then `build.bat` once more if code changed. Do not leave the build for the user to run.
+  - Run builds and tests only when files they use have changed since the last passing run (code, build scripts, test scripts, shaders, fonts). Never run them after changes only to documentation, instructions or files outside the repository, or after an edit that was undone; check `git diff --stat` first and say that no build was needed.
 - Finish with an executable validation whenever the environment provides one. Report unavailable or blocked validation clearly.
 
 ## Clean Code And File Organization
