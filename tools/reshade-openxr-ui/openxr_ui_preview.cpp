@@ -178,6 +178,8 @@ int wmain(int argc, wchar_t **argv)
 		bool uevr = false;
 		uint32_t menu_button = openxr_ui::menu_button_hold_both_sticks;
 		bool all_themes = true;
+		uint32_t preset_gesture = openxr_ui::preset_gesture_off;
+		bool always_show_statistics = false;
 	};
 	const shot shots[] = {
 		{ "effects", openxr_ui::panel_renderer::page::effects, false, true },
@@ -189,6 +191,9 @@ int wmain(int argc, wchar_t **argv)
 		{ "settings", openxr_ui::panel_renderer::page::settings, false, false },
 		// The L3+R3 gesture is unavailable while L3+R3 opens the menu; only the default theme needs this.
 		{ "settings-both-sticks", openxr_ui::panel_renderer::page::settings, false, false, false, openxr_ui::menu_button_both_sticks, false },
+		// The README and release page picture: the settings their tips recommend.
+		{ "settings-readme", openxr_ui::panel_renderer::page::settings, false, false, false, openxr_ui::menu_button_hold_both_sticks, false,
+			openxr_ui::preset_gesture_left_trigger, true },
 	};
 
 	int written = 0;
@@ -201,6 +206,8 @@ int wmain(int argc, wchar_t **argv)
 			openxr_ui::render_input input;
 			input.theme = theme;
 			input.menu_button = entry.menu_button;
+			input.preset_gesture = entry.preset_gesture;
+			input.always_show_statistics = entry.always_show_statistics;
 			input.expanded = entry.expanded;
 			input.preset_dirty = entry.dirty;
 			input.depth_effects_unavailable = entry.uevr;

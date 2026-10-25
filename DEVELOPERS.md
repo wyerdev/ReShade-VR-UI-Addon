@@ -97,6 +97,10 @@ Inspect every captured simulator state. Synthetic renderer output, logs, hit
 tests, and screenshot existence do not prove the headset UI is visually
 correct.
 
+The menu pictures in the README and on the release page come from
+`tools\reshade-openxr-ui\readme_images.ps1`. Run it after a menu design change
+and check the two pictures it writes to `tools\reshade-openxr-ui\images`.
+
 Most users do not need the following two scripts. They are optional integration
 tests for a full ReShade graphics proxy, not for testing this
 repository's ReShade VR UI Add-on:

@@ -7,7 +7,21 @@ ReShade adds effects like sharpening or colour changes to games. This add-on giv
 ## Features
 
 - **Headset menu:** turn effects on and off, change their settings, and save, switch or delete presets, all inside VR.
-- **Switch presets without the menu (OpenXR games):** raise a hand to your head and press a button, like switching on a head torch, or click both thumbsticks. With one preset it turns effects off and on. [How to set it up](tools/reshade-openxr-ui/INSTALL.md#switch-presets-without-the-menu).
+- **Switch between two presets with one button (OpenXR games):** for example one preset for dark places and one for bright places, or indoors and outdoors. Raise a hand to the side of your head and press a button, like switching on a head torch. With one preset, the same button turns effects off and on for a quick before-and-after check. [How to set it up](tools/reshade-openxr-ui/INSTALL.md#switch-between-two-presets-with-one-button).
+- **Pin the menu (OpenXR games):** pin it to one side, then look ahead to play and glance aside to change something.
+- **FPS counter:** shows the frame rate and a graph of the last 5 seconds. In OpenXR games it can stay visible while the menu is closed.
+
+More tips: [More Tips](tools/reshade-openxr-ui/INSTALL.md#more-tips) in the install guide.
+
+## What It Looks Like
+
+**Effects page:** turn effects on and off, star favourites, hide ones you never use, change their order, and pick, save or delete presets. **Open** shows an effect's settings.
+
+![Effects page of the headset menu](tools/reshade-openxr-ui/images/menu-effects.png)
+
+**Settings / Gestures page:** choose the button that opens the menu, the preset button, the FPS counter and the colour theme. The rings mark the preset button setting, keeping the FPS counter visible, and the pin button.
+
+![Settings / Gestures page of the headset menu](tools/reshade-openxr-ui/images/menu-settings.png)
 
 ## Download
 

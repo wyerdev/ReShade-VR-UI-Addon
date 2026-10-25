@@ -1,4 +1,5 @@
-# Writes the GitHub release page text: which ZIP to download (direct links to this release's files), the full
+# Writes the GitHub release page text: which ZIP to download (direct links to this release's files), the features
+# with menu pictures from this release's tag, the full
 # install steps for each kind of game (taken from the install guides, so the steps stay written in one place),
 # the changelog and the checksums.
 param(
@@ -37,7 +38,9 @@ function Format-Download([string]$Name) {
 
 $top = (Read-Text (Join-Path $guideRoot 'RELEASE_NOTES.md')).
 	Replace('{{OPENXR_DOWNLOAD}}', (Format-Download 'ReShade-VR-UI-Addon-OpenXR')).
-	Replace('{{STEAMVR_DOWNLOAD}}', (Format-Download 'ReShade-VR-UI-Addon-SteamVR'))
+	Replace('{{STEAMVR_DOWNLOAD}}', (Format-Download 'ReShade-VR-UI-Addon-SteamVR')).
+	Replace('{{REPOSITORY}}', $Repository).
+	Replace('{{TAG}}', [Uri]::EscapeDataString($Tag))
 if ($top -match '\{\{') {
 	throw 'RELEASE_NOTES.md has a placeholder this script does not fill.'
 }

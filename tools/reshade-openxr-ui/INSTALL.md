@@ -18,20 +18,29 @@ Stuck? See [Help](#help) and [Troubleshooting](#troubleshooting) at the end.
 6. Start the game. For UEVR, set UEVR to **OpenXR** before you inject.
 7. In the headset, press both thumbsticks in (`L3 + R3`) or the `Insert` key. The menu opens. Turn effects on there.
 
-UEVR uses the same buttons for its own menu. Pick other buttons in the add-on menu's **Open UI** row.
+UEVR uses the same buttons for its own menu. Pick other ones on the add-on menu's **Settings / Gestures** page, under **Controller buttons** and **Keyboard key**.
 
 **UEVR games: effects that need depth (MXAO, depth of field, depth fog) do not work.**
 
 ## Features
 
-### Switch Presets Without The Menu
+### Switch Between Two Presets With One Button
 
-Raise a hand to your head and press a button, like switching on a head torch. Each press moves to the next preset. With only one preset, it turns effects off and on.
+Make one preset for dark places and one for bright places, or one for indoors and one for outdoors. Then switch between them while you play, without opening the menu: raise a hand to the side of your head and press a button, like switching on a head torch.
 
-1. Open the menu and pick a choice in the **Head gesture** list, for example **Left Trigger**. It is **Off** at first.
-2. Close the menu, raise that hand to the side of your head and press the button.
+1. Make your presets: in the menu, set up the effects and click **Save as...** to save each one under its own name.
+2. Go to **Settings / Gestures** and pick a choice in the **Next preset** list, for example **Head Gesture: Left Trigger**. It is **Off** at first.
+3. Close the menu, raise that hand to the side of your head and press the button. Each press moves to the next preset.
 
-No hand movement wanted? Pick **L3+R3**, and set **Open UI** to **Hold L3+R3**. A quick click of both thumbsticks then switches preset, and a long hold opens the menu.
+No hand movement wanted? Pick **L3+R3**, and set **Controller buttons** to **Hold L3+R3**. A quick click of both thumbsticks then switches preset, and a long hold opens the menu.
+
+With only one preset, each press turns effects off and on instead: a quick way to compare the game with and without them.
+
+### More Tips
+
+- **Keep the menu to one side:** turn your head to the right (or wherever suits you) and click the pin button at the top right of the menu. The menu stays in that spot: look ahead to play, glance to the side to change something. It stays there when you close and reopen the menu, until the game closes.
+- **Always see your FPS:** on **Settings / Gestures**, switch on **Show when menu is closed** under **FPS counter**. The counter sits just above the menu, so with the pin it stays in that spot too. Green bars in its graph are on time; yellow and red bars are stutters.
+- **See more at once:** the button with four corners, next to the pin, makes the menu twice as tall.
 
 ## Update Or Uninstall
 
