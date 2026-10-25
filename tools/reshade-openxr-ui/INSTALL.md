@@ -5,7 +5,7 @@
 ## Install
 
 1. Install the add-on once (`Install-OpenXR.cmd`). It works in all your OpenXR games.
-2. For each game, install ReShade **with full add-on support** and tick the **OpenXR layer**.
+2. For each game, install ReShade **with full add-on support** and **tick** the **OpenXR** layer.
 3. Open and close the menu with `Insert` or both thumbsticks (`L3 + R3`).
 
 <details><summary><b>Step by step</b></summary>
@@ -14,7 +14,7 @@ For 64-bit OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for Unreal ga
 
 1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
 2. Run ReShade Setup and pick the game's `.exe`. For UEVR games, pick the one ending in `-Win64-Shipping.exe`.
-3. Choose **DirectX 10/11/12** (or **OpenGL**) and tick the **OpenXR layer**.
+3. Choose **DirectX 10/11/12** (or **OpenGL**) and **tick** the **OpenXR** layer.
 4. Close all games and SteamVR.
 5. Extract the add-on ZIP. Double-click `Install-OpenXR.cmd`. When Windows asks for permission, click **Yes**.
 6. Start the game. For UEVR, set UEVR to **OpenXR** before you inject.
@@ -68,7 +68,7 @@ For more FPS: on **Settings / Gestures**, switch off **Enable depth-based effect
 
 - `No administrator rights`: nothing was changed. Run the file again and click **Yes** when Windows asks for permission (see [Help](#help)).
 - `Waiting for ReShade...`: wait a moment. In OpenGL games this message stays until the game shows its normal 3D view.
-- No menu or no effects: check that you installed ReShade **with full add-on support** and ticked the **OpenXR layer**. For UEVR, check that UEVR is set to **OpenXR**.
+- No menu or no effects: check that you installed ReShade **with full add-on support** and **ticked** the **OpenXR** layer. For UEVR, check that UEVR is set to **OpenXR**.
 - Still no menu: the game may be a SteamVR game. Open ReShade Setup, pick the game, choose **Uninstall**, then follow the SteamVR install steps. You can leave the OpenXR add-on installed.
 - Still no effects: an old ReShade copy in the game folder can block them. Open ReShade Setup, pick the game, choose **Uninstall**, then install again (steps 2 and 3).
 - Anything else: close the game and delete `ReShade.log` next to the game's `.exe`. Start the game until the problem shows, close it, then give the new `ReShade.log` to an AI assistant (for example ChatGPT or Copilot) and ask what is wrong.

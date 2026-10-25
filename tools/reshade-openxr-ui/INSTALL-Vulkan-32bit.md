@@ -4,7 +4,7 @@
 
 ## Install
 
-1. For each game, install ReShade. Tick the **OpenXR layer** only for OpenXR games.
+1. For each game, install ReShade. **Tick** the **OpenXR** layer only for OpenXR games.
 2. SteamVR games: put [`ReShadeVR.ini`](https://github.com/wyerdev/ReShade-VR-UI-Addon/blob/main/tools/reshade-openxr-ui/ReShadeVR.ini) next to the game's `.exe`.
 3. Open the menu with the controller's menu button, then click the ReShade icon.
 
@@ -15,7 +15,7 @@
 **In SteamVR games, the ReShade icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.**
 
 1. Download ReShade from [reshade.me](https://reshade.me/).
-2. Run ReShade Setup and pick the game's `.exe`. Choose the graphics type the game uses (Vulkan or DirectX). Tick the **OpenXR layer** only for OpenXR games.
+2. Run ReShade Setup and pick the game's `.exe`. Choose the graphics type the game uses (Vulkan or DirectX). **Tick** the **OpenXR** layer only for OpenXR games.
 3. SteamVR games: [download `ReShadeVR.ini`](https://github.com/wyerdev/ReShade-VR-UI-Addon/blob/main/tools/reshade-openxr-ui/ReShadeVR.ini) (click the download button on that page) and put it in the game folder, next to the game's `.exe`. If the game already has a `ReShadeVR.ini`, keep that one.
 4. SteamVR games: start the game. In the headset, press the controller's menu button and click the ReShade icon.
 
@@ -40,6 +40,6 @@
 ## Troubleshooting
 
 - No ReShade icon in SteamVR: check that `ReShadeVR.ini` is next to the game's `.exe`. If it is, start the game before SteamVR.
-- You installed ReShade for this SteamVR game before with the **OpenXR layer** ticked: open ReShade Setup, pick the game, choose **Uninstall**, then install again with the **OpenXR layer** unticked.
+- You installed ReShade for this SteamVR game before with the **OpenXR** layer **ticked**: open ReShade Setup, pick the game, choose **Uninstall**, then install again with the **OpenXR** layer **unticked**.
 - Menu looks zoomed in (you kept the game's own `ReShadeVR.ini`): add the lines from [Help](#help) to it.
 - Anything else: close the game and delete `ReShade.log` next to the game's `.exe`. Start the game until the problem shows, close it, then give the new `ReShade.log` to an AI assistant (for example ChatGPT or Copilot) and ask what is wrong.

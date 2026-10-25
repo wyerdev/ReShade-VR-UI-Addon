@@ -2,44 +2,52 @@
 
 **Download:** [newest version](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest) (the file starting with `ReShade-VR-UI-Addon-SteamVR`).
 
-## Install
-
-1. For each game, install ReShade **with full add-on support** and leave the **OpenXR layer** unticked.
-2. Copy `ReShade-SteamVR-UI.addon64` next to the game's `.exe`.
-3. Open the menu with the controller's menu button, then click the ReShade icon.
+In SteamVR games, ReShade's menu is in the SteamVR dashboard: press the controller's menu button and click the ReShade icon. **The icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.**
 
 ![The ReShade icon in the SteamVR dashboard, with ReShade's menu open above it](images/steamvr-dashboard-reshade-icon.png)
 
-<details><summary><b>Step by step</b></summary>
-
-**The ReShade icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.** This download includes that file.
+## Install
 
 For each game, pick one way:
 
-- **Way 1: Automatic.** For 64-bit DirectX 11 and 12 games. The add-on creates `ReShadeVR.ini` for you and adds extras.
-- **Way 2: Manual.** For any game. You copy `ReShadeVR.ini` yourself.
+### Way 1: With The Add-on (Automatic)
 
-### Way 1: Automatic (With The Add-on)
+For 64-bit DirectX 11 and 12 games. Adds extras, like opening the menu by itself and drawing effects only in the headset.
+
+1. Install ReShade **with full add-on support** and leave the **OpenXR** layer **unticked**.
+2. Copy `ReShade-SteamVR-UI.addon64` next to the game's `.exe`.
+3. The menu opens by itself in the headset.
+
+<details><summary><b>Step by step</b></summary>
 
 1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
-2. Run ReShade Setup and pick the game's `.exe`. Choose **DirectX 10/11/12**. Leave the **OpenXR layer** unticked.
+2. Run ReShade Setup and pick the game's `.exe`. Choose **DirectX 10/11/12**. Leave the **OpenXR** layer **unticked**.
 3. Extract the ZIP. Copy `ReShade-SteamVR-UI.addon64` into the game folder, next to the game's `.exe`.
 4. Start the game. ReShade's menu opens in the headset by itself.
 
 Extras you get:
 
 - ReShade's menu opens by itself.
-- FPS counter: in ReShade's menu, open **Add-ons** and click **ReShade VR UI Add-on for SteamVR**.
 - Effects are drawn only in the headset, not also on the monitor, which can save FPS.
 - Preset changes no longer flip back and forth between the monitor and the headset.
 - Smaller menu text, so the menu doesn't look zoomed in.
 
 Update: replace the `.addon64` file. Uninstall: delete it. The ReShade icon stays in SteamVR.
 
-### Way 2: Manual (ReShade Only)
+</details>
+
+### Way 2: ReShade Only (Manual)
+
+Without the add-on, so no extras.
+
+1. Install ReShade and leave the **OpenXR** layer **unticked**.
+2. Copy `ReShadeVR.ini` from the ZIP's `without-addon` folder next to the game's `.exe`.
+3. Open the menu with the controller's menu button, then click the ReShade icon.
+
+<details><summary><b>Step by step</b></summary>
 
 1. Download ReShade from [reshade.me](https://reshade.me/).
-2. Run ReShade Setup and pick the game's `.exe`. Choose the graphics type the game uses (DirectX or Vulkan). Leave the **OpenXR layer** unticked.
+2. Run ReShade Setup and pick the game's `.exe`. Choose the graphics type the game uses (DirectX or Vulkan). Leave the **OpenXR** layer **unticked**.
 3. Extract the ZIP. Copy `ReShadeVR.ini` from its `without-addon` folder into the game folder, next to the game's `.exe`. If the game already has a `ReShadeVR.ini`, keep that one.
 4. Start the game. In the headset, press the controller's menu button and click the ReShade icon.
 
@@ -54,7 +62,7 @@ Update: replace the `.addon64` file. Uninstall: delete it. The ReShade icon stay
 ## Troubleshooting
 
 - No ReShade icon in SteamVR: check that `ReShadeVR.ini` is next to the game's `.exe`. If it is, start the game before SteamVR.
-- You installed ReShade for this game before with the **OpenXR layer** ticked: open ReShade Setup, pick the game, choose **Uninstall**, then install again with the **OpenXR layer** unticked.
+- You installed ReShade for this game before with the **OpenXR** layer **ticked**: open ReShade Setup, pick the game, choose **Uninstall**, then install again with the **OpenXR** layer **unticked**.
 - Menu looks zoomed in (Way 2, kept the game's own `ReShadeVR.ini`): add these lines to it:
 
   ```ini

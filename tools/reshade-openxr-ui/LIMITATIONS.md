@@ -7,8 +7,8 @@
   SteamVR (OpenVR) games. Vulkan games are not supported; ReShade alone works
   there (see [INSTALL-Vulkan-32bit.md](INSTALL-Vulkan-32bit.md)).
 - Needs official ReShade with full add-on support. Without it the add-on does
-  nothing. OpenXR games and UEVR: set ReShade up with the **OpenXR layer** ticked.
-  SteamVR games: leave the **OpenXR layer** unticked.
+  nothing. OpenXR games and UEVR: set ReShade up with the **OpenXR** layer **ticked**.
+  SteamVR games: leave the **OpenXR** layer **unticked**.
 - Installing, updating and uninstalling the OpenXR add-on need an
   administrator window. The SteamVR add-on is just copied into the game
   folder.
