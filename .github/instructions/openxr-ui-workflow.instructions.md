@@ -7,7 +7,6 @@ applyTo: "tools/reshade-openxr-ui/**"
 
 ## Simulator Boundary
 
-- The only programs the agent may start are the OpenXR Simulator test programs run by `smoke.ps1` and `capture_simulator_ui.ps1`. Never start a game, game launcher, mod launcher or injector; the user runs every game test (see `.github/copilot-instructions.md`).
 - Use the existing isolated OpenXR Simulator bundle supplied with `-TestRoot`. Do not rebuild, install, register, or modify it unless the task specifically targets the simulator and the user approves that scope.
 - Never deploy to Hubris or modify runtime registration as part of simulator validation.
 
@@ -42,7 +41,7 @@ Use this while implementing; each round takes seconds.
 2. Behavior or test changes: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\build.ps1` builds the OpenXR add-on and runs the renderer tests (about 40 s).
 3. Occasionally, to see the panel in the headset view: `capture_simulator_ui.ps1 -TestRoot ..\OpenXR-Simulator-test -GraphicsApi D3D11 -Quick` (about 10 s; opens the simulator window). Add `-Theme <name>` for another theme.
 
-Do not run `build.bat`, `smoke.ps1` or a full capture run between small edits. When control positions change, move the click positions in `openxr_ui_renderer_test.cpp` and `capture_simulator_ui.ps1` to the middle of the moved controls.
+Do not run `build.bat`, `smoke.ps1` or a full capture run between small edits; each full capture run takes several minutes per graphics API. Tests and `capture_simulator_ui.ps1` click controls by id through the renderer's control lookup (`controls.json` for the capture script), so moved controls need no new click positions; never add hard-coded click positions.
 
 ## Required Validation Order (once, at the end)
 
@@ -50,4 +49,4 @@ Do not run `build.bat`, `smoke.ps1` or a full capture run between small edits. W
 2. Run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\smoke.ps1 -TestRoot <path-to-OpenXR-Simulator-test> -Frames 30`; require D3D11 and D3D12 to complete 30/30 frames with zero failures and zero graphics-validation errors.
 3. For layout, text, sizing, or visibility changes, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot <path-to-OpenXR-Simulator-test>` and inspect every screenshot for both APIs.
 4. Run editor diagnostics and `git diff --check`.
-5. Record material commands and results in the task report. Update `RESHADE-dependency.md` only when the dependency snapshot changes.
+5. Record material commands and results in the task report.

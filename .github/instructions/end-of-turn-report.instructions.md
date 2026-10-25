@@ -23,7 +23,7 @@ PENDING and DECISION are always last. When nothing is broken, running, queued, p
 
 ## Commit Message
 
-When the turn's changes are ready to commit, the PENDING commit item must include a Conventional Commits message (`type(scope): summary`, for example `feat`, `fix`, `docs`, `refactor`, `test`, `build` or `chore`) in a fenced code block, with a short body when the change needs explaining. It covers only the changes made in this task, never unrelated user changes, and the agent never runs the commit itself.
+When the turn's changes are ready to commit, the PENDING commit item must include the commit message (written as [commit-messages.instructions.md](commit-messages.instructions.md) describes) in a fenced code block.
 
 ## Sort By Who Acts Next
 
@@ -36,6 +36,6 @@ When the turn's changes are ready to commit, the PENDING commit item must includ
 - Each item is a **bold title** on its own line, then one plain sentence. If it needs two sentences, make it two items. The only extra content allowed is a copyable code block, such as the commit message.
 - At most three items per section, except DONE (at most six); merge smaller items.
 - Say what the thing is and why it matters. Put IDs, file names and commands after the description, in parentheses. Explain any jargon in plain English.
-- Say each thing once: an item appears in one section only, the commit message appears only in its PENDING item, and the report itself appears once per turn (see the Status And Continuation rules in `.github/copilot-instructions.md`).
-- Never write "see above", bare session-local names, or soft asks like "want me to…".
+- Say each thing once: an item appears in one section only, the commit message appears only in its PENDING item, and the report itself appears once per turn.
+- Never write bare session-local names or soft asks like "want me to…".
 - A short plain-English answer to the user's question may come before the first header; nothing comes after the last item.
