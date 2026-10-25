@@ -25,6 +25,8 @@ Preferences and logs remain per-user and are preserved by the uninstaller:
 %LOCALAPPDATA%\ReShade VR UI Add-on\favourite-shaders.txt
 ```
 
+The menu shortcut (`MenuButton`, `MenuKey`) and `PresetGesture` are saved per game, under a `[Game:<path of the game's executable>]` section of `settings.ini`. A game without its own choice uses the value under `[UI]` (from earlier versions) or the default.
+
 `Install-OpenXR.cmd` creates this enabled machine-wide OpenXR API-layer registration:
 
 ```text
@@ -102,7 +104,7 @@ For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingV
 - Per-effect page with a `This effect on` switch, `Restore saved values` (back to the last successful preset save), a `● Changed` badge on non-default values and a `Save preset` bar
 - Preset navigation, save, named Save As, and delete
 - Controller pointer, trigger interaction, thumbstick scrolling, and a choice of **Controller buttons** or **Keyboard key** (**Opening this menu** group; **Open when the game starts** sets the starting state) to show and hide the panel
-- **Next preset** under **Gestures** on the **Settings / Gestures** tab (OpenXR games): bring the chosen hand (Left or Right) up to the side of the head, like switching on a head torch, and press the chosen button (Trigger, Grip, X or A) while the menu is closed. That switches to the next preset; with only one preset it turns all effects off, and on again the next time. **L3+R3** needs no hand movement: click both thumbsticks and let go. It does nothing while the menu shortcut is also **L3+R3**; with **Hold L3+R3**, a quick click switches preset and a long hold shows the menu. Off by default; saved as `PresetGesture=<number>` under `[UI]` in `settings.ini`. The hand position is read only on the frame the button goes down, so the gesture adds no per-frame waits
+- **Next preset** under **Gestures** on the **Settings / Gestures** tab (OpenXR games): bring the chosen hand (Left or Right) up to the side of the head, like switching on a head torch, and press the chosen button (Trigger, Grip, X or A) while the menu is closed. That switches to the next preset; with only one preset it turns all effects off, and on again the next time. **L3+R3** needs no hand movement: click both thumbsticks and let go. It does nothing while the menu shortcut is also **L3+R3**; with **Hold L3+R3**, a quick click switches preset and a long hold shows the menu. Off by default; saved per game as `PresetGesture=<number>` in `settings.ini`. The hand position is read only on the frame the button goes down, so the gesture adds no per-frame waits
 - Active graphics API indicator for Direct3D 11, Direct3D 12 and OpenGL sessions
 - Distinct diagnostics for a missing OpenXR effect runtime and an empty technique inventory
 - Compact and expanded panel layouts

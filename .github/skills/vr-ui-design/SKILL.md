@@ -16,7 +16,7 @@ Makes the add-on's headset panel look like one designed product: one committed l
 
 ## Hard Constraints
 
-- **Rule 1 still applies: no frame-rate drop.** No per-frame font rebuilds, no extra render passes, no blur or shader effects, no continuous animation that forces the panel to redraw when nothing changed. Fonts load once at start-up.
+- **Drawing must not cost frame rate:** no per-frame font rebuilds, no extra render passes, no blur or shader effects, no continuous animation that forces the panel to redraw when nothing changed. Fonts load once at start-up.
 - Changes must work identically in D3D11, D3D12 and OpenGL (they share the ImGui draw lists; only use ImDrawList primitives).
 - Fonts must be embedded in the add-on binary (no files read from game folders) and must have a license that allows redistribution (SIL OFL or Apache 2.0). Record the license in `THIRD-PARTY-NOTICES.txt`.
 - Keep every existing control, label meaning, and the IDs used by tests and `capture_simulator_ui.ps1`. Restyling must not change behavior.
@@ -88,7 +88,7 @@ Hierarchy rules:
 2. **Colors**: change or add a theme (see Design System). Never hand-pick colors at a call site.
 3. **Font**: Atkinson Hyperlegible Regular and Bold (SIL OFL) are embedded byte for byte by `embed_fonts.ps1` during the build; the license is in `fonts\OFL.txt` and `THIRD-PARTY-NOTICES.txt`. A replacement font must also be OFL or Apache 2.0 and get the same notice.
 4. **Helpers before screens**: change `draw_text_button`, `draw_icon_button`, `draw_check_indicator`, sliders and drop-downs first, then individual screens (header, list rows, detail parameters, footer, Save As keyboard, toasts).
-5. **Validate** with the fast loop after each change; run the full suite once at the end.
+5. **Validate** after each change (see Validation).
 
 ## Review Checklist
 
@@ -102,12 +102,11 @@ Hierarchy rules:
 - [ ] Text never clipped or overlapping in any capture.
 - [ ] Every element that was visible before the change is still visible and complete (compare before and after previews); the version shows in full.
 - [ ] Related controls are grouped with 8 px gaps; no wide empty gap inside a group.
-- [ ] Nothing animates continuously; no new per-frame GPU waits.
+- [ ] Nothing animates continuously.
 
 ## Validation
 
-Follow `.github/instructions/openxr-ui-workflow.instructions.md`:
+Follow the fast loop and the final checks in `.github/instructions/openxr-ui-workflow.instructions.md`. For design work also:
 
-- **While iterating (seconds)**: `tools\reshade-openxr-ui\preview_ui.ps1` renders every page in every theme to `build\reshade-openxr-ui\preview` without a window; view the images after it finishes. Run `tools\reshade-openxr-ui\build.ps1` when behavior or tests change. The sample effects and settings are in `openxr_ui_preview.cpp`. The preview uses the longest realistic header text (a 4320x4320 per-eye headset) so truncation shows up; never judge a layout only on short sample text. Before a layout change, render and keep the previews, then compare before and after.
-- **Once at the end**: `build.bat`, `smoke.ps1 -Frames 30`, the full capture run for D3D11 and D3D12 with every image viewed. When OpenGL drawing changed, ask the user to run the SOMA-VR test; never start a game yourself.
-- When control positions change, update the click positions in `openxr_ui_renderer_test.cpp` and `capture_simulator_ui.ps1` to the middle of the moved controls.
+- The sample effects and settings are in `openxr_ui_preview.cpp`. The preview uses the longest realistic header text (a 4320x4320 per-eye headset) so truncation shows up; never judge a layout only on short sample text. Before a layout change, render and keep the previews, then compare before and after.
+- When OpenGL drawing changed, ask the user to run the SOMA-VR test.

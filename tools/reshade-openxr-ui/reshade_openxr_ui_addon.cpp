@@ -296,6 +296,29 @@ namespace
 		return configuration_directory() / L"settings.ini";
 	}
 
+	// Menu shortcut and preset gesture are saved per game, in a section named after the game's executable path.
+	// Games without their own value fall back to the shared [UI] value written by earlier versions.
+	const std::wstring &game_settings_section()
+	{
+		static const std::wstring section = [] {
+			std::wstring executable(MAX_PATH, L'\0');
+			DWORD length = 0;
+			while ((length = GetModuleFileNameW(nullptr, executable.data(), static_cast<DWORD>(executable.size()))) == executable.size())
+				executable.resize(executable.size() * 2);
+			executable.resize(length);
+			for (wchar_t &character : executable)
+				character = character == L'[' || character == L']' ? L'_' : static_cast<wchar_t>(towlower(character));
+			return L"Game:" + executable;
+		}();
+		return section;
+	}
+
+	UINT read_game_setting(const wchar_t *name, UINT default_value, const std::filesystem::path &path)
+	{
+		return GetPrivateProfileIntW(game_settings_section().c_str(), name,
+			GetPrivateProfileIntW(L"UI", name, default_value, path.c_str()), path.c_str());
+	}
+
 	void load_ui_settings()
 	{
 		if (s_ui_settings_loaded)
@@ -308,13 +331,13 @@ namespace
 			s_always_show_statistics = GetPrivateProfileIntW(L"UI", L"AlwaysShowFPS", 0, path.c_str()) != 0;
 			const UINT divisor = GetPrivateProfileIntW(L"UI", L"FrameRateDivisor", 1, path.c_str());
 			s_frame_rate_divisor = divisor >= 1 && divisor <= openxr_ui::max_frame_rate_divisor ? divisor : 1;
-			const UINT button = GetPrivateProfileIntW(L"UI", L"MenuButton", openxr_ui::menu_button_both_sticks, path.c_str());
+			const UINT button = read_game_setting(L"MenuButton", openxr_ui::menu_button_both_sticks, path);
 			s_menu_button = button < openxr_ui::menu_button_count ? button : openxr_ui::menu_button_both_sticks;
-			const UINT key = GetPrivateProfileIntW(L"UI", L"MenuKey", openxr_ui::menu_key_insert, path.c_str());
+			const UINT key = read_game_setting(L"MenuKey", openxr_ui::menu_key_insert, path);
 			s_menu_key = key < openxr_ui::menu_key_count ? key : openxr_ui::menu_key_insert;
 			if (s_menu_button == openxr_ui::menu_button_off && s_menu_key == openxr_ui::menu_key_off)
 				s_menu_key = openxr_ui::menu_key_insert;
-			const UINT gesture = GetPrivateProfileIntW(L"UI", L"PresetGesture", openxr_ui::preset_gesture_off, path.c_str());
+			const UINT gesture = read_game_setting(L"PresetGesture", openxr_ui::preset_gesture_off, path);
 			s_preset_gesture = gesture < openxr_ui::preset_gesture_count ? gesture : openxr_ui::preset_gesture_off;
 			wchar_t theme_name[64] = L"";
 			GetPrivateProfileStringW(L"UI", L"Theme", L"", theme_name, static_cast<DWORD>(std::size(theme_name)), path.c_str());
@@ -1612,7 +1635,7 @@ namespace
 			return false;
 		std::error_code error;
 		std::filesystem::create_directories(path.parent_path(), error);
-		if (error || !WritePrivateProfileStringW(L"UI", name, std::to_wstring(value).c_str(), path.c_str()))
+		if (error || !WritePrivateProfileStringW(game_settings_section().c_str(), name, std::to_wstring(value).c_str(), path.c_str()))
 		{
 			log_runtime_message(reshade::log::level::error, error_message);
 			return false;
