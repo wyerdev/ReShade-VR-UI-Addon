@@ -10,7 +10,7 @@ Adds a menu inside your VR headset for ReShade effects. Turn effects on and off,
 
 | Your game | Install steps |
 | --- | --- |
-| OpenXR VR game, or Unreal game played in VR with UEVR | [OpenXR and UEVR](tools/reshade-openxr-ui/INSTALL.md) |
+| OpenXR VR game or UEVR | [OpenXR and UEVR](tools/reshade-openxr-ui/INSTALL.md) |
 | SteamVR game | [SteamVR](tools/reshade-openxr-ui/INSTALL-SteamVR.md) |
 | Vulkan or 32-bit VR game | [Vulkan and 32-bit](tools/reshade-openxr-ui/INSTALL-Vulkan-32bit.md) |
 
@@ -18,10 +18,12 @@ Not sure? See [Which type is my game?](#which-type-is-my-game)
 
 ## Features
 
-- **Headset menu:** turn effects on and off, change their settings, and save or switch presets.
+- **Headset menu (OpenXR games, including UEVR):** turn effects on and off, change their settings, and save or switch presets.
 - **Head gesture to switch presets (OpenXR games):** raise a hand to the side of your head and press a button to switch to the next preset, for example from a preset for dark scenes to one for bright scenes.
 - **Pin the menu (OpenXR games):** keep it to one side, out of your way.
 - **Pin the FPS counter (OpenXR games):** always see your FPS, even with the menu closed.
+
+**SteamVR games** don't get this menu. You use ReShade's own menu from the ReShade icon in the SteamVR dashboard, and the add-on adds a few extras. See the [SteamVR steps](tools/reshade-openxr-ui/INSTALL-SteamVR.md).
 
 ![Settings page of the headset menu, with Next preset, Show when menu is closed and the pin button ringed](tools/reshade-openxr-ui/images/menu-settings.png)
 
@@ -57,7 +59,7 @@ Building, testing and releases: [DEVELOPERS.md](DEVELOPERS.md).
 ## Credits
 
 - [ReShade](https://reshade.me/) by crosire
-- [UEVR](https://uevr.io/) by praydog (Unreal games in VR)
+- [UEVR](https://uevr.io/) by praydog
 - [Dear ImGui](https://github.com/ocornut/imgui) by Omar Cornut (the headset menu)
 - OpenXR by Khronos, OpenVR by Valve
 

@@ -14,7 +14,7 @@ users must uninstall it there or rename its `dxgi.dll` (see `INSTALL.md`).
 
 ## Goal
 
-Get ReShade effects into the headset for Unreal games run through UEVR. UEVR is
+Get ReShade effects into the headset with UEVR. UEVR is
 injected after the game has started, which is what broke the earlier attempts.
 Direct3D 11 and Direct3D 12 must both work. OpenXR and OpenVR support must stay.
 

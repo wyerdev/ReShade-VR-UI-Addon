@@ -75,7 +75,7 @@ Run the packaged installer as administrator from the repository root after closi
 - Windows x64
 - 64-bit OpenXR or OpenVR applications
 - Direct3D 11, Direct3D 12 or OpenGL renderer (OpenGL for OpenXR games)
-- Unreal games run through UEVR in OpenXR mode (the add-on creates its own effect runtime; no depth effects)
+- UEVR in OpenXR mode (the add-on creates its own effect runtime; no depth effects)
 - Oculus Touch-compatible controllers
 - Khronos simple-controller profile as a limited fallback
 

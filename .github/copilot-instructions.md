@@ -1,5 +1,9 @@
 # ReShade VR UI Add-on Repository Instructions
 
+## Read Every Instruction In Full
+
+- Before starting any task, and again before the final answer, read every instruction, agent and skill file in `.github` in full: this file, every file it links to, and every other file there. Never skip a file, read only part of it, or rely on a search result or memory instead. Then check every change and the whole reply against every rule; fix any break before answering.
+
 ## Repository Scope
 
 - Rule 1: the add-on must never cause a frame-rate drop. Never make the game's frame wait on the GPU or the CPU (no `glFinish`, no per-frame fence or query waits, no blocking flushes) in any graphics API. When synchronization is unavoidable, use per-frame resources so a wait can only happen when the GPU is several frames behind, and measure the frame rate with and without the add-on on the headset before calling a change done.
@@ -58,7 +62,7 @@
 
 - The bullets below describe what the script does when the user runs it, and what the agent checks afterwards.
 
-- Current scope: get ReShade effects into VR for Unreal games run through UEVR, per `tools/reshade-openxr-ui/UEVR_RESHADE_PLAN.md` (findings in `UEVR_RESHADE_RESEARCH.md`). Keep both files short and current.
+- Current scope: get ReShade effects into VR with UEVR, per `tools/reshade-openxr-ui/UEVR_RESHADE_PLAN.md` (findings in `UEVR_RESHADE_RESEARCH.md`). Keep both files short and current.
 - Approved test game: Creatures of Ava (Steam app 2304440, `A:\SteamLibrary\steamapps\common\Ava`). No other game may be launched for UEVR tests.
 - The user launches it only through `tools/test_uevr_simulator.ps1 -Action Run`. It starts the game executable directly with `SteamAppId`/`SteamGameId` set, which stops Steam relaunching the game and showing the "custom arguments" prompt, and keeps the simulator setting in the game process.
 - UEVR runs from `A:\UEVR-build\uevr-reshade-testing` (latest nightly). `-Action Deploy` overwrites its UEVR backend with the `.deps\UEVR` build; nothing else may write there. The user's UEVR copy under `%APPDATA%\UnrealVRMod\UEVR-build` is read-only reference.
@@ -101,10 +105,11 @@
 - When the user asks to fix the instructions or docs, change the files in the same turn and say which lines changed.
 - Instructions state general rules. Never write a rule or example around the specific case that prompted it (a particular commit, file, picture or bug), not even reworded; describe the general pattern so it applies to every similar case. When adding a rule, add no example unless the rule cannot be understood without one.
 - Never duplicate instructions. Each rule lives in exactly one instruction, agent or skill file, in the place where it belongs; every other file that needs it only links to that file and restates no part of it, not even in summary. Keep instruction files small and single-topic: a link must point to a whole small file about that topic, never to a section of a larger file, so the agent reads only what it needs. When a rule another file needs sits inside a larger file, move it into its own small file first.
-- Before adding or fixing a rule, read all instruction, agent and skill files, then extend the existing rule or move it to its correct place instead of adding a second copy.
+- Before adding or fixing a rule, extend the existing rule or move it to its correct place instead of adding a second copy.
 
-- When the user asks for something to be its own thing (its own guide, file or download), make it a separate file in that same turn. Don't fold it into an existing file as a section.
-- Each install guide covers only its own case and never links to the other guides. Choosing the right guide happens only in the "Which download do I need?" table in `RELEASE_NOTES.md` and in the README files.
+## Player Docs
+
+- Before writing or changing any text players read (README, install guides, release page, limitations), read [player-docs.instructions.md](instructions/player-docs.instructions.md) and follow it.
 
 ## Commit Messages
 

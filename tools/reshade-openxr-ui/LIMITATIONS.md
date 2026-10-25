@@ -71,7 +71,7 @@
   effect changes between the monitor and the headset (in `ReShade.ini`),
   and turns effects off on the monitor while the headset shows them.
 
-## UEVR (Unreal Games)
+## UEVR
 
 - UEVR must be set to **OpenXR**, not OpenVR.
 - ReShade installed in the game folder does not work with UEVR. Uninstall

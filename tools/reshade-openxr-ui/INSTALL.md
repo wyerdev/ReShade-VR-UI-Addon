@@ -10,7 +10,7 @@
 
 <details><summary><b>Step by step</b></summary>
 
-For 64-bit OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for Unreal games played in VR with UEVR.
+For 64-bit OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for UEVR.
 
 1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
 2. Run ReShade Setup and pick the game's `.exe`. For UEVR games, pick the one ending in `-Win64-Shipping.exe`.

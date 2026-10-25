@@ -2,7 +2,7 @@
 
 **Download:** [newest version](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest) (the file starting with `ReShade-VR-UI-Addon-SteamVR`).
 
-In SteamVR games, ReShade's menu is in the SteamVR dashboard: click the ReShade icon with your controller. **The icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.**
+SteamVR games don't get the add-on's own headset menu (that is for OpenXR games). Instead, you use ReShade's own menu in the SteamVR dashboard: click the ReShade icon with your controller. **The icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.**
 
 ![The ReShade icon in the SteamVR dashboard, with ReShade's menu open above it](images/steamvr-dashboard-reshade-icon.png)
 
