@@ -175,9 +175,11 @@ int wmain(int argc, wchar_t **argv)
 		openxr_ui::panel_renderer::page page;
 		bool expanded;
 		bool dirty;
+		bool uevr = false;
 	};
 	const shot shots[] = {
 		{ "effects", openxr_ui::panel_renderer::page::effects, false, true },
+		{ "effects-uevr", openxr_ui::panel_renderer::page::effects, false, false, true },
 		{ "detail", openxr_ui::panel_renderer::page::effect_detail, false, true },
 		{ "save-as", openxr_ui::panel_renderer::page::save_as, false, false },
 		{ "effects-expanded", openxr_ui::panel_renderer::page::effects, true, false },
@@ -189,12 +191,13 @@ int wmain(int argc, wchar_t **argv)
 		for (const shot &entry : shots)
 		{
 			// Only the default theme gets every page; the others show the two main pages to compare colors.
-			if (theme != vr_theme::default_theme && entry.page == openxr_ui::panel_renderer::page::save_as)
+			if (theme != vr_theme::default_theme && (entry.page == openxr_ui::panel_renderer::page::save_as || entry.uevr))
 				continue;
 			openxr_ui::render_input input;
 			input.theme = theme;
 			input.expanded = entry.expanded;
 			input.preset_dirty = entry.dirty;
+			input.depth_effects_unavailable = entry.uevr;
 			input.preset_name = "Sharp and Vivid";
 			// A high-resolution headset gives the longest header text, so clipped labels show up.
 			input.eye_width = 4320;

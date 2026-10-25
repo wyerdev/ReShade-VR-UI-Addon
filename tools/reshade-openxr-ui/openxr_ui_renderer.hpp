@@ -64,6 +64,8 @@ namespace openxr_ui
 		uint32_t menu_key = menu_key_insert;
 		// Index into vr_theme::theme_names; also used by the FPS counter.
 		uint32_t theme = vr_theme::default_theme;
+		// The add-on runs its own effect runtime (UEVR games), which gets no depth buffer.
+		bool depth_effects_unavailable = false;
 	};
 
 	struct render_result

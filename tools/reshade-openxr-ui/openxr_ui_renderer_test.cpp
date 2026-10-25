@@ -608,6 +608,13 @@ int main()
 		std::fputs("The ReShade-not-loaded notice returned a command.\n", stderr);
 		return 1;
 	}
+	openxr_ui::render_input depth_unavailable = { true, 400.0f, 172.0f, true };
+	depth_unavailable.depth_effects_unavailable = true;
+	if (renderer.render(render_target.Get(), snapshot, depth_unavailable).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("The UEVR depth notice returned a command.\n", stderr);
+		return 1;
+	}
 	if (!expect_command(renderer, render_target.Get(), snapshot, 608.0f, 120.0f,
 		openxr_ui::render_result::command::previous_preset, 0) ||
 		!expect_command(renderer, render_target.Get(), snapshot, 648.0f, 120.0f,

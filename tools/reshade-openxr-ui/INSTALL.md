@@ -20,6 +20,8 @@ Stuck? See [Help](#help) and [Troubleshooting](#troubleshooting) at the end.
 
 UEVR uses the same buttons for its own menu. Pick other buttons in the add-on menu's **Open UI** row.
 
+**UEVR games: effects that need depth (MXAO, depth of field, depth fog) do not work.**
+
 ## Update Or Uninstall
 
 - Update: close games and SteamVR, extract the new ZIP, then run `Install-OpenXR.cmd` and click **Yes** when Windows asks for permission.

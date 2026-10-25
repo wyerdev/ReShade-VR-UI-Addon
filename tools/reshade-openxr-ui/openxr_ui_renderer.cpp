@@ -1392,14 +1392,25 @@ namespace openxr_ui
 					input.reshade_loaded ? colors().accent : colors().danger, input.reshade_loaded, message, details);
 				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + space_sm });
 			}
-			else if (snapshot.techniques.empty() && (input.effect_subfolders.state == effect_subfolder_state::saving ||
+			else if (input.depth_effects_unavailable)
+			{
+				const ImVec2 notice_min = ImGui::GetCursorScreenPos();
+				const ImVec2 notice_max = { ImGui::GetWindowWidth() - outer_padding, notice_min.y + 40.0f };
+				draw_notice(notice_min, notice_max, notice_max.x - 10.0f, colors().warning, false,
+					"UEVR game: depth effects (MXAO, depth of field, depth fog) do not work.",
+					"Effects that need to know how far away things are get no depth information in UEVR games, "
+					"so they show nothing or look wrong. Colour, sharpening and tone effects work normally.\n\n"
+					"The Depth buffer tick box below does not change this.");
+				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + space_sm });
+			}
+			if (input.effect_runtime_available && snapshot.techniques.empty() && (input.effect_subfolders.state == effect_subfolder_state::saving ||
 				input.effect_subfolders.state == effect_subfolder_state::loading))
 			{
 				ImGui::TextColored(vr_theme::to_float4(colors().accent), "ReShade is loading effects");
 				ImGui::TextWrapped("The list and all effects come back when loading finishes.");
 				ImGui::Separator();
 			}
-			else if (snapshot.techniques.empty())
+			else if (input.effect_runtime_available && snapshot.techniques.empty())
 			{
 				ImGui::TextColored(vr_theme::to_float4(colors().warning), "No ReShade techniques found");
 				ImGui::TextWrapped("Check EffectSearchPaths in ReShadeVR.ini or ReShade.ini.");

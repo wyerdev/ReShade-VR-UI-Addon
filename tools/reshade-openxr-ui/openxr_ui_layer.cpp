@@ -862,6 +862,7 @@ namespace
 				openxr_ui_performance_mode_active(),
 				state.menu_key,
 				openxr_ui_get_theme(),
+				state.effects != nullptr,
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)

@@ -71,7 +71,8 @@
   it there or rename its `dxgi.dll`, and use ReShade only as an OpenXR layer.
 - **No depth effects.** Effects that need to know how far away things are
   (for example MXAO ambient occlusion, depth of field, depth fog) get no depth
-  information. Colour, sharpening and tone effects work.
+  information. Colour, sharpening and tone effects work. The panel shows a
+  note about this above the effect list.
 - Both eyes are processed as one wide picture. Whole-screen effects such as
   vignette or lens effects stretch across both eyes instead of each eye.
   Official ReShade VR behaves the same way.
