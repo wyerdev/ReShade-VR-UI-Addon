@@ -145,7 +145,5 @@
 ## Status And Continuation
 
 - Always write the complete answer in the final message the user sees: what was found, what changed, the validation results, and anything the user must do. Never say "see the summary above" or leave results only in earlier messages, tool calls, or internal reasoning; the user may not see those.
-- Never end a turn without visible answer text. Write the answer as plain message text after the last tool call, and also put the full answer in the task-complete summary, because text sent together with a tool call can be hidden.
-- End every final response or pause with explicit `Status:` and `Next:` lines.
-- `Status:` must identify what is complete, running, failed, or blocked and include the latest material validation result.
-- `Next:` must name the exact continuation command, check, user action, or decision. Use `Next: None; task complete.` when finished.
+- Never end a turn without visible answer text, and never show the same content twice. When the turn ends with the task-complete tool, put the full answer only in its summary and write no repeated answer text before it (at most one short lead-in line). When the turn ends without that tool, write the full answer once as plain message text after the last tool call.
+- End every final response or pause with the end-of-turn report described in [end-of-turn-report.instructions.md](instructions/end-of-turn-report.instructions.md).

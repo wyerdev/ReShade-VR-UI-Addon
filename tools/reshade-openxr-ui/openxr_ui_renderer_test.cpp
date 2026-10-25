@@ -4,20 +4,120 @@
 #include <wrl/client.h>
 
 #include <chrono>
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace
 {
 	using Microsoft::WRL::ComPtr;
 
-	bool expect_command(openxr_ui::panel_renderer &renderer, ID3D11RenderTargetView *render_target,
-		const openxr_ui::technique_snapshot &snapshot, float x, float y,
-		openxr_ui::render_result::command expected_action, uint64_t expected_id, uint32_t expected_component = 0,
-		double expected_value = 0.0, bool expanded = false)
+	// The helpers below find controls by id in the frame they render, so a layout change moves the clicks with it.
+	// Every helper first draws a frame without the pointer so the controls match this snapshot and input.
+	void render_layout(openxr_ui::panel_renderer &renderer, ID3D11RenderTargetView *render_target,
+		const openxr_ui::technique_snapshot &snapshot, const openxr_ui::render_input &input_template)
 	{
-		const openxr_ui::render_input input = { true, x, y, true, expanded };
-		const openxr_ui::render_result result = renderer.render(render_target, snapshot, input);
+		openxr_ui::render_input input = input_template;
+		input.pointer_visible = false;
+		input.select_clicked = false;
+		input.select_down = false;
+		input.select_released = false;
+		input.scroll_y = 0.0f;
+		renderer.render(render_target, snapshot, input);
+	}
+
+	bool find_rect(const openxr_ui::panel_renderer &renderer, std::string_view id, openxr_ui::panel_renderer::control_rect &rect)
+	{
+		for (const openxr_ui::panel_renderer::control_rect &control : renderer.recorded_controls())
+		{
+			if (control.id != id)
+				continue;
+			rect = control;
+			return true;
+		}
+		std::fprintf(stderr, "Control \"%.*s\" was not drawn.\n", static_cast<int>(id.size()), id.data());
+		return false;
+	}
+
+	bool find_point(const openxr_ui::panel_renderer &renderer, std::string_view id, float &x, float &y)
+	{
+		if (renderer.find_control(id, x, y))
+			return true;
+		std::fprintf(stderr, "Control \"%.*s\" was not drawn.\n", static_cast<int>(id.size()), id.data());
+		return false;
+	}
+
+	// The spot where a third effect row would be, from the first two rows of the last frame (the point has no control).
+	bool below_second_row(const openxr_ui::panel_renderer &renderer, float &x, float &y)
+	{
+		float first_y = 0.0f;
+		float second_y = 0.0f;
+		if (!find_point(renderer, "effect/0/toggle", x, first_y) || !find_point(renderer, "effect/1/toggle", x, second_y))
+			return false;
+		y = second_y + (second_y - first_y);
+		return true;
+	}
+
+	// A point on a scroll bar's track (inset 8 px like the drawn track), `fraction` of the way down.
+	bool scroll_bar_point(const openxr_ui::panel_renderer &renderer, std::string_view id, float fraction, float &x, float &y)
+	{
+		openxr_ui::panel_renderer::control_rect rect;
+		if (!find_rect(renderer, id, rect))
+			return false;
+		x = (rect.min_x + rect.max_x) * 0.5f;
+		y = rect.min_y + 8.0f + fraction * (rect.max_y - rect.min_y - 16.0f);
+		return true;
+	}
+
+	// The id of the `index`th choice in the open list of the drop-down `dropdown`.
+	std::string dropdown_item(std::string_view dropdown, uint32_t index)
+	{
+		return std::string(dropdown) + "/item/" + std::to_string(index);
+	}
+
+	// Clicks the centre of the control `id`. `input_template` carries every other render_input field.
+	bool click(openxr_ui::panel_renderer &renderer, ID3D11RenderTargetView *render_target,
+		const openxr_ui::technique_snapshot &snapshot, std::string_view id, openxr_ui::render_result &result,
+		const openxr_ui::render_input &input_template = {})
+	{
+		render_layout(renderer, render_target, snapshot, input_template);
+		openxr_ui::render_input input = input_template;
+		if (!renderer.find_control(id, input.pointer_x, input.pointer_y))
+		{
+			std::fprintf(stderr, "Control \"%.*s\" was not drawn.\n", static_cast<int>(id.size()), id.data());
+			return false;
+		}
+		input.pointer_visible = true;
+		input.select_clicked = true;
+		result = renderer.render(render_target, snapshot, input);
+		return true;
+	}
+
+	// For clicks whose result the test does not look at.
+	bool click(openxr_ui::panel_renderer &renderer, ID3D11RenderTargetView *render_target,
+		const openxr_ui::technique_snapshot &snapshot, std::string_view id, const openxr_ui::render_input &input_template = {})
+	{
+		openxr_ui::render_result result;
+		return click(renderer, render_target, snapshot, id, result, input_template);
+	}
+
+	// Clicks a point that is not a control, such as empty space or the spot where a control used to be.
+	openxr_ui::render_result click_at(openxr_ui::panel_renderer &renderer, ID3D11RenderTargetView *render_target,
+		const openxr_ui::technique_snapshot &snapshot, float x, float y, openxr_ui::render_input input = {})
+	{
+		input.pointer_visible = true;
+		input.pointer_x = x;
+		input.pointer_y = y;
+		input.select_clicked = true;
+		return renderer.render(render_target, snapshot, input);
+	}
+
+	bool expect_result(const openxr_ui::render_result &result, openxr_ui::render_result::command expected_action,
+		uint64_t expected_id, uint32_t expected_component = 0, double expected_value = 0.0)
+	{
 		if (result.action == expected_action && result.target_id == expected_id && result.component == expected_component &&
 			(expected_action != openxr_ui::render_result::command::set_parameter || std::abs(result.value - expected_value) < 0.0001))
 			return true;
@@ -29,6 +129,26 @@ namespace
 			static_cast<unsigned long long>(result.target_id),
 			result.value);
 		return false;
+	}
+
+	bool expect_command(openxr_ui::panel_renderer &renderer, ID3D11RenderTargetView *render_target,
+		const openxr_ui::technique_snapshot &snapshot, std::string_view id,
+		openxr_ui::render_result::command expected_action, uint64_t expected_id, uint32_t expected_component = 0,
+		double expected_value = 0.0, bool expanded = false)
+	{
+		openxr_ui::render_input input_template;
+		input_template.expanded = expanded;
+		openxr_ui::render_result result;
+		return click(renderer, render_target, snapshot, id, result, input_template) &&
+			expect_result(result, expected_action, expected_id, expected_component, expected_value);
+	}
+
+	// Like expect_command, but at a point instead of a control.
+	bool expect_command_at(openxr_ui::panel_renderer &renderer, ID3D11RenderTargetView *render_target,
+		const openxr_ui::technique_snapshot &snapshot, float x, float y,
+		openxr_ui::render_result::command expected_action, uint64_t expected_id)
+	{
+		return expect_result(click_at(renderer, render_target, snapshot, x, y), expected_action, expected_id);
 	}
 
 	bool preset_gesture_logic_works()
@@ -234,55 +354,65 @@ int main()
 		return 1;
 	}
 	const openxr_ui::render_input warm_up = { false, 0.0f, 0.0f, false };
+	renderer.set_control_recording(true);
 	renderer.render(render_target.Get(), snapshot, warm_up);
 	openxr_ui::render_input layout_capture = warm_up;
 	layout_capture.preset_name = "Hubris Super Resolution Tuned Copy 12";
 	renderer.render(render_target.Get(), snapshot, layout_capture);
 
-	const openxr_ui::render_input toggle_active_first = { true, 96.0f, 80.0f, true };
-	const openxr_ui::render_result active_first_result = renderer.render(render_target.Get(), snapshot, toggle_active_first);
+	openxr_ui::render_result active_first_result;
+	if (!click(renderer, render_target.Get(), snapshot, "active_first", active_first_result))
+		return 1;
 	if (active_first_result.action != openxr_ui::render_result::command::move_active_to_top)
 	{
 		std::fputs("Active on top did not produce its one-shot sort command.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input move_down_first = { true, 684.0f, 172.0f, true };
-	const openxr_ui::render_result move_down_result = renderer.render(render_target.Get(), snapshot, move_down_first);
-	const openxr_ui::render_input move_up_second = { true, 644.0f, 218.0f, true };
-	const openxr_ui::render_result move_up_result = renderer.render(render_target.Get(), snapshot, move_up_second);
+	openxr_ui::render_result move_down_result;
+	openxr_ui::render_result move_up_result;
+	if (!click(renderer, render_target.Get(), snapshot, "effect/0/down", move_down_result) ||
+		!click(renderer, render_target.Get(), snapshot, "effect/1/up", move_up_result))
+		return 1;
 	if (move_down_result.action != openxr_ui::render_result::command::move_technique || move_down_result.target_id != 1 || move_down_result.state ||
 		move_up_result.action != openxr_ui::render_result::command::move_technique || move_up_result.target_id != 2 || !move_up_result.state)
 	{
 		std::fputs("Technique arrows did not produce distinct down and up commands.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input move_up_first = { true, 644.0f, 172.0f, true };
-	if (renderer.render(render_target.Get(), snapshot, move_up_first).action != openxr_ui::render_result::command::none)
+	openxr_ui::render_result move_up_first_result;
+	if (!click(renderer, render_target.Get(), snapshot, "effect/0/up", move_up_first_result))
+		return 1;
+	if (move_up_first_result.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Top technique exposed an invalid move-up command.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input disabled_move_down = move_down_first;
-	disabled_move_down.shaders_temporarily_disabled = true;
-	if (renderer.render(render_target.Get(), snapshot, disabled_move_down).action != openxr_ui::render_result::command::none)
+	openxr_ui::render_input disabled_input;
+	disabled_input.shaders_temporarily_disabled = true;
+	openxr_ui::render_result disabled_move_down_result;
+	if (!click(renderer, render_target.Get(), snapshot, "effect/0/down", disabled_move_down_result, disabled_input))
+		return 1;
+	if (disabled_move_down_result.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Technique ordering remained interactive while shaders were temporarily disabled.\n", stderr);
 		return 1;
 	}
 	openxr_ui::technique_snapshot active_first_snapshot = snapshot;
 	openxr_ui::move_enabled_techniques_to_top(active_first_snapshot);
-	if (!expect_command(renderer, render_target.Get(), active_first_snapshot, 40.0f, 172.0f,
+	if (!expect_command(renderer, render_target.Get(), active_first_snapshot, "effect/0/toggle",
 		openxr_ui::render_result::command::toggle_technique, 2))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 40.0f, 172.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "effect/0/toggle",
 		openxr_ui::render_result::command::toggle_technique, 1))
 		return 1;
 
 	openxr_ui::technique_snapshot favourite_snapshot = snapshot;
 	favourite_snapshot.techniques.front().favourite = true;
-	const openxr_ui::render_input star_first = { true, 728.0f, 172.0f, true };
-	const openxr_ui::render_result unfavourite_result = renderer.render(render_target.Get(), favourite_snapshot, star_first);
-	const openxr_ui::render_result favourite_result = renderer.render(render_target.Get(), snapshot, star_first);
+	openxr_ui::render_result unfavourite_result;
+	openxr_ui::render_result favourite_result;
+	if (!click(renderer, render_target.Get(), favourite_snapshot, "effect/0/star", unfavourite_result) ||
+		!click(renderer, render_target.Get(), snapshot, "effect/0/star", favourite_result))
+		return 1;
 	if (unfavourite_result.action != openxr_ui::render_result::command::set_technique_favourite ||
 		unfavourite_result.target_id != 1 || unfavourite_result.state ||
 		favourite_result.action != openxr_ui::render_result::command::set_technique_favourite ||
@@ -291,63 +421,92 @@ int main()
 		std::fputs("Technique star did not produce distinct favourite and unfavourite commands.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input toggle_favourites_only = { true, 248.0f, 80.0f, true };
-	renderer.render(render_target.Get(), favourite_snapshot, toggle_favourites_only);
-	if (!expect_command(renderer, render_target.Get(), favourite_snapshot, 40.0f, 172.0f,
+	if (!click(renderer, render_target.Get(), favourite_snapshot, "filter/1/segment"))
+		return 1;
+	if (!expect_command(renderer, render_target.Get(), favourite_snapshot, "effect/0/toggle",
 		openxr_ui::render_result::command::toggle_technique, 1))
 		return 1;
-	openxr_ui::technique_snapshot no_favourites_snapshot = snapshot;
-	if (renderer.render(render_target.Get(), no_favourites_snapshot, { true, 40.0f, 172.0f, true }).action != openxr_ui::render_result::command::none)
+	// The Starred view of a snapshot with no favourites has no first row, so its old position is clicked instead.
+	float first_row_x = 0.0f;
+	float first_row_y = 0.0f;
+	if (!renderer.find_control("effect/0/toggle", first_row_x, first_row_y))
 	{
-		std::fputs("Favourites-only view displayed a non-favourite technique.\n", stderr);
+		std::fputs("Control \"effect/0/toggle\" was not drawn.\n", stderr);
 		return 1;
 	}
-	renderer.render(render_target.Get(), favourite_snapshot, toggle_favourites_only);
+	openxr_ui::technique_snapshot no_favourites_snapshot = snapshot;
+	if (click_at(renderer, render_target.Get(), no_favourites_snapshot, first_row_x, first_row_y).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("Starred view displayed a non-favourite technique.\n", stderr);
+		return 1;
+	}
+	if (!click(renderer, render_target.Get(), favourite_snapshot, "filter/0/segment"))
+		return 1;
 
 	openxr_ui::technique_snapshot hidden_snapshot = snapshot;
 	hidden_snapshot.techniques.front().hidden = true;
 	renderer.render(render_target.Get(), hidden_snapshot, warm_up);
-	if (!expect_command(renderer, render_target.Get(), hidden_snapshot, 40.0f, 172.0f,
+	if (!expect_command(renderer, render_target.Get(), hidden_snapshot, "effect/0/toggle",
 		openxr_ui::render_result::command::toggle_technique, 2))
 		return 1;
-	const openxr_ui::render_input toggle_show_hidden = { true, 400.0f, 80.0f, true };
-	renderer.render(render_target.Get(), hidden_snapshot, toggle_show_hidden);
-	const openxr_ui::render_input unhide_first = { true, 804.0f, 172.0f, true };
-	const openxr_ui::render_result unhide_result = renderer.render(render_target.Get(), hidden_snapshot, unhide_first);
+	if (!click(renderer, render_target.Get(), hidden_snapshot, "filter/2/segment"))
+		return 1;
+	// The Hidden view lists only hidden effects, and its Hide button reads Show.
+	openxr_ui::render_result unhide_result;
+	if (!click(renderer, render_target.Get(), hidden_snapshot, "effect/0/hide", unhide_result))
+		return 1;
 	if (unhide_result.action != openxr_ui::render_result::command::set_technique_hidden || unhide_result.target_id != 1 || unhide_result.state)
 	{
-		std::fputs("Visible hidden technique did not produce an Unhide command.\n", stderr);
+		std::fputs("Hidden view did not produce a Show command for the hidden technique.\n", stderr);
 		return 1;
 	}
-	renderer.render(render_target.Get(), hidden_snapshot, toggle_show_hidden);
-	const openxr_ui::render_input hide_first = { true, 804.0f, 172.0f, true };
-	const openxr_ui::render_result hide_result = renderer.render(render_target.Get(), snapshot, hide_first);
+	if (!click(renderer, render_target.Get(), hidden_snapshot, "filter/0/segment"))
+		return 1;
+	openxr_ui::render_result hide_result;
+	if (!click(renderer, render_target.Get(), snapshot, "effect/0/hide", hide_result))
+		return 1;
 	if (hide_result.action != openxr_ui::render_result::command::set_technique_hidden || hide_result.target_id != 1 || !hide_result.state)
 	{
 		std::fputs("Technique Hide button did not produce a persistent hide command.\n", stderr);
 		return 1;
 	}
-	if (!expect_command(renderer, render_target.Get(), snapshot, 984.0f, 40.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "close",
 		openxr_ui::render_result::command::hide_panel, 0))
 		return 1;
 
 	const openxr_ui::render_input joystick_down = { false, 0.0f, 0.0f, false, false, false, false, -1.0f };
 	renderer.render(render_target.Get(), snapshot, joystick_down);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 40.0f, 172.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "effect/0/toggle",
 		openxr_ui::render_result::command::toggle_technique, 2))
 		return 1;
 	const openxr_ui::render_input joystick_up = { false, 0.0f, 0.0f, false, false, false, false, 1.0f };
 	renderer.render(render_target.Get(), snapshot, joystick_up);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 40.0f, 172.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "effect/0/toggle",
 		openxr_ui::render_result::command::toggle_technique, 1))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 400.0f, 172.0f,
+	// The rest of the row, away from its buttons, also toggles.
+	if (!expect_command(renderer, render_target.Get(), snapshot, "effect/0/technique",
 		openxr_ui::render_result::command::toggle_technique, 1))
 		return 1;
 
-	const openxr_ui::render_input scroll_press = { true, 984.0f, 160.0f, true, false, true };
+	// The scroll bar drags from its top to its bottom; the pointer drifting over an Open button must not click it.
+	float bar_x = 0.0f;
+	float bar_top = 0.0f;
+	float bar_middle = 0.0f;
+	float bar_bottom = 0.0f;
+	float open_x = 0.0f;
+	float open_y = 0.0f;
+	if (!scroll_bar_point(renderer, "technique_scroll", 0.0f, bar_x, bar_top) ||
+		!scroll_bar_point(renderer, "technique_scroll", 0.5f, bar_x, bar_middle) ||
+		!scroll_bar_point(renderer, "technique_scroll", 1.0f, bar_x, bar_bottom) ||
+		!renderer.find_control("effect/3/open", open_x, open_y))
+	{
+		std::fputs("The technique scroll bar or an Open button was not drawn.\n", stderr);
+		return 1;
+	}
+	const openxr_ui::render_input scroll_press = { true, bar_x, bar_top, true, false, true };
 	renderer.render(render_target.Get(), snapshot, scroll_press);
-	const openxr_ui::render_input scroll_crosses_row = { true, 908.0f, 310.0f, true, false, true };
+	const openxr_ui::render_input scroll_crosses_row = { true, open_x, open_y, true, false, true };
 	renderer.render(render_target.Get(), snapshot, scroll_crosses_row);
 	const openxr_ui::render_result drag_lock_result = renderer.render(render_target.Get(), snapshot, scroll_crosses_row);
 	if (drag_lock_result.action != openxr_ui::render_result::command::none)
@@ -355,11 +514,11 @@ int main()
 		std::fputs("Technique scrollbar drag did not retain exclusive interaction capture.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input scroll_drag = { true, 984.0f, 500.0f, false, false, true };
+	const openxr_ui::render_input scroll_drag = { true, bar_x, bar_bottom, false, false, true };
 	renderer.render(render_target.Get(), snapshot, scroll_drag);
-	const openxr_ui::render_input release = { true, 984.0f, 360.0f, false, false, false, true };
+	const openxr_ui::render_input release = { true, bar_x, bar_middle, false, false, false, true };
 	renderer.render(render_target.Get(), snapshot, release);
-	const openxr_ui::render_input held_drift_over_open = { true, 908.0f, 310.0f, true, false, true };
+	const openxr_ui::render_input held_drift_over_open = { true, open_x, open_y, true, false, true };
 	const openxr_ui::render_result held_drift_result = renderer.render(render_target.Get(), snapshot, held_drift_over_open);
 	if (held_drift_result.action != openxr_ui::render_result::command::none)
 	{
@@ -370,36 +529,50 @@ int main()
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 40.0f, 402.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "effect/7/toggle",
 		openxr_ui::render_result::command::toggle_technique, 11))
 	{
 		std::fputs("Scrolled technique row did not toggle.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input open_technique_11 = { true, 908.0f, 402.0f, true };
-	renderer.render(render_target.Get(), snapshot, open_technique_11);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 612.0f, 40.0f,
+	if (!click(renderer, render_target.Get(), snapshot, "effect/7/open"))
+		return 1;
+	if (!expect_command(renderer, render_target.Get(), snapshot, "technique_on",
 		openxr_ui::render_result::command::toggle_technique, 11))
 	{
-		std::fputs("Detail header technique button did not toggle.\n", stderr);
+		std::fputs("Detail header This effect on switch did not toggle.\n", stderr);
 		return 1;
 	}
 
-	const openxr_ui::render_input back = { true, 64.0f, 40.0f, true };
-	renderer.render(render_target.Get(), snapshot, back);
-	const openxr_ui::render_input scroll_back_press = { true, 984.0f, 444.0f, true, false, true };
+	if (!click(renderer, render_target.Get(), snapshot, "back"))
+		return 1;
+	render_layout(renderer, render_target.Get(), snapshot, {});
+	if (!scroll_bar_point(renderer, "technique_scroll", 1.0f, bar_x, bar_bottom))
+	{
+		std::fputs("The technique scroll bar was not drawn after returning from the effect page.\n", stderr);
+		return 1;
+	}
+	const openxr_ui::render_input scroll_back_press = { true, bar_x, bar_bottom, true, false, true };
 	renderer.render(render_target.Get(), snapshot, scroll_back_press);
-	const openxr_ui::render_input scroll_back_drag = { true, 984.0f, 0.0f, false, false, true };
+	const openxr_ui::render_input scroll_back_drag = { true, bar_x, 0.0f, false, false, true };
 	renderer.render(render_target.Get(), snapshot, scroll_back_drag);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
-	const openxr_ui::render_input open_technique_1 = { true, 908.0f, 172.0f, true };
-	renderer.render(render_target.Get(), snapshot, open_technique_1);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 372.0f, 121.0f,
-		openxr_ui::render_result::command::set_parameter, 100, 0, 0.25, false))
+	if (!click(renderer, render_target.Get(), snapshot, "effect/0/open"))
 		return 1;
-	const openxr_ui::render_input value_drag = { true, 524.0f, 121.0f, false, false, true };
+	// The first parameter's slider track is where the value runs from 0 to 1; click a quarter of the way along it.
+	render_layout(renderer, render_target.Get(), snapshot, {});
+	openxr_ui::panel_renderer::control_rect slider_rect;
+	if (!find_rect(renderer, "param/0/slider", slider_rect))
+		return 1;
+	const float slider_quarter_x = slider_rect.min_x + 8.0f + (slider_rect.max_x - slider_rect.min_x - 16.0f) * 0.25f;
+	const float slider_three_quarters_x = slider_rect.min_x + 8.0f + (slider_rect.max_x - slider_rect.min_x - 16.0f) * 0.75f;
+	const float slider_y = (slider_rect.min_y + slider_rect.max_y) * 0.5f;
+	if (!expect_result(click_at(renderer, render_target.Get(), snapshot, slider_quarter_x, slider_y),
+		openxr_ui::render_result::command::set_parameter, 100, 0, 0.25))
+		return 1;
+	const openxr_ui::render_input value_drag = { true, slider_three_quarters_x, slider_y, false, false, true };
 	const openxr_ui::render_result dragged_value = renderer.render(render_target.Get(), snapshot, value_drag);
 	if (dragged_value.action != openxr_ui::render_result::command::set_parameter || dragged_value.target_id != 100 ||
 		std::abs(dragged_value.value - 0.75) >= 0.0001)
@@ -411,31 +584,54 @@ int main()
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 824.0f, 121.0f,
-		openxr_ui::render_result::command::set_parameter, 100, 0, 0.6))
-		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 880.0f, 121.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "param/0/minus10",
+		openxr_ui::render_result::command::set_parameter, 100, 0, -0.5) ||
+		!expect_command(renderer, render_target.Get(), snapshot, "param/0/minus",
+		openxr_ui::render_result::command::set_parameter, 100, 0, 0.4) ||
+		!expect_command(renderer, render_target.Get(), snapshot, "param/0/plus",
+		openxr_ui::render_result::command::set_parameter, 100, 0, 0.6) ||
+		!expect_command(renderer, render_target.Get(), snapshot, "param/0/plus10",
 		openxr_ui::render_result::command::set_parameter, 100, 0, 1.5))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 936.0f, 121.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "param/0/reset",
 		openxr_ui::render_result::command::reset_parameter, 100))
 		return 1;
 	openxr_ui::technique_snapshot default_value_snapshot = snapshot;
 	default_value_snapshot.parameters.front().values = default_value_snapshot.parameters.front().default_values;
-	const openxr_ui::render_input reset_at_default = { true, 936.0f, 121.0f, true };
-	if (renderer.render(render_target.Get(), default_value_snapshot, reset_at_default).action != openxr_ui::render_result::command::none)
+	openxr_ui::render_result reset_at_default;
+	if (!click(renderer, render_target.Get(), default_value_snapshot, "param/0/reset", reset_at_default))
+		return 1;
+	if (reset_at_default.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Parameter reset remained interactive when the value already matched its default.\n", stderr);
 		return 1;
 	}
-	if (!expect_command(renderer, render_target.Get(), snapshot, 744.0f, 169.0f,
+	// The second parameter is the On/Off one; its switch sits at the right end of the step-button column.
+	if (!expect_command(renderer, render_target.Get(), snapshot, "param/1/switch",
 		openxr_ui::render_result::command::set_parameter, 101, 0, 1.0))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 732.0f, 40.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "param/1/reset",
+		openxr_ui::render_result::command::reset_parameter, 101))
+		return 1;
+	// Reset this effect needs two presses: the first only arms it, the second sends the command.
+	if (!expect_command(renderer, render_target.Get(), snapshot, "reset_all",
+		openxr_ui::render_result::command::none, 0))
+	{
+		std::fputs("The first Reset this effect press sent a command instead of only arming.\n", stderr);
+		return 1;
+	}
+	if (!expect_command(renderer, render_target.Get(), snapshot, "reset_all",
 		openxr_ui::render_result::command::reset_all_parameters, 1))
 		return 1;
-	const openxr_ui::render_input disabled_revert = { true, 852.0f, 40.0f, true };
-	if (renderer.render(render_target.Get(), snapshot, disabled_revert).action != openxr_ui::render_result::command::none)
+	// Sending the command disarms it again.
+	if (!expect_command(renderer, render_target.Get(), snapshot, "reset_all",
+		openxr_ui::render_result::command::none, 0))
+		return 1;
+	renderer.render(render_target.Get(), snapshot, warm_up);
+	openxr_ui::render_result disabled_revert;
+	if (!click(renderer, render_target.Get(), snapshot, "revert_restore", disabled_revert))
+		return 1;
+	if (disabled_revert.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Revert remained interactive when the technique matched its saved values.\n", stderr);
 		return 1;
@@ -445,298 +641,533 @@ int main()
 	renderer.render(render_target.Get(), snapshot, release);
 	openxr_ui::technique_snapshot changed_snapshot = snapshot;
 	changed_snapshot.techniques.front().differs_from_saved = true;
-	if (!expect_command(renderer, render_target.Get(), changed_snapshot, 852.0f, 40.0f,
+	if (!expect_command(renderer, render_target.Get(), changed_snapshot, "revert_restore",
 		openxr_ui::render_result::command::revert_technique, 1))
 		return 1;
 	openxr_ui::technique_snapshot restorable_snapshot = snapshot;
 	restorable_snapshot.techniques.front().has_restore_state = true;
-	if (!expect_command(renderer, render_target.Get(), restorable_snapshot, 852.0f, 40.0f,
+	if (!expect_command(renderer, render_target.Get(), restorable_snapshot, "revert_restore",
 		openxr_ui::render_result::command::restore_technique, 1))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 956.0f, 40.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "save",
 		openxr_ui::render_result::command::save_preset, 0))
 		return 1;
 
 	renderer.render(render_target.Get(), snapshot, joystick_down);
 	renderer.render(render_target.Get(), snapshot, warm_up);
 	renderer.render(render_target.Get(), snapshot, joystick_down);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 824.0f, 121.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "param/0/plus",
 		openxr_ui::render_result::command::set_parameter, 102, 0, 0.6))
 	{
 		std::fputs("Joystick did not scroll shader parameters by row.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input parameter_scroll_press = { true, 984.0f, 126.0f, true, false, true };
+	float parameter_bar_x = 0.0f;
+	float parameter_bar_top = 0.0f;
+	float parameter_bar_bottom = 0.0f;
+	if (!scroll_bar_point(renderer, "parameter_scroll", 0.0f, parameter_bar_x, parameter_bar_top) ||
+		!scroll_bar_point(renderer, "parameter_scroll", 1.0f, parameter_bar_x, parameter_bar_bottom))
+		return 1;
+	const openxr_ui::render_input parameter_scroll_press = { true, parameter_bar_x, parameter_bar_top, true, false, true };
 	renderer.render(render_target.Get(), snapshot, parameter_scroll_press);
-	const openxr_ui::render_input parameter_scroll_drag = { true, 984.0f, 640.0f, false, false, true };
+	const openxr_ui::render_input parameter_scroll_drag = { true, parameter_bar_x, parameter_bar_bottom, false, false, true };
 	renderer.render(render_target.Get(), snapshot, parameter_scroll_drag);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 824.0f, 121.0f,
-		openxr_ui::render_result::command::set_parameter, 106, 0, 0.6))
+	if (!expect_command(renderer, render_target.Get(), snapshot, "param/0/plus",
+		openxr_ui::render_result::command::set_parameter, 108, 0, 0.6))
 	{
 		std::fputs("Shader parameter scrollbar did not scroll to the final row offset.\n", stderr);
 		return 1;
 	}
 
-	const openxr_ui::render_input detail_back = { true, 64.0f, 40.0f, true };
-	renderer.render(render_target.Get(), snapshot, detail_back);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 944.0f, 40.0f,
+	if (!click(renderer, render_target.Get(), snapshot, "back"))
+		return 1;
+	if (!expect_command(renderer, render_target.Get(), snapshot, "expand",
 		openxr_ui::render_result::command::toggle_panel_size, 0))
 		return 1;
-	// The "Open UI" row holds the controller list, then the key list; the panel has no room below, so their 32-pixel rows open above.
-	const openxr_ui::render_input menu_button_open = { true, 180.0f, 582.0f, true };
-	if (renderer.render(render_target.Get(), snapshot, menu_button_open).action != openxr_ui::render_result::command::none)
+	if (!click(renderer, render_target.Get(), snapshot, "tab/1/segment"))
+		return 1;
+	// "Controller buttons" and "Keyboard key" are the first two rows; each list opens below its box.
+	openxr_ui::render_result menu_button_opened;
+	if (!click(renderer, render_target.Get(), snapshot, "menu_button", menu_button_opened))
+		return 1;
+	if (menu_button_opened.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Controller menu drop-down changed the setting instead of opening its list.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input menu_button_pick = { true, 180.0f, 452.0f, true };
-	const openxr_ui::render_result menu_button_result = renderer.render(render_target.Get(), snapshot, menu_button_pick);
+	openxr_ui::render_result menu_button_result;
+	if (!click(renderer, render_target.Get(), snapshot, dropdown_item("menu_button", openxr_ui::menu_button_b_and_y), menu_button_result))
+		return 1;
 	if (menu_button_result.action != openxr_ui::render_result::command::set_menu_button ||
 		menu_button_result.value != static_cast<double>(openxr_ui::menu_button_b_and_y))
 	{
 		std::fputs("Controller menu drop-down did not pick B + Y from its list.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input menu_key_open = { true, 310.0f, 582.0f, true };
-	const openxr_ui::render_input menu_key_pick_off = { true, 310.0f, 548.0f, true };
-	renderer.render(render_target.Get(), snapshot, menu_key_open);
-	const openxr_ui::render_result menu_key_result = renderer.render(render_target.Get(), snapshot, menu_key_pick_off);
+	if (!click(renderer, render_target.Get(), snapshot, "menu_key"))
+		return 1;
+	openxr_ui::render_result menu_key_result;
+	if (!click(renderer, render_target.Get(), snapshot, dropdown_item("menu_key", openxr_ui::menu_key_off), menu_key_result))
+		return 1;
 	if (menu_key_result.action != openxr_ui::render_result::command::set_menu_key ||
 		menu_key_result.value != static_cast<double>(openxr_ui::menu_key_off))
 	{
 		std::fputs("Keyboard menu drop-down did not pick Off from its list.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input menu_key_open_without_button = menu_key_open;
-	menu_key_open_without_button.menu_button = openxr_ui::menu_button_off;
-	openxr_ui::render_input menu_key_pick_off_without_button = menu_key_pick_off;
-	menu_key_pick_off_without_button.menu_button = openxr_ui::menu_button_off;
-	renderer.render(render_target.Get(), snapshot, menu_key_open_without_button);
-	if (renderer.render(render_target.Get(), snapshot, menu_key_pick_off_without_button).action != openxr_ui::render_result::command::none)
+	openxr_ui::render_input menu_button_off_input;
+	menu_button_off_input.menu_button = openxr_ui::menu_button_off;
+	if (!click(renderer, render_target.Get(), snapshot, "menu_key", menu_button_off_input))
+		return 1;
+	openxr_ui::render_result menu_key_off_without_button;
+	if (!click(renderer, render_target.Get(), snapshot, dropdown_item("menu_key", openxr_ui::menu_key_off), menu_key_off_without_button, menu_button_off_input))
+		return 1;
+	if (menu_key_off_without_button.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Keyboard menu drop-down allowed Off while the controller shortcut is also Off.\n", stderr);
 		return 1;
 	}
-	// The head gesture list sits next to "UI starts open"; eight 32-pixel rows open above it, starting at y 268.
-	const openxr_ui::render_input gesture_open = { true, 300.0f, 542.0f, true };
-	if (renderer.render(render_target.Get(), snapshot, gesture_open).action != openxr_ui::render_result::command::none)
+	// The "Next preset" list is the last row of the Gestures card.
+	openxr_ui::render_result gesture_opened;
+	if (!click(renderer, render_target.Get(), snapshot, "preset_gesture", gesture_opened))
+		return 1;
+	if (gesture_opened.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Head gesture drop-down changed the setting instead of opening its list.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input gesture_pick_left_trigger = { true, 300.0f, 316.0f, true };
-	const openxr_ui::render_result gesture_result = renderer.render(render_target.Get(), snapshot, gesture_pick_left_trigger);
+	openxr_ui::render_result gesture_result;
+	if (!click(renderer, render_target.Get(), snapshot, dropdown_item("preset_gesture", openxr_ui::preset_gesture_left_trigger), gesture_result))
+		return 1;
 	if (gesture_result.action != openxr_ui::render_result::command::set_preset_gesture ||
 		gesture_result.value != static_cast<double>(openxr_ui::preset_gesture_left_trigger))
 	{
 		std::fputs("Head gesture drop-down did not pick Left Trigger from its list.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input starts_open_toggle = { true, 100.0f, 542.0f, true, false, false, false, 0.0f, false, true };
-	const openxr_ui::render_result starts_open_result = renderer.render(render_target.Get(), snapshot, starts_open_toggle);
+	// L3+R3 (the last row) cannot be picked while the menu shortcut is also L3+R3; with another shortcut it can.
+	if (!click(renderer, render_target.Get(), snapshot, "preset_gesture"))
+		return 1;
+	openxr_ui::render_result gesture_sticks_blocked;
+	if (!click(renderer, render_target.Get(), snapshot, dropdown_item("preset_gesture", openxr_ui::preset_gesture_both_sticks), gesture_sticks_blocked))
+		return 1;
+	if (gesture_sticks_blocked.action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("Next preset drop-down picked L3+R3 while L3+R3 opens the menu.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input menu_button_other_input;
+	menu_button_other_input.menu_button = openxr_ui::menu_button_b_and_y;
+	if (!click(renderer, render_target.Get(), snapshot, "preset_gesture", menu_button_other_input))
+		return 1;
+	openxr_ui::render_result gesture_sticks_result;
+	if (!click(renderer, render_target.Get(), snapshot, dropdown_item("preset_gesture", openxr_ui::preset_gesture_both_sticks), gesture_sticks_result, menu_button_other_input))
+		return 1;
+	if (gesture_sticks_result.action != openxr_ui::render_result::command::set_preset_gesture ||
+		gesture_sticks_result.value != static_cast<double>(openxr_ui::preset_gesture_both_sticks))
+	{
+		std::fputs("Next preset drop-down did not pick L3+R3 while the menu uses another shortcut.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input starts_open_input;
+	starts_open_input.ui_starts_open = true;
+	openxr_ui::render_result starts_open_result;
+	if (!click(renderer, render_target.Get(), snapshot, "starts_open", starts_open_result, starts_open_input))
+		return 1;
 	if (starts_open_result.action != openxr_ui::render_result::command::set_ui_starts_open || starts_open_result.state)
 	{
 		std::fputs("UI starts open checkbox did not produce its persisted closed-state command.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input performance_toggle = { true, 520.0f, 542.0f, true, false, false, false, 0.0f, false, true, false };
-	const openxr_ui::render_result performance_result = renderer.render(render_target.Get(), snapshot, performance_toggle);
+	openxr_ui::render_input performance_input;
+	performance_input.ui_starts_open = true;
+	openxr_ui::render_result performance_result;
+	if (!click(renderer, render_target.Get(), snapshot, "performance_mode", performance_result, performance_input))
+		return 1;
 	if (performance_result.action != openxr_ui::render_result::command::set_performance_mode || !performance_result.state)
 	{
 		std::fputs("Performance mode checkbox did not produce its persisted next-start command.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input statistics_toggle = { true, 728.0f, 40.0f, true };
-	const openxr_ui::render_result statistics_result = renderer.render(render_target.Get(), snapshot, statistics_toggle);
+	openxr_ui::render_result statistics_result;
+	if (!click(renderer, render_target.Get(), snapshot, "always_show_statistics", statistics_result))
+		return 1;
 	if (statistics_result.action != openxr_ui::render_result::command::set_always_show_statistics || !statistics_result.state)
 	{
 		std::fputs("Always show FPS checkbox did not produce its persisted command.\n", stderr);
 		return 1;
 	}
-	// The theme list starts the settings section and opens below with one 32-pixel row per theme; the third is Slate.
-	const openxr_ui::render_input theme_open = { true, 100.0f, 502.0f, true };
-	if (renderer.render(render_target.Get(), snapshot, theme_open).action != openxr_ui::render_result::command::none)
+	// The theme list is in the Look card; the third item is Slate.
+	openxr_ui::render_result theme_opened;
+	if (!click(renderer, render_target.Get(), snapshot, "theme", theme_opened))
+		return 1;
+	if (theme_opened.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Theme drop-down changed the setting instead of opening its list.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input theme_pick = { true, 100.0f, 600.0f, true };
-	const openxr_ui::render_result theme_result = renderer.render(render_target.Get(), snapshot, theme_pick);
+	openxr_ui::render_result theme_result;
+	if (!click(renderer, render_target.Get(), snapshot, dropdown_item("theme", 2), theme_result))
+		return 1;
 	if (theme_result.action != openxr_ui::render_result::command::set_theme || theme_result.value != 2.0)
 	{
 		std::fputs("Theme drop-down did not pick Slate from its list.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input frame_rate_open = { true, 560.0f, 502.0f, true };
-	if (renderer.render(render_target.Get(), snapshot, frame_rate_open).action != openxr_ui::render_result::command::none)
+	openxr_ui::render_result frame_rate_opened;
+	if (!click(renderer, render_target.Get(), snapshot, "frame_rate_divisor", frame_rate_opened))
+		return 1;
+	if (frame_rate_opened.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("FPS target drop-down changed the setting instead of opening its list.\n", stderr);
 		return 1;
 	}
-	// The list opens below the box with one 32-pixel row per choice; the third row is "Third rate".
-	// The Performance mode and Depth buffer boxes sit under the list, so a pick that leaked through would toggle one of them.
-	const openxr_ui::render_input frame_rate_pick = { true, 560.0f, 600.0f, true };
-	const openxr_ui::render_result frame_rate_result = renderer.render(render_target.Get(), snapshot, frame_rate_pick);
+	// The third item is "One-third headset rate".
+	// The Faster shaders and depth rows sit under the list, so a pick that leaked through would toggle one of them.
+	openxr_ui::render_result frame_rate_result;
+	if (!click(renderer, render_target.Get(), snapshot, dropdown_item("frame_rate_divisor", 2), frame_rate_result))
+		return 1;
 	if (frame_rate_result.action != openxr_ui::render_result::command::set_frame_rate_divisor || frame_rate_result.value != 3.0)
 	{
 		std::fputs("FPS target drop-down did not pick third rate from its list.\n", stderr);
 		return 1;
 	}
-	renderer.render(render_target.Get(), snapshot, frame_rate_open);
-	const openxr_ui::render_input frame_rate_dismiss = { true, 100.0f, 542.0f, true };
-	if (renderer.render(render_target.Get(), snapshot, frame_rate_dismiss).action != openxr_ui::render_result::command::none)
+	if (!click(renderer, render_target.Get(), snapshot, "frame_rate_divisor"))
+		return 1;
+	// The click lands on the "Open when the game starts" row, outside the open list, which must only close the list.
+	openxr_ui::render_result frame_rate_dismiss;
+	if (!click(renderer, render_target.Get(), snapshot, "starts_open", frame_rate_dismiss))
+		return 1;
+	if (frame_rate_dismiss.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("A click outside the open FPS target list reached the control underneath.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input depth_toggle = { true, 520.0f, 582.0f, true };
-	const openxr_ui::render_result depth_result = renderer.render(render_target.Get(), snapshot, depth_toggle);
+	openxr_ui::render_result depth_result;
+	if (!click(renderer, render_target.Get(), snapshot, "depth_buffer", depth_result))
+		return 1;
 	if (depth_result.action != openxr_ui::render_result::command::set_depth_detection_disabled || !depth_result.state)
 	{
 		std::fputs("Depth detection checkbox did not produce its persisted command.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input lock_toggle = { true, 872.0f, 40.0f, true };
-	if (renderer.render(render_target.Get(), snapshot, lock_toggle).action != openxr_ui::render_result::command::toggle_panel_lock)
+	openxr_ui::render_result lock_result;
+	if (!click(renderer, render_target.Get(), snapshot, "pin", lock_result))
+		return 1;
+	if (lock_result.action != openxr_ui::render_result::command::toggle_panel_lock)
 	{
-		std::fputs("Pin UI button did not produce its command.\n", stderr);
+		std::fputs("Pin button did not produce its command.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input subfolders_load = { true, 783.0f, 172.0f, true };
-	subfolders_load.effect_subfolders = { openxr_ui::effect_subfolder_state::offered, 42, 8 };
-	if (renderer.render(render_target.Get(), snapshot, subfolders_load).action != openxr_ui::render_result::command::include_effect_subfolders)
+	// Back on the Effects tab, the subfolder notice pushes the list down.
+	if (!click(renderer, render_target.Get(), snapshot, "tab/0/segment"))
+		return 1;
+	openxr_ui::render_input subfolders_input;
+	subfolders_input.effect_subfolders = { openxr_ui::effect_subfolder_state::offered, 42, 8 };
+	openxr_ui::render_result subfolders_result;
+	if (!click(renderer, render_target.Get(), snapshot, "subfolders_load", subfolders_result, subfolders_input))
+		return 1;
+	if (subfolders_result.action != openxr_ui::render_result::command::include_effect_subfolders)
 	{
 		std::fputs("Load subfolders button did not produce its command.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input subfolders_unsaved = subfolders_load;
+	openxr_ui::render_input subfolders_unsaved = subfolders_input;
 	subfolders_unsaved.preset_dirty = true;
-	if (renderer.render(render_target.Get(), snapshot, subfolders_unsaved).action != openxr_ui::render_result::command::include_effect_subfolders)
+	if (!click(renderer, render_target.Get(), snapshot, "subfolders_load", subfolders_result, subfolders_unsaved))
+		return 1;
+	if (subfolders_result.action != openxr_ui::render_result::command::include_effect_subfolders)
 	{
 		std::fputs("Load anyway did not work while the preset had unsaved changes.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input subfolders_disabled = subfolders_load;
+	openxr_ui::render_input subfolders_disabled = subfolders_input;
 	subfolders_disabled.shaders_temporarily_disabled = true;
-	if (renderer.render(render_target.Get(), snapshot, subfolders_disabled).action != openxr_ui::render_result::command::none)
+	if (!click(renderer, render_target.Get(), snapshot, "subfolders_load", subfolders_result, subfolders_disabled))
+		return 1;
+	if (subfolders_result.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Load subfolders button worked while all shaders were temporarily disabled.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input subfolders_not_now = subfolders_load;
-	subfolders_not_now.pointer_x = 940.0f;
-	if (renderer.render(render_target.Get(), snapshot, subfolders_not_now).action != openxr_ui::render_result::command::dismiss_effect_subfolder_notice)
+	if (!click(renderer, render_target.Get(), snapshot, "subfolders_not_now", subfolders_result, subfolders_input))
+		return 1;
+	if (subfolders_result.action != openxr_ui::render_result::command::dismiss_effect_subfolder_notice)
 	{
 		std::fputs("Not now button did not dismiss the subfolder notice.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input subfolders_ok = subfolders_load;
-	subfolders_ok.pointer_x = 955.0f;
+	openxr_ui::render_input subfolders_ok = subfolders_input;
 	subfolders_ok.effect_subfolders.state = openxr_ui::effect_subfolder_state::loaded;
-	if (renderer.render(render_target.Get(), snapshot, subfolders_ok).action != openxr_ui::render_result::command::dismiss_effect_subfolder_notice)
+	if (!click(renderer, render_target.Get(), snapshot, "subfolders_ok", subfolders_result, subfolders_ok))
+		return 1;
+	if (subfolders_result.action != openxr_ui::render_result::command::dismiss_effect_subfolder_notice)
 	{
 		std::fputs("OK button did not close the subfolder result notice.\n", stderr);
 		return 1;
 	}
+	// The loading notice has no button, so click where the OK button was.
+	float notice_button_x = 0.0f;
+	float notice_button_y = 0.0f;
+	if (!renderer.find_control("subfolders_ok", notice_button_x, notice_button_y))
+	{
+		std::fputs("Control \"subfolders_ok\" was not drawn.\n", stderr);
+		return 1;
+	}
 	openxr_ui::render_input subfolders_loading = subfolders_ok;
 	subfolders_loading.effect_subfolders.state = openxr_ui::effect_subfolder_state::loading;
-	if (renderer.render(render_target.Get(), snapshot, subfolders_loading).action != openxr_ui::render_result::command::none)
+	if (click_at(renderer, render_target.Get(), snapshot, notice_button_x, notice_button_y, subfolders_loading).action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("The subfolder notice offered a button while effects were loading.\n", stderr);
 		return 1;
 	}
 	subfolders_loading.effect_subfolders.loading_seconds = 12;
-	if (renderer.render(render_target.Get(), openxr_ui::technique_snapshot {}, subfolders_loading).action != openxr_ui::render_result::command::none)
+	if (click_at(renderer, render_target.Get(), openxr_ui::technique_snapshot {}, notice_button_x, notice_button_y, subfolders_loading).action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("The loading notice with an empty effect list returned a command.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input waiting_for_reshade = { true, 400.0f, 172.0f, true };
+	// The remaining notices also have no button, so click the same spot.
+	openxr_ui::render_input waiting_for_reshade;
 	waiting_for_reshade.effect_runtime_available = false;
 	waiting_for_reshade.effect_runtime_wait_seconds = 7;
-	if (renderer.render(render_target.Get(), openxr_ui::technique_snapshot {}, waiting_for_reshade).action != openxr_ui::render_result::command::none)
+	if (click_at(renderer, render_target.Get(), openxr_ui::technique_snapshot {}, notice_button_x, notice_button_y, waiting_for_reshade).action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("The waiting-for-ReShade notice returned a command.\n", stderr);
 		return 1;
 	}
 	waiting_for_reshade.reshade_loaded = false;
-	if (renderer.render(render_target.Get(), openxr_ui::technique_snapshot {}, waiting_for_reshade).action != openxr_ui::render_result::command::none)
+	if (click_at(renderer, render_target.Get(), openxr_ui::technique_snapshot {}, notice_button_x, notice_button_y, waiting_for_reshade).action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("The ReShade-not-loaded notice returned a command.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input depth_unavailable = { true, 400.0f, 172.0f, true };
+	openxr_ui::render_input depth_unavailable;
 	depth_unavailable.depth_effects_unavailable = true;
-	if (renderer.render(render_target.Get(), snapshot, depth_unavailable).action != openxr_ui::render_result::command::none)
+	if (click_at(renderer, render_target.Get(), snapshot, notice_button_x, notice_button_y, depth_unavailable).action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("The UEVR depth notice returned a command.\n", stderr);
 		return 1;
 	}
-	if (!expect_command(renderer, render_target.Get(), snapshot, 608.0f, 120.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "previous_preset",
 		openxr_ui::render_result::command::previous_preset, 0) ||
-		!expect_command(renderer, render_target.Get(), snapshot, 648.0f, 120.0f,
+		!expect_command(renderer, render_target.Get(), snapshot, "next_preset",
 		openxr_ui::render_result::command::next_preset, 0))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 716.0f, 120.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "save",
 		openxr_ui::render_result::command::save_preset, 0))
 		return 1;
-	if (!expect_command(renderer, render_target.Get(), snapshot, 952.0f, 120.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "delete_preset",
 		openxr_ui::render_result::command::delete_preset, 0))
 		return 1;
-	openxr_ui::render_input open_save_as = { true, 832.0f, 120.0f, true };
+	openxr_ui::render_input open_save_as;
 	open_save_as.preset_name = "Hubris Super Resolution Tuned Copy 12";
-	if (renderer.render(render_target.Get(), snapshot, open_save_as).action != openxr_ui::render_result::command::none)
+	openxr_ui::render_result open_save_as_result;
+	if (!click(renderer, render_target.Get(), snapshot, "save_as", open_save_as_result, open_save_as))
+		return 1;
+	if (open_save_as_result.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Save As header button bypassed the naming dialog.\n", stderr);
 		return 1;
 	}
-	renderer.render(render_target.Get(), snapshot, { true, 720.0f, 387.0f, true });
-	renderer.render(render_target.Get(), snapshot, { true, 604.0f, 279.0f, true });
-	renderer.render(render_target.Get(), snapshot, { true, 742.0f, 229.0f, true });
-	const openxr_ui::render_result create_preset = renderer.render(render_target.Get(), snapshot, { true, 920.0f, 453.0f, true });
+	if (!click(renderer, render_target.Get(), snapshot, "key/clear", open_save_as) ||
+		!click(renderer, render_target.Get(), snapshot, "key/H", open_save_as) ||
+		!click(renderer, render_target.Get(), snapshot, "key/I", open_save_as))
+		return 1;
+	openxr_ui::render_result create_preset;
+	if (!click(renderer, render_target.Get(), snapshot, "key/create", create_preset, open_save_as))
+		return 1;
 	if (create_preset.action != openxr_ui::render_result::command::save_preset_as || create_preset.text != "HI")
 	{
 		std::fputs("Save As keyboard did not emit the entered preset name.\n", stderr);
 		return 1;
 	}
 	renderer.notify_save_as_started(true);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 912.0f, 80.0f,
+	if (!expect_command(renderer, render_target.Get(), snapshot, "effects_on",
 		openxr_ui::render_result::command::toggle_all_techniques, 0))
 		return 1;
-	const openxr_ui::render_input temporarily_disabled_save = {
-		true, 716.0f, 120.0f, true, false, false, false, 0.0f, false, true, false, true, false
-	};
-	if (renderer.render(render_target.Get(), snapshot, temporarily_disabled_save).action != openxr_ui::render_result::command::none)
+	openxr_ui::render_input temporarily_disabled_input;
+	temporarily_disabled_input.ui_starts_open = true;
+	temporarily_disabled_input.shaders_temporarily_disabled = true;
+	openxr_ui::render_result temporarily_disabled_save;
+	if (!click(renderer, render_target.Get(), snapshot, "save", temporarily_disabled_save, temporarily_disabled_input))
+		return 1;
+	if (temporarily_disabled_save.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Save remained interactive while shaders were temporarily disabled.\n", stderr);
 		return 1;
 	}
-	openxr_ui::render_input temporarily_disabled_delete = temporarily_disabled_save;
-	temporarily_disabled_delete.pointer_x = 952.0f;
-	if (renderer.render(render_target.Get(), snapshot, temporarily_disabled_delete).action != openxr_ui::render_result::command::none)
+	if (!click(renderer, render_target.Get(), snapshot, "delete_preset", temporarily_disabled_save, temporarily_disabled_input))
+		return 1;
+	if (temporarily_disabled_save.action != openxr_ui::render_result::command::none)
 	{
 		std::fputs("Delete remained interactive while shaders were temporarily disabled.\n", stderr);
 		return 1;
 	}
-	const openxr_ui::render_input restore_all = {
-		true, 912.0f, 80.0f, true, false, false, false, 0.0f, false, true, false, true, false
-	};
-	if (renderer.render(render_target.Get(), snapshot, restore_all).action != openxr_ui::render_result::command::toggle_all_techniques)
+	openxr_ui::render_result restore_all_result;
+	if (!click(renderer, render_target.Get(), snapshot, "effects_on", restore_all_result, temporarily_disabled_input))
+		return 1;
+	if (restore_all_result.action != openxr_ui::render_result::command::toggle_all_techniques)
 	{
 		std::fputs("Restore shaders did not remain interactive during temporary disable.\n", stderr);
 		return 1;
 	}
+	// Tabs: Settings controls answer on the Settings tab only, and the Effects tab comes back unchanged.
+	// The spots where the other tab's controls were drawn are kept to check that they stay dead.
+	float effect_row_x = 0.0f;
+	float effect_row_y = 0.0f;
+	render_layout(renderer, render_target.Get(), snapshot, {});
+	if (!find_point(renderer, "effect/0/toggle", effect_row_x, effect_row_y))
+		return 1;
+	if (!click(renderer, render_target.Get(), snapshot, "tab/1/segment"))
+		return 1;
+	float statistics_x = 0.0f;
+	float statistics_y = 0.0f;
+	render_layout(renderer, render_target.Get(), snapshot, {});
+	if (!find_point(renderer, "always_show_statistics", statistics_x, statistics_y))
+		return 1;
+	if (!expect_command(renderer, render_target.Get(), snapshot, "always_show_statistics",
+		openxr_ui::render_result::command::set_always_show_statistics, 0))
+	{
+		std::fputs("Settings tab controls did not respond after clicking the Settings tab.\n", stderr);
+		return 1;
+	}
+	if (!expect_command_at(renderer, render_target.Get(), snapshot, effect_row_x, effect_row_y,
+		openxr_ui::render_result::command::none, 0))
+	{
+		std::fputs("An effect row responded on the Settings tab.\n", stderr);
+		return 1;
+	}
+	if (!click(renderer, render_target.Get(), snapshot, "tab/0/segment"))
+		return 1;
+	if (!expect_command_at(renderer, render_target.Get(), snapshot, statistics_x, statistics_y,
+		openxr_ui::render_result::command::none, 0) ||
+		!expect_command(renderer, render_target.Get(), snapshot, "effect/0/toggle",
+		openxr_ui::render_result::command::toggle_technique, 1))
+	{
+		std::fputs("Clicking the Effects tab did not bring the effect list back.\n", stderr);
+		return 1;
+	}
+
+	// Filters: All = not hidden, Starred = starred and not hidden, Hidden = hidden only.
+	openxr_ui::technique_snapshot filter_snapshot = snapshot;
+	filter_snapshot.techniques[0].hidden = true;
+	filter_snapshot.techniques[1].hidden = true;
+	filter_snapshot.techniques[1].favourite = true;
+	filter_snapshot.techniques[2].favourite = true;
+	filter_snapshot.techniques[4].favourite = true;
+	renderer.render(render_target.Get(), filter_snapshot, warm_up);
+	if (!expect_command(renderer, render_target.Get(), filter_snapshot, "effect/0/toggle",
+		openxr_ui::render_result::command::toggle_technique, 3) ||
+		!expect_command(renderer, render_target.Get(), filter_snapshot, "effect/1/toggle",
+		openxr_ui::render_result::command::toggle_technique, 4))
+	{
+		std::fputs("The All view did not skip hidden effects.\n", stderr);
+		return 1;
+	}
+	float empty_row_x = 0.0f;
+	float empty_row_y = 0.0f;
+	if (!click(renderer, render_target.Get(), filter_snapshot, "filter/1/segment"))
+		return 1;
+	if (!expect_command(renderer, render_target.Get(), filter_snapshot, "effect/0/toggle",
+		openxr_ui::render_result::command::toggle_technique, 3) ||
+		!expect_command(renderer, render_target.Get(), filter_snapshot, "effect/1/toggle",
+		openxr_ui::render_result::command::toggle_technique, 5) ||
+		!below_second_row(renderer, empty_row_x, empty_row_y) ||
+		!expect_command_at(renderer, render_target.Get(), filter_snapshot, empty_row_x, empty_row_y,
+		openxr_ui::render_result::command::none, 0))
+	{
+		std::fputs("The Starred view did not list exactly the starred effects that are not hidden.\n", stderr);
+		return 1;
+	}
+	if (!click(renderer, render_target.Get(), filter_snapshot, "filter/2/segment"))
+		return 1;
+	if (!expect_command(renderer, render_target.Get(), filter_snapshot, "effect/0/toggle",
+		openxr_ui::render_result::command::toggle_technique, 1) ||
+		!expect_command(renderer, render_target.Get(), filter_snapshot, "effect/1/toggle",
+		openxr_ui::render_result::command::toggle_technique, 2) ||
+		!expect_command_at(renderer, render_target.Get(), filter_snapshot, empty_row_x, empty_row_y,
+		openxr_ui::render_result::command::none, 0))
+	{
+		std::fputs("The Hidden view did not list exactly the hidden effects.\n", stderr);
+		return 1;
+	}
+	// In the Hidden view the button reads Show, so it sends "not hidden"; in the other views it sends "hidden".
+	openxr_ui::render_result show_result;
+	if (!click(renderer, render_target.Get(), filter_snapshot, "effect/1/hide", show_result))
+		return 1;
+	if (show_result.action != openxr_ui::render_result::command::set_technique_hidden || show_result.target_id != 2 || show_result.state)
+	{
+		std::fputs("The Hidden view button did not send Show for the second hidden effect.\n", stderr);
+		return 1;
+	}
+	if (!click(renderer, render_target.Get(), filter_snapshot, "filter/0/segment"))
+		return 1;
+	openxr_ui::render_result hide_third_result;
+	if (!click(renderer, render_target.Get(), filter_snapshot, "effect/0/hide", hide_third_result))
+		return 1;
+	if (hide_third_result.action != openxr_ui::render_result::command::set_technique_hidden || hide_third_result.target_id != 3 || !hide_third_result.state)
+	{
+		std::fputs("The All view button did not send Hide for the first visible effect.\n", stderr);
+		return 1;
+	}
+
+	// One press of "Active on top" sends one command; the frame after it sends nothing.
+	float active_first_x = 0.0f;
+	float active_first_y = 0.0f;
+	if (!expect_command(renderer, render_target.Get(), snapshot, "active_first",
+		openxr_ui::render_result::command::move_active_to_top, 0) ||
+		!find_point(renderer, "active_first", active_first_x, active_first_y))
+		return 1;
+	openxr_ui::render_input active_first_held;
+	active_first_held.pointer_visible = true;
+	active_first_held.pointer_x = active_first_x;
+	active_first_held.pointer_y = active_first_y;
+	if (renderer.render(render_target.Get(), snapshot, active_first_held).action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("Active on top did not send exactly one move_active_to_top per press.\n", stderr);
+		return 1;
+	}
+
+	// Reset this effect: armed state does not survive leaving the effect page.
+	if (!click(renderer, render_target.Get(), snapshot, "effect/0/open"))
+		return 1;
+	if (!expect_command(renderer, render_target.Get(), snapshot, "reset_all",
+		openxr_ui::render_result::command::none, 0))
+	{
+		std::fputs("The first Reset this effect press sent a command.\n", stderr);
+		return 1;
+	}
+	if (!click(renderer, render_target.Get(), snapshot, "back") ||
+		!click(renderer, render_target.Get(), snapshot, "effect/0/open"))
+		return 1;
+	if (!expect_command(renderer, render_target.Get(), snapshot, "reset_all",
+		openxr_ui::render_result::command::none, 0) ||
+		!expect_command(renderer, render_target.Get(), snapshot, "reset_all",
+		openxr_ui::render_result::command::reset_all_parameters, 1))
+	{
+		std::fputs("Reset this effect stayed armed after leaving the effect page.\n", stderr);
+		return 1;
+	}
+	if (!click(renderer, render_target.Get(), snapshot, "back"))
+		return 1;
+
 	// The pointer is matched against the previous frame's panel size, so the panel is drawn expanded once before the
 	// click below the compact height, as happens in the headset.
-	const openxr_ui::render_input expanded_idle = { false, 0.0f, 0.0f, false, true };
-	renderer.render(render_target.Get(), snapshot, expanded_idle);
-	const openxr_ui::render_input open_expanded_technique_11 = { true, 908.0f, 653.0f, true, true };
-	renderer.render(render_target.Get(), snapshot, open_expanded_technique_11);
-	if (!expect_command(renderer, render_target.Get(), snapshot, 612.0f, 40.0f,
+	openxr_ui::render_input expanded_input;
+	expanded_input.expanded = true;
+	renderer.render(render_target.Get(), snapshot, expanded_input);
+	if (!click(renderer, render_target.Get(), snapshot, "effect/10/open", expanded_input))
+		return 1;
+	if (!expect_command(renderer, render_target.Get(), snapshot, "technique_on",
 		openxr_ui::render_result::command::toggle_technique, 11, 0, 0.0, true))
+		return 1;
+	// Expanded: the bottom bar and Save move down with the panel (906 tall instead of 650).
+	if (!expect_command(renderer, render_target.Get(), snapshot, "save",
+		openxr_ui::render_result::command::save_preset, 0, 0, 0.0, true))
 		return 1;
 
 	openxr_ui::frame_statistics_tracker tracker;

@@ -1,0 +1,283 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>VR panel sketch</title>
+<style>
+  :root {
+    --bg:#16141c; --inset:#121017; --row:#211d2a; --ctl:#2c2638; --hover:#3a3249;
+    --muted:#6e6680; --sub:#a39cb3; --text:#ece8f2; --accent:#b48cff; --onaccent:#16141c;
+    --warn:#f2c46b; --danger:#ef7a85; --ok:#7fd49a;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px; background:#0b0a0e; font:16px/1.25 "Atkinson Hyperlegible", Verdana, sans-serif; color:var(--text); }
+  .switcher { margin-bottom:16px; display:flex; gap:8px; align-items:center; color:#888; }
+  .switcher button { background:#222; color:#ddd; border:1px solid #444; padding:6px 12px; border-radius:6px; cursor:pointer; }
+  .switcher button.sel { background:#444; color:#fff; }
+  .panel { width:1024px; height:650px; background:var(--bg); border-radius:12px; padding:24px; display:flex; flex-direction:column; gap:16px; position:relative; }
+  .page { display:none; } .page.show { display:flex; }
+
+  /* zone 1: header */
+  .header { display:flex; align-items:center; gap:16px; height:40px; }
+  .title { font-size:22px; font-weight:bold; }
+  .tabs { display:flex; gap:4px; background:var(--inset); padding:4px; border-radius:10px; }
+  .tab { padding:6px 18px; border-radius:7px; color:var(--sub); font-weight:bold; cursor:pointer; }
+  .tab.sel { background:var(--ctl); color:var(--text); }
+  .spacer { flex:1; }
+  .icon { width:32px; height:32px; border-radius:7px; background:var(--ctl); display:grid; place-items:center; color:var(--sub); font-size:16px; }
+  .btn { height:32px; padding:0 16px; border-radius:7px; background:var(--ctl); display:inline-flex; align-items:center; gap:8px; white-space:nowrap; }
+  .btn.primary { background:var(--accent); color:var(--onaccent); font-weight:bold; }
+  .btn.ghost { background:transparent; color:var(--sub); }
+  .btn.danger { color:var(--danger); }
+  .group { display:flex; gap:8px; align-items:center; }
+  .label { color:var(--sub); }
+  .small { font-size:14px; color:var(--sub); }
+  .tiny { font-size:13px; color:var(--muted); }
+
+  /* the big global effects switch */
+  .master { display:flex; align-items:center; gap:8px; padding:4px 12px 4px 4px; border-radius:20px; background:var(--inset); }
+  .sw { width:44px; height:24px; border-radius:12px; background:var(--muted); position:relative; flex:none; }
+  .sw::after { content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:var(--text); }
+  .sw.on { background:var(--accent); } .sw.on::after { left:23px; background:var(--onaccent); }
+
+  /* zone 2: content */
+  .bar { display:flex; align-items:center; gap:16px; }
+  .presetname { height:32px; min-width:220px; padding:0 12px; border-radius:7px; background:var(--inset); display:flex; align-items:center; justify-content:space-between; font-weight:bold; }
+  .dirty { color:var(--warn); font-size:14px; }
+  .seg { display:flex; background:var(--inset); border-radius:8px; padding:3px; gap:3px; }
+  .seg span { padding:5px 14px; border-radius:6px; color:var(--sub); }
+  .seg span.sel { background:var(--ctl); color:var(--text); }
+  .seg b { color:var(--muted); font-weight:normal; margin-left:4px; }
+  .list { flex:1; display:flex; flex-direction:column; gap:6px; overflow:hidden; }
+  .row { height:42px; border-radius:8px; background:var(--row); display:flex; align-items:center; gap:12px; padding:0 8px 0 12px; }
+  .row .name { font-size:18px; }
+  .row .file { font-size:14px; color:var(--muted); }
+  .row.on .name { color:var(--text); font-weight:bold; }
+  .row.off .name { color:var(--sub); }
+  .star { color:var(--warn); font-size:20px; width:32px; text-align:center; }
+  .star.off { color:var(--muted); }
+  .notice { border-left:4px solid var(--warn); background:var(--row); border-radius:8px; padding:10px 14px; display:flex; align-items:center; gap:12px; }
+
+  /* zone 3: footer */
+  .footer { display:flex; align-items:center; gap:16px; height:32px; }
+
+  /* settings */
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:24px; flex:1; }
+  .section h3 { margin:0 0 8px; font-size:15px; text-transform:uppercase; letter-spacing:.06em; color:var(--sub); }
+  .card { background:var(--row); border-radius:10px; padding:4px 12px; }
+  .srow { display:flex; align-items:center; gap:12px; min-height:44px; }
+  .srow + .srow { border-top:2px solid var(--bg); }
+  .srow .grow { flex:1; }
+  .srow .hint { display:block; font-size:13px; color:var(--muted); }
+  .dd { height:32px; padding:0 12px; border-radius:7px; background:var(--ctl); display:inline-flex; align-items:center; gap:24px; }
+  .dd::after { content:"▾"; color:var(--sub); }
+  select.dd { appearance:auto; }
+  .gdesc { margin:8px 0 4px; font-size:15px; line-height:1.35; color:var(--sub); }
+  .restart { margin-top:8px; font-size:13px; color:var(--warn); }
+
+  /* detail */
+  .prow { height:44px; border-radius:8px; background:var(--row); display:grid; grid-template-columns:300px 1fr 64px 184px 32px; align-items:center; gap:12px; padding:0 8px 0 14px; }
+  .prow.changed .pname { color:var(--warn); }
+  .slider { height:6px; border-radius:3px; background:var(--ctl); position:relative; }
+  .slider i { position:absolute; left:0; top:0; bottom:0; border-radius:3px; background:var(--accent); }
+  .slider i::after { content:""; position:absolute; right:-8px; top:-5px; width:16px; height:16px; border-radius:50%; background:var(--text); border:3px solid var(--accent); }
+  .val { text-align:right; font-variant-numeric:tabular-nums; }
+  .steps { display:flex; gap:4px; }
+  .steps span { width:35px; height:32px; border-radius:7px; background:var(--ctl); display:grid; place-items:center; font-size:14px; }
+  .reset { color:var(--muted); text-align:center; font-size:18px; }
+  .prow.changed .reset { color:var(--text); }
+  .chg { font-size:13px; color:var(--warn); margin-left:8px; font-weight:normal; }
+  .prow .pname { white-space:nowrap; }
+  .steps span.wide { width:44px; }
+  /* hover help: short label on the button, longer text on hover */
+  [data-tip] { position:relative; cursor:default; }
+  [data-tip]:hover::after { content:attr(data-tip); position:absolute; z-index:5; top:calc(100% + 8px); right:0; width:max-content; max-width:320px; white-space:normal; background:var(--ctl); color:var(--text); border:2px solid var(--muted); border-radius:8px; padding:8px 12px; font-size:15px; font-weight:normal; text-align:left; }
+  body { padding-bottom:260px; }
+  .note { position:absolute; left:0; top:100%; margin-top:16px; width:1024px; color:#bbb; font-size:14px; line-height:1.45; }
+  .note b { color:#fff; }
+  .note ol { padding-left:18px; margin:6px 0; }
+</style>
+</head>
+<body>
+
+<div class="switcher">
+  Sketch view:
+  <button data-p="effects" class="sel">1. Effects</button>
+  <button data-p="detail">2. After pressing Open on an effect</button>
+  <button data-p="settings">3. Settings / Gestures</button>
+</div>
+
+<!-- ================= 1. EFFECTS ================= -->
+<div class="panel page show" id="effects">
+  <div class="header">
+    <div class="title">ReShade</div>
+    <div class="tabs"><div class="tab sel">Effects</div><div class="tab">Settings / Gestures</div></div>
+    <div class="spacer"></div>
+    <div class="master"><div class="sw on"></div>Effects on</div>
+    <div class="group"><div class="icon" data-tip="Keep panel in place (stops it following your head)">📌</div><div class="icon" data-tip="Make panel taller">⛶</div><div class="icon" data-tip="Close menu">✕</div></div>
+  </div>
+
+  <div class="bar">
+    <div class="group"><span class="label">Preset</span>
+      <div class="icon">‹</div><div class="presetname">Sharp and Vivid <span class="small">▾</span></div><div class="icon">›</div>
+    </div>
+    <span class="dirty">● Unsaved changes</span>
+    <div class="spacer"></div>
+    <div class="group"><div class="btn primary">Save</div><div class="btn">Save as…</div><div class="btn ghost danger">Delete</div></div>
+  </div>
+
+  <div class="bar">
+    <div class="seg"><span class="sel">All<b>10</b></span><span>★ Starred<b>2</b></span><span>Hidden<b>1</b></span></div>
+    <div class="btn" data-tip="Moves every effect that is on to the top of the list. Effects keep their order among themselves; nothing else is rearranged.">▲ Active on top</div>
+  </div>
+
+  <div class="notice"><b>UEVR:</b> depth-based effects (like MXAO) may look wrong in this game.</div>
+
+  <div class="list">
+    <div class="row on"><div class="sw on"></div><span class="name">LumaSharpen</span><span class="file">LumaSharpen.fx</span><div class="spacer"></div><div class="group"><div class="icon" data-tip="Already at the top" style="color:var(--muted)">▲</div><div class="icon" data-tip="Move down (later in the effect order)">▼</div></div><span class="star" data-tip="Starred: shows under Starred">★</span><div class="btn" style="width:80px;justify-content:center" data-tip="Hide from list. Find it again under Hidden.">Hide</div><div class="btn" style="width:96px;justify-content:center" data-tip="Change this effect's values">Open ›</div></div>
+    <div class="row on"><div class="sw on"></div><span class="name">Vibrance</span><span class="file">Vibrance.fx</span><div class="spacer"></div><div class="group"><div class="icon" data-tip="Move up (earlier in the effect order)">▲</div><div class="icon" data-tip="Move down (later in the effect order)">▼</div></div><span class="star off" data-tip="Star this effect">☆</span><div class="btn" style="width:80px;justify-content:center" data-tip="Hide from list. Find it again under Hidden.">Hide</div><div class="btn" style="width:96px;justify-content:center" data-tip="Change this effect's values">Open ›</div></div>
+    <div class="row off"><div class="sw"></div><span class="name">MXAO</span><span class="file">qUINT_mxao.fx</span><div class="spacer"></div><div class="group"><div class="icon" data-tip="Move up (earlier in the effect order)">▲</div><div class="icon" data-tip="Move down (later in the effect order)">▼</div></div><span class="star off" data-tip="Star this effect">☆</span><div class="btn" style="width:80px;justify-content:center" data-tip="Hide from list. Find it again under Hidden.">Hide</div><div class="btn" style="width:96px;justify-content:center" data-tip="Change this effect's values">Open ›</div></div>
+    <div class="row off"><div class="sw"></div><span class="name">AdaptiveSharpen</span><span class="file">AdaptiveSharpen.fx</span><div class="spacer"></div><div class="group"><div class="icon" data-tip="Move up (earlier in the effect order)">▲</div><div class="icon" data-tip="Move down (later in the effect order)">▼</div></div><span class="star off" data-tip="Star this effect">☆</span><div class="btn" style="width:80px;justify-content:center" data-tip="Hide from list. Find it again under Hidden.">Hide</div><div class="btn" style="width:96px;justify-content:center" data-tip="Change this effect's values">Open ›</div></div>
+    <div class="row off"><div class="sw"></div><span class="name">Clarity</span><span class="file">Clarity.fx</span><div class="spacer"></div><div class="group"><div class="icon" data-tip="Move up (earlier in the effect order)">▲</div><div class="icon" data-tip="Move down (later in the effect order)">▼</div></div><span class="star" data-tip="Starred: shows under Starred">★</span><div class="btn" style="width:80px;justify-content:center" data-tip="Hide from list. Find it again under Hidden.">Hide</div><div class="btn" style="width:96px;justify-content:center" data-tip="Change this effect's values">Open ›</div></div>
+    <div class="row off"><div class="sw"></div><span class="name">Tonemap</span><span class="file">Tonemap.fx</span><div class="spacer"></div><div class="group"><div class="icon" data-tip="Move up (earlier in the effect order)">▲</div><div class="icon" data-tip="Move down (later in the effect order)">▼</div></div><span class="star off" data-tip="Star this effect">☆</span><div class="btn" style="width:80px;justify-content:center" data-tip="Hide from list. Find it again under Hidden.">Hide</div><div class="btn" style="width:96px;justify-content:center" data-tip="Change this effect's values">Open ›</div></div>
+    <div class="row off"><div class="sw"></div><span class="name">CinematicDepthOfFieldWithAVeryLongTe…</span><span class="file">CinematicDO…</span><div class="spacer"></div><div class="group"><div class="icon" data-tip="Move up (earlier in the effect order)">▲</div><div class="icon" data-tip="Move down (later in the effect order)">▼</div></div><span class="star off" data-tip="Star this effect">☆</span><div class="btn" style="width:80px;justify-content:center" data-tip="Hide from list. Find it again under Hidden.">Hide</div><div class="btn" style="width:96px;justify-content:center" data-tip="Change this effect's values">Open ›</div></div>
+    <div class="row off"><div class="sw"></div><span class="name">SMAA</span><span class="file">SMAA.fx</span><div class="spacer"></div><div class="group"><div class="icon" data-tip="Move up (earlier in the effect order)">▲</div><div class="icon" data-tip="Already at the bottom" style="color:var(--muted)">▼</div></div><span class="star off" data-tip="Star this effect">☆</span><div class="btn" style="width:80px;justify-content:center" data-tip="Hide from list. Find it again under Hidden.">Hide</div><div class="btn" style="width:96px;justify-content:center" data-tip="Change this effect's values">Open ›</div></div>
+  </div>
+
+  <div class="footer tiny">10 effects, 2 on<div class="spacer"></div>DX11 · 4320×4320 per eye · v dev</div>
+
+  <div class="note">
+    <b>What changed</b>
+    <ol>
+      <li>Two tabs: <b>Effects</b> (what you use every session) and <b>Settings</b> (set once).</li>
+      <li>"Disable all" becomes one big <b>Effects on/off</b> switch in the header, so it is always one click away for before/after comparing.</li>
+      <li>Preset row reads left to right: pick a preset, see if it has unsaved changes, save.</li>
+      <li>"Starred only / Show hidden" become one selector with counts: <b>All / Starred / Hidden</b>. <b>Active on top</b> stays as a button next to it: one press moves every effect that is on to the top of the list.</li>
+      <li>Each row keeps move up/down, star, Hide and Open as before; on/off becomes a switch at the start of the row, and the arrows sit together as one group. Buttons keep short names; pointing at one shows what it does.</li>
+      <li>Pin, bigger/smaller and close are small icon buttons with hover names.</li>
+      <li>The UEVR depth warning stays as a banner above the list (only shown in UEVR games).</li>
+      <li>Graphics API, resolution and version stay visible in a quiet line at the bottom.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ================= 2. DETAIL ================= -->
+<div class="panel page" id="detail">
+  <div class="header">
+    <div class="btn">‹ Effects</div>
+    <div class="title">LumaSharpen</div><span class="small">LumaSharpen.fx</span>
+    <div class="spacer"></div>
+    <div class="master"><div class="sw on"></div>This effect on</div>
+    <div class="group"><div class="icon" data-tip="Keep panel in place (stops it following your head)">📌</div><div class="icon" data-tip="Make panel taller">⛶</div><div class="icon" data-tip="Close menu">✕</div></div>
+  </div>
+
+  <div class="bar">
+    <span class="small">Sharpens the image using the brightness of neighbouring pixels.</span>
+    <div class="spacer"></div>
+    <div class="group"><div class="btn" data-tip="Go back to the values saved in the preset">Restore saved values</div><div class="btn" data-tip="Set every value of this effect to its default. Press twice to confirm.">Reset this effect</div></div>
+  </div>
+
+  <div class="list">
+    <div class="prow changed"><span class="pname">Sharpening strength<span class="chg">● Changed</span></span><div class="slider"><i style="width:26%"></i></div><span class="val" style="color:var(--warn)">0.85</span><div class="steps"><span class="wide">−10×</span><span>−</span><span>+</span><span class="wide">+10×</span></div><span class="reset" data-tip="Reset to default">↺</span></div>
+    <div class="prow"><span class="pname">Sharpening limit</span><div class="slider"><i style="width:3%"></i></div><span class="val">0.035</span><div class="steps"><span class="wide">−10×</span><span>−</span><span>+</span><span class="wide">+10×</span></div><span class="reset">↺</span></div>
+    <div class="prow"><span class="pname">Sample pattern</span><div class="slider"><i style="width:67%"></i></div><span class="val">2</span><div class="steps"><span class="wide">−10×</span><span>−</span><span>+</span><span class="wide">+10×</span></div><span class="reset">↺</span></div>
+    <div class="prow"><span class="pname">Show sharpening amount</span><div></div><span class="val">Off</span><div class="sw" style="justify-self:start"></div><span class="reset">↺</span></div>
+    <div class="prow"><span class="pname">Offset bias</span><div class="slider"><i style="width:17%"></i></div><span class="val">1</span><div class="steps"><span class="wide">−10×</span><span>−</span><span>+</span><span class="wide">+10×</span></div><span class="reset">↺</span></div>
+    <div class="prow changed"><span class="pname">Tint (red)<span class="chg">● Changed</span></span><div class="slider"><i style="width:92%"></i></div><span class="val" style="color:var(--warn)">0.92</span><div class="steps"><span class="wide">−10×</span><span>−</span><span>+</span><span class="wide">+10×</span></div><span class="reset">↺</span></div>
+    <div class="prow"><span class="pname">Tint (green)</span><div class="slider"><i style="width:50%"></i></div><span class="val">0.50</span><div class="steps"><span class="wide">−10×</span><span>−</span><span>+</span><span class="wide">+10×</span></div><span class="reset">↺</span></div>
+    <div class="prow"><span class="pname">Tint (blue)</span><div class="slider"><i style="width:50%"></i></div><span class="val">0.50</span><div class="steps"><span class="wide">−10×</span><span>−</span><span>+</span><span class="wide">+10×</span></div><span class="reset">↺</span></div>
+  </div>
+
+  <div class="bar" style="background:var(--inset);border-radius:10px;padding:8px 8px 8px 16px">
+    <span class="label">Preset</span><b>Sharp and Vivid</b><span class="dirty">● Unsaved changes</span>
+    <div class="spacer"></div><div class="btn primary">Save preset</div>
+  </div>
+  <div class="footer tiny" style="margin-top:-8px">8 values<div class="spacer"></div>DX11 · 4320×4320 per eye · v dev</div>
+
+  <div class="note">
+    <b>Effect page (not a tab)</b>
+    <ol>
+      <li>Only appears after pressing <b>Open</b> on an effect row; <b>‹ Effects</b> goes back to the list. The tabs are hidden here.</li>
+      <li>Header: back, effect name, this effect's on/off switch. Same place as the global switch on the list.</li>
+      <li>"Revert / Reset All" get plain names: <b>Restore saved values</b> and <b>Reset this effect</b> (asks you to press twice). Hover shows what each does.</li>
+      <li>The step buttons stay as before: −10×, −, +, +10×.</li>
+      <li>Changed values say <b>● Changed</b> next to the name, not only a colour change.</li>
+      <li>On/Off values get a switch instead of a "Toggle" button.</li>
+      <li>Saving lives in one bar at the bottom that says which preset it saves to.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ================= 3. SETTINGS ================= -->
+<div class="panel page" id="settings">
+  <div class="header">
+    <div class="title">ReShade</div>
+    <div class="tabs"><div class="tab">Effects</div><div class="tab sel">Settings / Gestures</div></div>
+    <div class="spacer"></div>
+    <div class="master"><div class="sw on"></div>Effects on</div>
+    <div class="group"><div class="icon">📌</div><div class="icon">⛶</div><div class="icon">✕</div></div>
+  </div>
+
+  <div class="cols">
+    <div class="section">
+      <h3>Opening this menu</h3>
+      <div class="card">
+        <div class="srow"><span class="grow">Controller buttons</span><div class="dd">L3 + R3</div></div>
+        <div class="srow"><span class="grow">Keyboard key</span><div class="dd">Insert</div></div>
+        <div class="srow"><span class="grow">Open when the game starts</span><div class="sw on"></div></div>
+      </div>
+      <h3 style="margin-top:16px">Gestures</h3>
+      <div class="card">
+        <p class="gdesc">Switch to the next preset without opening the menu: hand to the side of your head + button, or click both thumbsticks (L3+R3).</p>
+        <div class="srow"><span class="grow">Next preset</span><select id="gesture" class="dd" style="border:0;color:var(--text);font:inherit"><option>Off</option><option selected>Head Gesture: Left Trigger</option><option>Head Gesture: Left Grip</option><option>Head Gesture: Left X</option><option>Head Gesture: Right Trigger</option><option>Head Gesture: Right Grip</option><option>Head Gesture: Right A</option><option disabled>L3+R3 (already opens this menu)</option></select></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>FPS counter</h3>
+      <div class="card">
+        <div class="srow"><span class="grow">Show when menu is closed</span><div class="sw"></div></div>
+        <div class="srow"><span class="grow">FPS graph target</span><div class="dd" data-tip="Frames at this rate count as on time in the graph. It does not change the game's speed.">Full headset rate</div></div>
+      </div>
+      <h3 style="margin-top:16px">Performance <span style="color:var(--warn);text-transform:none;letter-spacing:0">· needs game restart</span></h3>
+      <div class="card">
+        <div class="srow"><span class="grow">Faster shaders</span><div class="sw" data-tip="ReShade performance mode: effects run faster, but their values can't be changed until you turn it off."></div></div>
+        <div class="srow"><span class="grow">Enable depth-based effects</span><div class="sw on" data-tip="Needed for effects like MXAO and depth of field. Off is faster in OpenGL games."></div></div>
+      </div>
+      <h3 style="margin-top:16px">Look</h3>
+      <div class="card">
+        <div class="srow"><span class="grow">Colour theme</span><div class="dd">Violet Night</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer tiny">Graphics: DX11 · 4320×4320 per eye<div class="spacer"></div>ReShade VR UI Add-on v dev</div>
+
+  <div class="note">
+    <b>Settings tab</b>
+    <ol>
+      <li>Everything you set once lives here, in named groups.</li>
+      <li>Each setting is one line: plain name on the left, its control on the right.</li>
+      <li>Labels say what a setting does; longer explanations appear when you point at the control, never as extra text you must read.</li>
+      <li>Restart-needed settings are clearly marked in their own group.</li>
+      <li><b>Gestures</b> is its own group: the head gesture switches preset while the menu is closed, so it does not belong with opening the menu. A short text at the top of the group says what gestures do; the row is called "Next preset" and its list reads "Off", "Head Gesture: Left Trigger" and so on, and plain "L3+R3" (not a head gesture). L3+R3 is greyed out with "(already opens this menu)" when the controller buttons above are also L3+R3.</li>
+      <li>"Always show FPS" leaves the main header and joins the FPS counter group.</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.switcher button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('.switcher button').forEach(x => x.classList.toggle('sel', x === b));
+    document.querySelectorAll('.page').forEach(p => p.classList.toggle('show', p.id === b.dataset.p));
+  });
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+    const target = t.textContent.startsWith('Settings') ? 'settings' : 'effects';
+    document.querySelector(`.switcher button[data-p="${target}"]`).click();
+  });
+  document.querySelectorAll('#effects .row .btn:last-child').forEach(b => { b.style.cursor='pointer'; b.onclick = () => document.querySelector('.switcher button[data-p="detail"]').click(); });
+  const back = document.querySelector('#detail .header .btn'); back.style.cursor='pointer';
+  back.onclick = () => document.querySelector('.switcher button[data-p="effects"]').click();
+</script>
+</body>
+</html>

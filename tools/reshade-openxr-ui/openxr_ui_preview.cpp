@@ -176,6 +176,8 @@ int wmain(int argc, wchar_t **argv)
 		bool expanded;
 		bool dirty;
 		bool uevr = false;
+		uint32_t menu_button = openxr_ui::menu_button_hold_both_sticks;
+		bool all_themes = true;
 	};
 	const shot shots[] = {
 		{ "effects", openxr_ui::panel_renderer::page::effects, false, true },
@@ -184,6 +186,9 @@ int wmain(int argc, wchar_t **argv)
 		{ "save-as", openxr_ui::panel_renderer::page::save_as, false, false },
 		{ "effects-expanded", openxr_ui::panel_renderer::page::effects, true, false },
 		{ "detail-expanded", openxr_ui::panel_renderer::page::effect_detail, true, false },
+		{ "settings", openxr_ui::panel_renderer::page::settings, false, false },
+		// The L3+R3 gesture is unavailable while L3+R3 opens the menu; only the default theme needs this.
+		{ "settings-both-sticks", openxr_ui::panel_renderer::page::settings, false, false, false, openxr_ui::menu_button_both_sticks, false },
 	};
 
 	int written = 0;
@@ -191,10 +196,11 @@ int wmain(int argc, wchar_t **argv)
 		for (const shot &entry : shots)
 		{
 			// Only the default theme gets every page; the others show the two main pages to compare colors.
-			if (theme != vr_theme::default_theme && (entry.page == openxr_ui::panel_renderer::page::save_as || entry.uevr))
+			if (theme != vr_theme::default_theme && (entry.page == openxr_ui::panel_renderer::page::save_as || entry.uevr || !entry.all_themes))
 				continue;
 			openxr_ui::render_input input;
 			input.theme = theme;
+			input.menu_button = entry.menu_button;
 			input.expanded = entry.expanded;
 			input.preset_dirty = entry.dirty;
 			input.depth_effects_unavailable = entry.uevr;
@@ -217,5 +223,92 @@ int wmain(int argc, wchar_t **argv)
 			++written;
 		}
 	std::printf("Wrote %d panel previews.\n", written);
+
+	// controls.json: where capture_simulator_ui.ps1 clicks. Compact panel, default theme. Recorded after the PNGs so they
+	// stay as they were; the click states below only exist in memory and write no images.
+	renderer.set_control_recording(true);
+	struct control_page
+	{
+		std::string name;
+		std::vector<openxr_ui::panel_renderer::control_rect> controls;
+	};
+	std::vector<control_page> pages;
+	const auto base_input = [] {
+		openxr_ui::render_input input;
+		input.preset_dirty = true;
+		input.preset_name = "Sharp and Vivid";
+		input.eye_width = 4320;
+		input.eye_height = 4320;
+		return input;
+	};
+	const auto settle = [&](openxr_ui::render_input input) {
+		renderer.render(render_target.Get(), snapshot, input);
+		renderer.render(render_target.Get(), snapshot, input);
+	};
+	const auto record_page = [&](const char *name, openxr_ui::panel_renderer::page page) {
+		renderer.show_page(page, 1, "Sharp and Vivid Copy");
+		settle(base_input());
+		pages.push_back({ name, renderer.recorded_controls() });
+	};
+	record_page("effects", openxr_ui::panel_renderer::page::effects);
+	record_page("detail", openxr_ui::panel_renderer::page::effect_detail);
+	record_page("save-as", openxr_ui::panel_renderer::page::save_as);
+	record_page("settings", openxr_ui::panel_renderer::page::settings);
+	// Each drop-down is opened by clicking its box, like a user, and its open list recorded.
+	for (const char *dropdown : { "frame_rate_divisor", "menu_button", "menu_key" })
+	{
+		renderer.show_page(openxr_ui::panel_renderer::page::settings, 1, "Sharp and Vivid Copy");
+		settle(base_input());
+		openxr_ui::render_input input = base_input();
+		if (!renderer.find_control(dropdown, input.pointer_x, input.pointer_y))
+		{
+			std::fprintf(stderr, "Control \"%s\" was not drawn on the settings page.\n", dropdown);
+			return 1;
+		}
+		input.pointer_visible = true;
+		input.select_clicked = true;
+		renderer.render(render_target.Get(), snapshot, input);
+		input.select_clicked = false;
+		renderer.render(render_target.Get(), snapshot, input);
+		pages.push_back({ std::string("settings-") + dropdown + "-open", renderer.recorded_controls() });
+	}
+	renderer.set_control_recording(false);
+
+	const auto escape = [](const std::string &text) {
+		std::string result;
+		for (const char character : text)
+		{
+			if (character == '"' || character == '\\')
+				result.push_back('\\');
+			result.push_back(character);
+		}
+		return result;
+	};
+	std::string json = "{\n";
+	for (size_t page = 0; page < pages.size(); ++page)
+	{
+		json += "\t\"" + escape(pages[page].name) + "\": {\n";
+		for (size_t index = 0; index < pages[page].controls.size(); ++index)
+		{
+			const openxr_ui::panel_renderer::control_rect &control = pages[page].controls[index];
+			char numbers[128];
+			std::snprintf(numbers, sizeof(numbers), "[%.1f, %.1f, %.1f, %.1f]", control.min_x, control.min_y, control.max_x, control.max_y);
+			json += "\t\t\"" + escape(control.id) + "\": " + numbers + (index + 1 < pages[page].controls.size() ? ",\n" : "\n");
+		}
+		json += std::string("\t}") + (page + 1 < pages.size() ? ",\n" : "\n");
+	}
+	json += "}\n";
+	const std::wstring json_path = output + L"\\controls.json";
+	FILE *file = nullptr;
+	if (_wfopen_s(&file, json_path.c_str(), L"wb") != 0 || file == nullptr ||
+		std::fwrite(json.data(), 1, json.size(), file) != json.size())
+	{
+		std::fwprintf(stderr, L"Could not write %ls\n", json_path.c_str());
+		if (file != nullptr)
+			std::fclose(file);
+		return 1;
+	}
+	std::fclose(file);
+	std::printf("Wrote controls.json (%zu states).\n", pages.size());
 	return 0;
 }

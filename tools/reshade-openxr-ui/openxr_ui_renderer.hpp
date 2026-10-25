@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <vector>
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;
@@ -150,9 +152,25 @@ namespace openxr_ui
 			effects,
 			effect_detail,
 			save_as,
+			settings,
 		};
 		// Opens a page directly, for the preview tool and tests. `technique_id` selects the effect for effect_detail.
 		void show_page(page target, uint64_t technique_id = 0, const std::string &save_as_name = {});
+
+		// A control drawn in the most recent frame, in panel pixels (the space of render_input::pointer_x/pointer_y).
+		struct control_rect
+		{
+			std::string id;
+			float min_x = 0.0f;
+			float min_y = 0.0f;
+			float max_x = 0.0f;
+			float max_y = 0.0f;
+		};
+		// For the preview tool and tests. Off by default; the game never turns it on. When on, every frame replaces the recorded controls.
+		void set_control_recording(bool enabled);
+		// Centre of the control with that id in the most recently rendered frame; false when there is none.
+		bool find_control(std::string_view id, float &center_x, float &center_y) const;
+		const std::vector<control_rect> &recorded_controls() const;
 
 	private:
 		bool initialize_context(uint32_t width, uint32_t height);

@@ -97,20 +97,20 @@ The companion also performs a one-time density migration for ReShade's fixed 500
 For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingVulkanKHR` and Vulkan swapchain images. The current add-on accepts `XrGraphicsBindingD3D11KHR`, `XrGraphicsBindingD3D12KHR` and `XrGraphicsBindingOpenGLWin32KHR`, owns matching graphics resources, and renders Dear ImGui through the corresponding backend. It therefore leaves a Vulkan session running but skips native-quad initialization and logs `native quad skipped: the OpenXR session is not using D3D11, D3D12 or OpenGL.` SteamVR acting as the OpenXR runtime does not translate Vulkan images into a Direct3D graphics binding for API layers, so changing the runtime to SteamVR does not make the UI renderer compatible. Vulkan UI support still requires a Vulkan swapchain-image path and Vulkan ImGui renderer in this add-on.
 ## Features
 
-- Technique enable/disable, ordering, favourites, and hiding
-- Shader parameter editing with sliders, steps, defaults, and reset actions
-- Per-shader Revert to the last successful preset save and Restore to the captured live state
+- Technique enable/disable, ordering (`Active on top`), favourites, and hiding, with an All / Starred / Hidden filter
+- Shader parameter editing with sliders, steps, defaults, and reset actions (`Reset this effect` asks you to press twice to confirm)
+- Per-effect page with a `This effect on` switch, `Restore saved values` (back to the last successful preset save), a `● Changed` badge on non-default values and a `Save preset` bar
 - Preset navigation, save, named Save As, and delete
-- Controller pointer, trigger interaction, thumbstick scrolling, and a choice of controller buttons or keyboard key to show and hide the panel
-- **Head gesture** list next to **UI starts open** (OpenXR games): bring the chosen hand (Left or Right) up to the side of the head, like switching on a head torch, and press the chosen button (Trigger, Grip, X or A) while the menu is closed. That switches to the next preset; with only one preset it turns all effects off, and on again the next time. **L3+R3** needs no hand movement: click both thumbsticks and let go. It does nothing while the menu shortcut is also **L3+R3**; with **Hold L3+R3**, a quick click switches preset and a long hold shows the menu. Off by default; saved as `PresetGesture=<number>` under `[UI]` in `settings.ini`. The hand position is read only on the frame the button goes down, so the gesture adds no per-frame waits
+- Controller pointer, trigger interaction, thumbstick scrolling, and a choice of **Controller buttons** or **Keyboard key** (**Opening this menu** group; **Open when the game starts** sets the starting state) to show and hide the panel
+- **Next preset** under **Gestures** on the **Settings / Gestures** tab (OpenXR games): bring the chosen hand (Left or Right) up to the side of the head, like switching on a head torch, and press the chosen button (Trigger, Grip, X or A) while the menu is closed. That switches to the next preset; with only one preset it turns all effects off, and on again the next time. **L3+R3** needs no hand movement: click both thumbsticks and let go. It does nothing while the menu shortcut is also **L3+R3**; with **Hold L3+R3**, a quick click switches preset and a long hold shows the menu. Off by default; saved as `PresetGesture=<number>` under `[UI]` in `settings.ini`. The hand position is read only on the frame the button goes down, so the gesture adds no per-frame waits
 - Active graphics API indicator for Direct3D 11, Direct3D 12 and OpenGL sessions
 - Distinct diagnostics for a missing OpenXR effect runtime and an empty technique inventory
 - Compact and expanded panel layouts
-- Temporary disable and restore for all techniques
-- **Performance mode (on = faster shaders)** tick box: writes ReShade's own `GENERAL/PerformanceMode` for the headset runtime, applied at the next game start
-- **Depth buffer (off = faster in OpenGL)** tick box: unticking turns ReShade's built-in Generic Depth add-on off through ReShade's own `ADDON/DisabledAddons` setting in the game's `ReShade.ini`, applied at the next game start; other disabled add-ons in that list are kept
-- FPS counter with CPU time, a 5-second frame-time graph and a full/half/third-rate FPS target
-- **Theme** list in the menu footer with the add-on's own themes: Violet Night (default), Plum and Slate. The choice is saved as `Theme=<name>` under `[UI]` in `settings.ini`. Text uses the embedded Atkinson Hyperlegible font (SIL Open Font License, see `fonts\OFL.txt`), designed for low-vision reading
+- **Effects on** switch in the header: temporarily turns all techniques off and back on
+- **Faster shaders** switch (**Settings / Gestures** tab, **Performance** group): writes ReShade's own `GENERAL/PerformanceMode` for the headset runtime, applied at the next game start
+- **Enable depth-based effects** switch (**Performance** group): switching it off turns ReShade's built-in Generic Depth add-on off through ReShade's own `ADDON/DisabledAddons` setting in the game's `ReShade.ini`, applied at the next game start; other disabled add-ons in that list are kept
+- FPS counter group with CPU time, a 5-second frame-time graph, an **FPS graph target** (full/half/third rate) and **Show when menu is closed**
+- **Theme** list in the **Look** group of the **Settings / Gestures** tab with the add-on's own themes: Violet Night (default), Plum and Slate. The choice is saved as `Theme=<name>` under `[UI]` in `settings.ini`. Text uses the embedded Atkinson Hyperlegible font (SIL Open Font License, see `fonts\OFL.txt`), designed for low-vision reading
 - Headset per-eye resolution shown next to the graphics API
 - Persistent UI preferences under `%LOCALAPPDATA%\ReShade VR UI Add-on`
 

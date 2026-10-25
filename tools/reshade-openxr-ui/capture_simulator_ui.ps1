@@ -10,7 +10,9 @@ param(
 	[string]$Theme,
 	# Fast design loop: saves only main.png, detail.png and save-as.png, then stops the probe at once instead of waiting
 	# for its frame budget. Skips the probe's own pass/fail report, so finish with a full run.
-	[switch]$Quick
+	[switch]$Quick,
+	# Control positions written by preview_ui.ps1; regenerated when missing or older than openxr_ui_renderer.cpp.
+	[string]$ControlsFile = 'build\reshade-openxr-ui\preview\controls.json'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -76,6 +78,14 @@ if ((Test-Path -LiteralPath $testDll) -or (Test-Path -LiteralPath $testManifest)
 	(Test-Path -LiteralPath $createdPresetPath)) {
 	throw 'Refusing to overwrite an existing simulator capture artifact.'
 }
+$controlsPath = if ([System.IO.Path]::IsPathRooted($ControlsFile)) { $ControlsFile } else { [System.IO.Path]::GetFullPath((Join-Path $repo $ControlsFile)) }
+$rendererSource = Join-Path $PSScriptRoot 'openxr_ui_renderer.cpp'
+if (-not (Test-Path -LiteralPath $controlsPath) -or
+	(Get-Item -LiteralPath $controlsPath).LastWriteTime -lt (Get-Item -LiteralPath $rendererSource).LastWriteTime) {
+	& (Join-Path $PSScriptRoot 'preview_ui.ps1') -OutputDirectory (Split-Path -Parent $controlsPath)
+}
+if (-not (Test-Path -LiteralPath $controlsPath)) { throw "The preview did not write $controlsPath." }
+$script:controls = Get-Content -LiteralPath $controlsPath -Raw | ConvertFrom-Json
 $savedVrConfig = [System.IO.File]::ReadAllBytes($vrConfigPath)
 $savedSourcePreset = [System.IO.File]::ReadAllBytes($sourcePresetPath)
 
@@ -175,6 +185,16 @@ function Invoke-ControllerClick {
 	Wait-ForFrame ($frame + 70)
 }
 
+# Clicks the centre of a control found by id in controls.json (written by the preview tool), not at fixed pixels.
+function Invoke-ControlClick {
+	param([Parameter(Mandatory = $true)][string]$Page, [Parameter(Mandatory = $true)][string]$Id, [switch]$Pinned)
+	$pageControls = $script:controls.PSObject.Properties[$Page]
+	$box = if ($null -ne $pageControls) { $pageControls.Value.PSObject.Properties[$Id] } else { $null }
+	if ($null -eq $box) { throw "Control '$Id' on page '$Page' is not in $controlsPath." }
+	$rect = @($box.Value)
+	Invoke-ControllerClick -X (($rect[0] + $rect[2]) / 2.0) -Y (($rect[1] + $rect[3]) / 2.0) -Pinned:$Pinned
+}
+
 function Save-SimulatorWindow {
 	param([Parameter(Mandatory = $true)][string]$Path)
 	$window = [SimulatorWindow]::Find($process.Id)
@@ -272,17 +292,18 @@ try {
 	$processHandle = $process.Handle
 	Wait-ForFrame 60
 	if ($RevertRestoreOnly) {
-		Invoke-ControllerClick -X 908 -Y 172
+		Invoke-ControlClick -Page effects -Id 'effect/0/open'
 		Wait-ForFrame ((Get-FrameCount) + 15)
 		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-detail.png')
 
-		Invoke-ControllerClick -X 612 -Y 40
+		Invoke-ControlClick -Page detail -Id 'technique_on'
 		Wait-ForFrame ((Get-FrameCount) + 15)
 		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-edited.png')
-		Invoke-ControllerClick -X 732 -Y 40
+		Invoke-ControlClick -Page detail -Id 'reset_all'
+		Invoke-ControlClick -Page detail -Id 'reset_all'
 		Wait-ForFrame ((Get-FrameCount) + 15)
 		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-reverted.png')
-		Invoke-ControllerClick -X 852 -Y 40
+		Invoke-ControlClick -Page detail -Id 'revert_restore'
 		Wait-ForFrame ((Get-FrameCount) + 15)
 		Save-SimulatorWindow (Join-Path $outputDirectory 'revert-restore-restored.png')
 
@@ -299,81 +320,92 @@ try {
 	}
 	Save-SimulatorWindow (Join-Path $outputDirectory 'main.png')
 	if ($Quick) {
-		Invoke-ControllerClick -X 908 -Y 172
+		Invoke-ControlClick -Page effects -Id 'effect/0/open'
 		Wait-ForFrame ((Get-FrameCount) + 15)
 		Save-SimulatorWindow (Join-Path $outputDirectory 'detail.png')
-		Invoke-ControllerClick -X 64 -Y 40
-		Invoke-ControllerClick -X 832 -Y 120
+		Invoke-ControlClick -Page detail -Id 'back'
+		Invoke-ControlClick -Page effects -Id 'save_as'
 		Wait-ForFrame ((Get-FrameCount) + 15)
 		Save-SimulatorWindow (Join-Path $outputDirectory 'save-as.png')
 		# The finally block stops the probe and restores every test file.
 		Write-Host "Saved quick $GraphicsApi simulator UI captures to $outputDirectory"
 		return
 	}
-	Invoke-ControllerClick -X 560 -Y 502
+	# The settings live on the Settings tab: FPS graph target, Controller buttons and Keyboard key drop-downs.
+	Invoke-ControlClick -Page effects -Id 'tab/1/segment'
+	Wait-ForFrame ((Get-FrameCount) + 15)
+	Save-SimulatorWindow (Join-Path $outputDirectory 'settings.png')
+	Invoke-ControlClick -Page settings -Id 'frame_rate_divisor'
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'fps-target-open.png')
 	# A second click on the box closes the list without changing the setting.
-	Invoke-ControllerClick -X 560 -Y 502
+	Invoke-ControlClick -Page settings-frame_rate_divisor-open -Id 'frame_rate_divisor'
 	Wait-ForFrame ((Get-FrameCount) + 15)
-	Invoke-ControllerClick -X 180 -Y 582
+	Invoke-ControlClick -Page settings -Id 'menu_button'
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'menu-button-open.png')
-	Invoke-ControllerClick -X 180 -Y 582
+	Invoke-ControlClick -Page settings-menu_button-open -Id 'menu_button'
 	Wait-ForFrame ((Get-FrameCount) + 15)
-	Invoke-ControllerClick -X 310 -Y 582
+	Invoke-ControlClick -Page settings -Id 'menu_key'
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'menu-key-open.png')
-	Invoke-ControllerClick -X 310 -Y 582
+	Invoke-ControlClick -Page settings-menu_key-open -Id 'menu_key'
 	Wait-ForFrame ((Get-FrameCount) + 15)
-	Invoke-ControllerClick -X 872 -Y 40
+	Invoke-ControlClick -Page settings -Id 'tab/0/segment'
+	Wait-ForFrame ((Get-FrameCount) + 15)
+	Invoke-ControlClick -Page effects -Id 'pin'
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'pinned.png')
-	Invoke-ControllerClick -X 872 -Y 40 -Pinned
+	Invoke-ControlClick -Page effects -Id 'pin' -Pinned
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'preset-off.png')
 
-	Invoke-ControllerClick -X 648 -Y 120
+	Invoke-ControlClick -Page effects -Id 'next_preset'
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'preset-on.png')
-	Invoke-ControllerClick -X 608 -Y 120
+	Invoke-ControlClick -Page effects -Id 'previous_preset'
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'preset-off-again.png')
 
-	Invoke-ControllerClick -X 908 -Y 172
+	Invoke-ControlClick -Page effects -Id 'effect/0/open'
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'detail.png')
 
-	Invoke-ControllerClick -X 612 -Y 40
+	Invoke-ControlClick -Page detail -Id 'technique_on'
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'detail-edited.png')
-	Invoke-ControllerClick -X 732 -Y 40
+	# Reset this effect needs two presses: the first only arms the button.
+	Invoke-ControlClick -Page detail -Id 'reset_all'
+	Wait-ForFrame ((Get-FrameCount) + 15)
+	Save-SimulatorWindow (Join-Path $outputDirectory 'detail-reset-armed.png')
+	Invoke-ControlClick -Page detail -Id 'reset_all'
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'detail-reverted.png')
-	Invoke-ControllerClick -X 852 -Y 40
+	Invoke-ControlClick -Page detail -Id 'revert_restore'
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'detail-restored.png')
 
-	Invoke-ControllerClick -X 64 -Y 40
-	Invoke-ControllerClick -X 832 -Y 120
+	Invoke-ControlClick -Page detail -Id 'back'
+	Invoke-ControlClick -Page effects -Id 'save_as'
 	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'save-as.png')
 
-	Invoke-ControllerClick -X 720 -Y 387
-	Invoke-ControllerClick -X 604 -Y 279
-	Invoke-ControllerClick -X 742 -Y 229
-	Invoke-ControllerClick -X 920 -Y 453
+	# Clear the suggested name, then type HI and create the preset.
+	Invoke-ControlClick -Page save-as -Id 'key/clear'
+	Invoke-ControlClick -Page save-as -Id 'key/H'
+	Invoke-ControlClick -Page save-as -Id 'key/I'
+	Invoke-ControlClick -Page save-as -Id 'key/create'
 	Wait-ForFrame ((Get-FrameCount) + 10)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'creating.png')
 	Wait-ForFrame ((Get-FrameCount) + 150)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'created.png')
 
-	Invoke-ControllerClick -X 952 -Y 120
+	Invoke-ControlClick -Page effects -Id 'delete_preset'
 	Wait-ForFrame ((Get-FrameCount) + 130)
 	if (Test-Path -LiteralPath $createdPresetPath) {
 		throw "Deleted preset was recreated after ReShade flushed its preset cache: $createdPresetPath"
 	}
-	Invoke-ControllerClick -X 608 -Y 120
+	Invoke-ControlClick -Page effects -Id 'previous_preset'
 	Wait-ForFrame ((Get-FrameCount) + 10)
 	if (Test-Path -LiteralPath $createdPresetPath) {
 		throw "Deleted preset reappeared after backward preset navigation: $createdPresetPath"

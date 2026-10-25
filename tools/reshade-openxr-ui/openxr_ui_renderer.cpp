@@ -155,6 +155,7 @@ namespace
 		down,
 		expand,
 		collapse,
+		pin,
 	};
 
 	ImFont *bold_font()
@@ -184,6 +185,7 @@ namespace
 			{ 0, vr_theme::font_small },
 			{ 0, vr_theme::font_body * statistics_font_scale },
 			{ 1, vr_theme::font_body },
+			{ 1, vr_theme::font_small },
 			{ 1, vr_theme::font_title },
 		};
 		for (const auto &use : uses)
@@ -239,7 +241,13 @@ namespace
 		// Status tones stay visible while a button is busy and therefore disabled, for example "Creating...".
 		const bool status = tone == button_tone::warning || tone == button_tone::success || tone == button_tone::danger;
 		if (!enabled && !status)
-			return { colors().surface, colors().text_disabled, 0 };
+		{
+			// Keeps the normal fill so a disabled button does not change background; only the text/icon is greyed.
+			button_colors look = button_colors_for(tone, false, true);
+			look.text = colors().text_disabled;
+			look.outline = 0;
+			return look;
+		}
 		hovered = hovered && enabled;
 		switch (tone)
 		{
@@ -267,10 +275,61 @@ namespace
 			draw_list->AddRect(minimum, maximum, look.outline, vr_theme::radius_sm, 0, vr_theme::stroke_thin);
 	}
 
+	// Controls drawn by the add-on's own panel can be recorded for the preview tool and tests. The pointer is
+	// non-null only while recording is on, so the game pays a single pointer check per control and nothing else.
+	// A recorded id is the id the helper gives ImGui (never the visible label), with `prefix` in front.
+	// Rows and drop-down items are named by position, not content: effect/<row>/..., param/<row>/..., <dropdown>/item/<index>.
+	struct control_recorder
+	{
+		std::vector<openxr_ui::panel_renderer::control_rect> controls;
+		std::string prefix;
+	};
+	control_recorder *s_recorder = nullptr;
+
+	// Points s_recorder at nothing again on every return path of render_ui, so it never outlives its renderer.
+	struct recorder_scope
+	{
+		~recorder_scope() { s_recorder = nullptr; }
+	};
+
+	void record_control(std::string_view id, ImVec2 minimum, ImVec2 maximum)
+	{
+		if (s_recorder == nullptr)
+			return;
+		s_recorder->controls.push_back({ s_recorder->prefix + std::string(id), minimum.x, minimum.y, maximum.x, maximum.y });
+	}
+
+	// Records the item just submitted.
+	void record_last_item(const char *id)
+	{
+		if (s_recorder == nullptr)
+			return;
+		record_control(id, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+	}
+
+	void set_control_prefix(const char *prefix)
+	{
+		if (s_recorder != nullptr)
+			s_recorder->prefix = prefix;
+	}
+
+	void set_control_row_prefix(const char *kind, size_t row)
+	{
+		if (s_recorder != nullptr)
+			s_recorder->prefix = std::string(kind) + "/" + std::to_string(row) + "/";
+	}
+
+	void clear_control_prefix()
+	{
+		if (s_recorder != nullptr)
+			s_recorder->prefix.clear();
+	}
+
 	bool draw_text_button(const char *id, const char *label, const ImVec2 size, bool enabled = true, button_tone tone = button_tone::neutral)
 	{
 		ImGui::BeginDisabled(!enabled);
 		ImGui::InvisibleButton(id, size);
+		record_last_item(id);
 		const bool hovered = enabled && ImGui::IsItemHovered();
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		const ImVec2 maximum = ImGui::GetItemRectMax();
@@ -287,15 +346,16 @@ namespace
 	}
 
 	// Simple line icons instead of "<", "^" or "X" characters, which read poorly at VR resolution.
-	bool draw_icon_button(const char *id, button_icon icon, const ImVec2 size, bool enabled = true)
+	bool draw_icon_button(const char *id, button_icon icon, const ImVec2 size, bool enabled = true, bool toggled = false)
 	{
 		ImGui::BeginDisabled(!enabled);
 		ImGui::InvisibleButton(id, size);
+		record_last_item(id);
 		const bool hovered = enabled && ImGui::IsItemHovered();
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		const ImVec2 maximum = ImGui::GetItemRectMax();
 		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-		const button_colors look = button_colors_for(button_tone::neutral, hovered, enabled);
+		const button_colors look = button_colors_for(toggled ? button_tone::toggled : button_tone::neutral, hovered, enabled);
 		draw_button_frame(draw_list, minimum, maximum, look);
 
 		const ImVec2 center = { (minimum.x + maximum.x) * 0.5f, (minimum.y + maximum.y) * 0.5f };
@@ -314,6 +374,14 @@ namespace
 			const ImVec2 points[3] = { { center.x - half * 0.5f * direction, center.y - half },
 				{ center.x + half * 0.5f * direction, center.y }, { center.x - half * 0.5f * direction, center.y + half } };
 			draw_list->AddPolyline(points, 3, look.text, ImDrawFlags_None, thickness);
+			break;
+		}
+		case button_icon::pin:
+		{
+			// A round head with a short needle below it.
+			const ImVec2 head = { center.x, center.y - half * 0.45f };
+			draw_list->AddCircle(head, half * 0.65f, look.text, 0, thickness);
+			draw_list->AddLine({ head.x, head.y + half * 0.65f }, { head.x, center.y + half * 1.3f }, look.text, thickness);
 			break;
 		}
 		case button_icon::expand:
@@ -351,6 +419,7 @@ namespace
 	bool draw_reset_button(const char *id, const ImVec2 size, bool enabled)
 	{
 		ImGui::InvisibleButton(id, size);
+		record_last_item(id);
 		const bool hovered = ImGui::IsItemHovered();
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		const ImVec2 maximum = ImGui::GetItemRectMax();
@@ -372,6 +441,7 @@ namespace
 	bool draw_star_button(const char *id, const ImVec2 size, bool active)
 	{
 		ImGui::InvisibleButton(id, size);
+		record_last_item(id);
 		const bool hovered = ImGui::IsItemHovered();
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		const ImVec2 maximum = ImGui::GetItemRectMax();
@@ -395,38 +465,190 @@ namespace
 		return hovered;
 	}
 
-	// A rounded box that fills with the accent and shows a tick when on.
-	void draw_check_indicator(ImDrawList *draw_list, ImVec2 box_min, float box_size, bool checked, bool hovered)
+	constexpr float switch_track_width = 44.0f;
+	constexpr float switch_track_height = 24.0f;
+
+	// Pill-shaped on/off switch with a sliding knob drawn at its on or off end.
+	[[maybe_unused]] void draw_switch_indicator(ImDrawList *draw_list, ImVec2 min, bool on, bool hovered)
 	{
-		const ImVec2 box_max = { box_min.x + box_size, box_min.y + box_size };
-		if (checked)
-		{
-			draw_list->AddRectFilled(box_min, box_max, hovered ? colors().accent_hover : colors().accent, vr_theme::radius_sm * 0.75f);
-			const float unit = box_size / 20.0f;
-			const ImVec2 tick[3] = { { box_min.x + 5.0f * unit, box_min.y + 10.5f * unit }, { box_min.x + 8.5f * unit, box_min.y + 14.0f * unit },
-				{ box_min.x + 15.0f * unit, box_min.y + 6.0f * unit } };
-			draw_list->AddPolyline(tick, 3, colors().text_on_color, ImDrawFlags_None, 2.5f);
-		}
-		else
-		{
-			draw_list->AddRectFilled(box_min, box_max, hovered ? colors().surface_hover : colors().surface_raised, vr_theme::radius_sm * 0.75f);
-			draw_list->AddRect(box_min, box_max, colors().control_idle, vr_theme::radius_sm * 0.75f, 0, vr_theme::stroke);
-		}
+		const ImU32 track = on ? (hovered ? colors().accent_hover : colors().accent) : colors().control_idle;
+		draw_list->AddRectFilled(min, { min.x + switch_track_width, min.y + switch_track_height }, track, switch_track_height * 0.5f);
+		const float knob_x = on ? min.x + switch_track_width - 3.0f - 9.0f : min.x + 3.0f + 9.0f;
+		draw_list->AddCircleFilled({ knob_x, min.y + switch_track_height * 0.5f }, 9.0f, on ? colors().text_on_color : colors().text);
 	}
 
-	// Distance from a tick box's left edge to its label.
-	constexpr float tick_box_label_x = 36.0f;
-
-	bool draw_tick_box(const char *id, const char *label, bool checked, float width = 276.0f)
+	// Hit area of `size` with the switch vertically centered at its left edge.
+	[[maybe_unused]] bool draw_switch(const char *id, bool on, ImVec2 size)
 	{
-		ImGui::InvisibleButton(id, { width, control_height });
+		ImGui::InvisibleButton(id, size);
+		record_last_item(id);
 		const bool hovered = ImGui::IsItemHovered();
 		const ImVec2 minimum = ImGui::GetItemRectMin();
-		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-		draw_check_indicator(draw_list, { minimum.x + 6.0f, minimum.y + 6.0f }, 20.0f, checked, hovered);
-		draw_list->AddText({ minimum.x + tick_box_label_x, std::floor(minimum.y + (control_height - ImGui::GetFontSize()) * 0.5f) },
-			hovered ? colors().accent_hover : colors().text, label);
+		draw_switch_indicator(ImGui::GetWindowDrawList(), { minimum.x, std::floor(minimum.y + (size.y - switch_track_height) * 0.5f) }, on, hovered);
 		return hovered;
+	}
+
+	constexpr float switch_pill_height = 40.0f;
+
+	[[maybe_unused]] float switch_pill_width(const char *label)
+	{
+		ImGui::PushFont(nullptr, vr_theme::font_control);
+		const float text_width = ImGui::CalcTextSize(label).x;
+		ImGui::PopFont();
+		return std::ceil(4.0f + switch_track_width + 8.0f + text_width + 12.0f);
+	}
+
+	// Inset pill holding a switch and its label; the whole pill is the hit area.
+	[[maybe_unused]] bool draw_switch_pill(const char *id, const char *label, bool on)
+	{
+		ImGui::InvisibleButton(id, { switch_pill_width(label), switch_pill_height });
+		record_last_item(id);
+		const bool hovered = ImGui::IsItemHovered();
+		const ImVec2 minimum = ImGui::GetItemRectMin();
+		const ImVec2 maximum = ImGui::GetItemRectMax();
+		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+		draw_list->AddRectFilled(minimum, maximum, colors().inset, switch_pill_height * 0.5f);
+		draw_switch_indicator(draw_list, { minimum.x + 4.0f, minimum.y + (switch_pill_height - switch_track_height) * 0.5f }, on, hovered);
+		ImGui::PushFont(nullptr, vr_theme::font_control);
+		draw_list->AddText({ minimum.x + 4.0f + switch_track_width + 8.0f, std::floor(minimum.y + (switch_pill_height - ImGui::GetFontSize()) * 0.5f) },
+			colors().text, label);
+		ImGui::PopFont();
+		return hovered;
+	}
+
+	void push_segment_font(bool large)
+	{
+		if (large)
+			ImGui::PushFont(bold_font(), vr_theme::font_body);
+		else
+			ImGui::PushFont(nullptr, vr_theme::font_control);
+	}
+
+	constexpr float segment_padding = 16.0f;
+	constexpr float segment_count_gap = 8.0f;
+
+	float segment_width_at(const char *const *labels, const char *const *counts, size_t index)
+	{
+		float width = ImGui::CalcTextSize(labels[index]).x;
+		if (counts != nullptr && counts[index] != nullptr)
+			width += segment_count_gap + ImGui::CalcTextSize(counts[index]).x;
+		return std::ceil(width + segment_padding * 2.0f);
+	}
+
+	[[maybe_unused]] float segmented_width(const char *const *labels, const char *const *counts, size_t count, bool large)
+	{
+		push_segment_font(large);
+		float width = 8.0f;
+		for (size_t index = 0; index < count; ++index)
+			width += segment_width_at(labels, counts, index);
+		ImGui::PopFont();
+		return width;
+	}
+
+	// Inset strip of segments (tabs or a filter). Returns the hovered segment, or -1; the caller reacts to clicks.
+	[[maybe_unused]] int draw_segmented(const char *id, const char *const *labels, const char *const *counts, size_t count, size_t selected, bool large)
+	{
+		constexpr float strip_height = 40.0f;
+		constexpr float segment_height = 32.0f;
+		const ImVec2 start = ImGui::GetCursorScreenPos();
+		const float total_width = segmented_width(labels, counts, count, large);
+		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+		draw_list->AddRectFilled(start, { start.x + total_width, start.y + strip_height }, colors().inset, vr_theme::radius_md);
+
+		int hovered_index = -1;
+		push_segment_font(large);
+		ImGui::PushID(id);
+		float x = start.x + 4.0f;
+		for (size_t index = 0; index < count; ++index)
+		{
+			const float width = segment_width_at(labels, counts, index);
+			ImGui::PushID(static_cast<int>(index));
+			ImGui::SetCursorScreenPos({ x, start.y + 4.0f });
+			ImGui::InvisibleButton("segment", { width, segment_height });
+			if (s_recorder != nullptr)
+				record_control(std::string(id) + "/" + std::to_string(index) + "/segment", ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+			const bool hovered = ImGui::IsItemHovered();
+			ImGui::PopID();
+			if (hovered)
+				hovered_index = static_cast<int>(index);
+			const bool is_selected = index == selected;
+			if (is_selected || hovered)
+				draw_list->AddRectFilled({ x, start.y + 4.0f }, { x + width, start.y + 4.0f + segment_height },
+					is_selected ? colors().surface_raised : colors().surface_hover, vr_theme::radius_sm);
+			const float text_y = std::floor(start.y + 4.0f + (segment_height - ImGui::GetFontSize()) * 0.5f);
+			float text_x = x + segment_padding;
+			draw_list->AddText({ text_x, text_y }, is_selected ? colors().text : colors().text_secondary, labels[index]);
+			if (counts != nullptr && counts[index] != nullptr)
+			{
+				text_x += ImGui::CalcTextSize(labels[index]).x + segment_count_gap;
+				draw_list->AddText({ text_x, text_y }, colors().text_disabled, counts[index]);
+			}
+			x += width;
+		}
+		ImGui::PopID();
+		ImGui::PopFont();
+		ImGui::SetCursorScreenPos(start);
+		ImGui::Dummy({ total_width, strip_height });
+		return hovered_index;
+	}
+
+	[[maybe_unused]] void draw_group_title(const char *text, ImVec2 pos)
+	{
+		std::string upper = text;
+		for (char &character : upper)
+			if (character >= 'a' && character <= 'z')
+				character = static_cast<char>(character - 'a' + 'A');
+		ImGui::PushFont(bold_font(), vr_theme::font_small);
+		ImGui::GetWindowDrawList()->AddText(pos, colors().text_secondary, upper.c_str());
+		ImGui::PopFont();
+	}
+
+	[[maybe_unused]] void draw_card(ImVec2 min, ImVec2 max)
+	{
+		ImGui::GetWindowDrawList()->AddRectFilled(min, max, colors().surface, vr_theme::radius_md);
+	}
+
+	// Rows are divided by a 2 px band in the background color rather than a thin line.
+	[[maybe_unused]] void draw_row_separator(float x0, float x1, float y)
+	{
+		ImGui::GetWindowDrawList()->AddRectFilled({ x0, y }, { x1, y + 2.0f }, colors().background);
+	}
+
+	[[maybe_unused]] void draw_settings_row_label(ImVec2 row_min, float row_height, const char *label)
+	{
+		ImGui::GetWindowDrawList()->AddText({ row_min.x, std::floor(row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f) }, colors().text, label);
+	}
+
+	constexpr float settings_row_height = 44.0f;
+
+	// Settings row whose whole width is the hit area of a switch at its right end. `note` is small warning text left of the switch.
+	[[maybe_unused]] bool draw_switch_row(const char *id, const char *label, bool on, ImVec2 row_min, float width, const char *note = nullptr)
+	{
+		ImGui::SetCursorScreenPos(row_min);
+		ImGui::InvisibleButton(id, { width, settings_row_height });
+		record_last_item(id);
+		const bool hovered = ImGui::IsItemHovered();
+		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+		draw_settings_row_label(row_min, settings_row_height, label);
+		const float switch_x = row_min.x + width - switch_track_width;
+		draw_switch_indicator(draw_list, { switch_x, std::floor(row_min.y + (settings_row_height - switch_track_height) * 0.5f) }, on, hovered);
+		if (note != nullptr)
+		{
+			ImGui::PushFont(nullptr, vr_theme::font_small);
+			draw_list->AddText({ switch_x - space_md - std::ceil(ImGui::CalcTextSize(note).x),
+				std::floor(row_min.y + (settings_row_height - ImGui::GetFontSize()) * 0.5f) }, colors().warning, note);
+			ImGui::PopFont();
+		}
+		return hovered;
+	}
+
+	// The font has no U+25CF glyph, so the dot is a drawn circle.
+	[[maybe_unused]] void draw_status_dot_text(ImDrawList *draw_list, ImVec2 pos, ImU32 color, const char *text)
+	{
+		ImGui::PushFont(nullptr, vr_theme::font_small);
+		draw_list->AddCircleFilled({ pos.x + 4.0f, pos.y + ImGui::GetFontSize() * 0.5f }, 4.0f, color);
+		draw_list->AddText({ pos.x + 16.0f, pos.y }, color, text);
+		ImGui::PopFont();
 	}
 
 	std::string fit_text(const char *text, float maximum_width)
@@ -442,6 +664,26 @@ namespace
 				fitted.pop_back();
 		}
 		return fitted + "...";
+	}
+
+	// Bottom line of the effect page: `left_text`, then "<graphics> 0xB7 <version>" on the right. The version is always
+	// complete; only the resolution part of the graphics label gives way when room runs out.
+	void draw_api_version_line(ImDrawList *draw_list, const char *left_text, const char *graphics_api_label, float display_height, float right_edge)
+	{
+		char version_label[16];
+		openxr_ui::format_version_label(version_label);
+		char version_suffix[32];
+		std::snprintf(version_suffix, sizeof(version_suffix), " \xC2\xB7 %s", version_label);
+		ImGui::PushFont(nullptr, vr_theme::font_small);
+		const float bottom_y = display_height - outer_padding - note_height + std::floor((note_height - ImGui::GetFontSize()) * 0.5f);
+		const float left_width = std::ceil(ImGui::CalcTextSize(left_text).x);
+		const float suffix_width = std::ceil(ImGui::CalcTextSize(version_suffix).x);
+		const std::string fitted_api = fit_text(graphics_api_label, (std::max)(0.0f, right_edge - outer_padding - left_width - space_md - suffix_width));
+		const std::string right_text = fitted_api + version_suffix;
+		const float right_x = right_edge - std::ceil(ImGui::CalcTextSize(right_text.c_str()).x);
+		draw_list->AddText({ outer_padding, bottom_y }, colors().text_secondary, left_text);
+		draw_list->AddText({ right_x, bottom_y }, colors().text_secondary, right_text.c_str());
+		ImGui::PopFont();
 	}
 
 	void draw_hover_details(const ImVec2 minimum, const ImVec2 maximum, const char *label, const char *tooltip = nullptr)
@@ -464,11 +706,69 @@ namespace
 		}
 	}
 
-	// Square icon button that switches between the compact and the taller panel; hovering names the action.
-	bool draw_panel_size_button(bool expanded)
+	// Tooltip for the last item; works for disabled items too because it tests the pointer against the rectangle.
+	[[maybe_unused]] void draw_hover_help(const char *label, const char *help)
 	{
-		const bool hovered = draw_icon_button("expand", expanded ? button_icon::collapse : button_icon::expand, { control_height, control_height });
-		draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), expanded ? "Collapse panel" : "Expand panel");
+		draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), label, help);
+	}
+
+	// Small chevron drawn before a text button's label: pointing left (previous) or up.
+	void draw_label_chevron(ImVec2 center, bool up, ImU32 color)
+	{
+		const float half = 5.0f;
+		const ImVec2 left_points[3] = { { center.x + half * 0.5f, center.y - half }, { center.x - half * 0.5f, center.y },
+			{ center.x + half * 0.5f, center.y + half } };
+		const ImVec2 up_points[3] = { { center.x - half, center.y + half * 0.5f }, { center.x, center.y - half * 0.5f },
+			{ center.x + half, center.y + half * 0.5f } };
+		ImGui::GetWindowDrawList()->AddPolyline(up ? up_points : left_points, 3, color, ImDrawFlags_None, 2.5f);
+	}
+
+	// Width of a text button that has a chevron before its label.
+	float chevron_button_width(const char *label)
+	{
+		ImGui::PushFont(nullptr, vr_theme::font_control);
+		const float width = std::ceil(ImGui::CalcTextSize(label).x) + 48.0f;
+		ImGui::PopFont();
+		return width;
+	}
+
+	// Width of a text button with a 12 px chevron and an 8 px gap next to its label, 16 px padding each side.
+	float chevron_label_button_width(const char *label)
+	{
+		ImGui::PushFont(nullptr, vr_theme::font_control);
+		const float width = std::ceil(ImGui::CalcTextSize(label).x) + 12.0f + space_sm + 32.0f;
+		ImGui::PopFont();
+		return width;
+	}
+
+	// Text button whose chevron and label are centered together: an up chevron before the label, or a next chevron after it.
+	bool draw_chevron_label_button(const char *id, const char *label, const ImVec2 size, bool enabled, bool up_before_label)
+	{
+		ImGui::BeginDisabled(!enabled);
+		ImGui::InvisibleButton(id, size);
+		record_last_item(id);
+		const bool hovered = enabled && ImGui::IsItemHovered();
+		const ImVec2 minimum = ImGui::GetItemRectMin();
+		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+		const button_colors look = button_colors_for(button_tone::neutral, hovered, enabled);
+		draw_button_frame(draw_list, minimum, ImGui::GetItemRectMax(), look);
+		ImGui::PushFont(nullptr, vr_theme::font_control);
+		const ImVec2 text_size = ImGui::CalcTextSize(label);
+		const float text_width = std::ceil(text_size.x);
+		const float group_x = std::floor(minimum.x + (size.x - (12.0f + space_sm + text_width)) * 0.5f);
+		const float center_y = minimum.y + size.y * 0.5f;
+		const float text_x = up_before_label ? group_x + 12.0f + space_sm : group_x;
+		draw_list->AddText({ text_x, std::floor(minimum.y + (size.y - text_size.y) * 0.5f) }, look.text, label);
+		ImGui::PopFont();
+		if (up_before_label)
+			draw_label_chevron({ group_x + 6.0f, center_y }, true, look.text);
+		else
+		{
+			const float cx = group_x + text_width + space_sm + 6.0f;
+			const ImVec2 points[3] = { { cx - 2.5f, center_y - 5.0f }, { cx + 2.5f, center_y }, { cx - 2.5f, center_y + 5.0f } };
+			draw_list->AddPolyline(points, 3, look.text, ImDrawFlags_None, 2.5f);
+		}
+		ImGui::EndDisabled();
 		return hovered;
 	}
 
@@ -510,6 +810,7 @@ namespace
 		fraction = std::clamp(fraction, 0.0f, 1.0f);
 		ImGui::BeginDisabled(!enabled);
 		ImGui::InvisibleButton(id, size);
+		record_last_item(id);
 		const bool hovered = enabled && ImGui::IsItemHovered();
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		const ImVec2 maximum = ImGui::GetItemRectMax();
@@ -543,6 +844,7 @@ namespace
 		fraction = std::clamp(fraction, 0.0f, 1.0f);
 		ImGui::BeginDisabled(!enabled);
 		ImGui::InvisibleButton(id, size);
+		record_last_item(id);
 		const bool hovered = enabled && ImGui::IsItemHovered();
 		const ImVec2 minimum = ImGui::GetItemRectMin();
 		const ImVec2 maximum = ImGui::GetItemRectMax();
@@ -570,9 +872,11 @@ namespace
 	struct dropdown_state
 	{
 		ImGuiID open_id = 0;
+		const char *open_name = nullptr;
 		ImVec2 box_min;
 		ImVec2 box_max;
 		std::vector<std::string> options;
+		std::vector<bool> disabled;
 		size_t selected = 0;
 		bool box_drawn = false;
 		ImGuiID chosen_id = 0;
@@ -613,7 +917,7 @@ namespace
 		if (clicked)
 		{
 			const ptrdiff_t option = pointer_visible ? dropdown_option_at(state, pointer, display_height) : -1;
-			if (option >= 0)
+			if (option >= 0 && !(static_cast<size_t>(option) < state.disabled.size() && state.disabled[static_cast<size_t>(option)]))
 			{
 				state.chosen_id = state.open_id;
 				state.chosen_option = static_cast<size_t>(option);
@@ -623,23 +927,33 @@ namespace
 		return true;
 	}
 
+	// Width draw_dropdown gives a box: sized to its longest choice so the text is never cut short.
+	[[maybe_unused]] float dropdown_width(const char *prefix, const char *const *options, size_t count, float height)
+	{
+		ImGui::PushFont(nullptr, vr_theme::font_control);
+		float widest_option = 0.0f;
+		for (size_t index = 0; index < count; ++index)
+			widest_option = (std::max)(widest_option, ImGui::CalcTextSize(options[index]).x);
+		const float width = std::ceil(10.0f + ImGui::CalcTextSize(prefix).x + widest_option + 12.0f + height);
+		ImGui::PopFont();
+		return width;
+	}
+
 	// A box showing `prefix` and the current choice with an arrow, so it reads as a list to pick from rather than a button.
 	// It is sized to its longest choice, so the text is never cut short.
 	dropdown_interaction draw_dropdown(dropdown_state &state, const char *id, const char *prefix, float height,
-		const char *const *options, size_t option_count, size_t selected, bool clicked)
+		const char *const *options, size_t option_count, size_t selected, bool clicked, const bool *disabled_options = nullptr)
 	{
 		const ImGuiID item_id = ImGui::GetID(id);
+		const float box_width = dropdown_width(prefix, options, option_count, height);
 		ImGui::PushFont(nullptr, vr_theme::font_control);
-		float widest_option = 0.0f;
-		for (size_t index = 0; index < option_count; ++index)
-			widest_option = (std::max)(widest_option, ImGui::CalcTextSize(options[index]).x);
 		constexpr float text_left = 10.0f;
-		constexpr float text_gap = 12.0f;
 		const float arrow_width = height;
-		const ImVec2 size = { std::ceil(text_left + ImGui::CalcTextSize(prefix).x + widest_option + text_gap + arrow_width), height };
+		const ImVec2 size = { box_width, height };
 		const std::string label = std::string(prefix) + (selected < option_count ? options[selected] : "");
 
 		ImGui::InvisibleButton(id, size);
+		record_last_item(id);
 		dropdown_interaction interaction;
 		interaction.hovered = ImGui::IsItemHovered();
 		const bool open = state.open_id == item_id;
@@ -665,7 +979,12 @@ namespace
 		if (clicked && interaction.hovered && !open)
 		{
 			state.open_id = item_id;
+			state.open_name = id;
 			state.options.assign(options, options + option_count);
+			state.disabled.assign(option_count, false);
+			if (disabled_options != nullptr)
+				for (size_t index = 0; index < option_count; ++index)
+					state.disabled[index] = disabled_options[index];
 			state.selected = selected;
 		}
 		if (state.open_id == item_id)
@@ -703,12 +1022,15 @@ namespace
 		{
 			const ImVec2 row_min = { list_min.x, list_min.y + row_height * static_cast<float>(index) };
 			const ImVec2 row_max = { list_max.x, row_min.y + row_height };
-			if (static_cast<ptrdiff_t>(index) == hovered)
+			const bool option_disabled = index < state.disabled.size() && state.disabled[index];
+			if (s_recorder != nullptr)
+				record_control(std::string(state.open_name) + "/item/" + std::to_string(index), row_min, row_max);
+			if (static_cast<ptrdiff_t>(index) == hovered && !option_disabled)
 				draw_list->AddRectFilled({ row_min.x + 3.0f, row_min.y + 2.0f }, { row_max.x - 3.0f, row_max.y - 2.0f }, colors().surface_hover, vr_theme::radius_sm);
 			if (index == state.selected)
 				draw_list->AddRectFilled({ row_min.x + 6.0f, row_min.y + 7.0f }, { row_min.x + 10.0f, row_max.y - 7.0f }, colors().accent, 2.0f);
 			draw_list->AddText({ row_min.x + 18.0f, std::floor(row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f) },
-				index == state.selected ? colors().text : colors().text_secondary, state.options[index].c_str());
+				option_disabled ? colors().text_disabled : index == state.selected ? colors().text : colors().text_secondary, state.options[index].c_str());
 		}
 		draw_list->AddRect(list_min, list_max, colors().accent, vr_theme::radius_md, 0, vr_theme::stroke_thin);
 		ImGui::PopFont();
@@ -749,8 +1071,24 @@ namespace openxr_ui
 		size_t technique_scroll = 0;
 		size_t parameter_scroll = 0;
 		uint64_t selected_technique = 0;
-		bool show_hidden = false;
-		bool show_favourites_only = false;
+		enum class tab
+		{
+			effects,
+			settings,
+		};
+		enum class list_filter
+		{
+			all,
+			starred,
+			hidden,
+		};
+		tab current_tab = tab::effects;
+		list_filter filter = list_filter::all;
+		// "Reset this effect" needs a second press; the flag clears when the effect or page changes, or after 4 s.
+		bool reset_armed = false;
+		uint32_t reset_armed_frames = 0;
+		uint64_t previous_selected_technique = 0;
+		tab previous_tab = tab::effects;
 		drag_target dragging = drag_target::none;
 		uint64_t dragged_parameter = 0;
 		uint32_t dragged_component = 0;
@@ -767,6 +1105,8 @@ namespace openxr_ui
 		bool save_as_uppercase = true;
 		std::string save_as_name;
 		dropdown_state dropdown;
+		control_recorder recorder;
+		bool control_recording = false;
 		uint32_t applied_theme = no_theme_applied;
 		bool srgb_target = false;
 
@@ -985,8 +1325,41 @@ namespace openxr_ui
 		_implementation->save_as_dialog_open = target == page::save_as;
 		_implementation->save_as_name = save_as_name;
 		_implementation->selected_technique = target == page::effect_detail ? technique_id : 0;
+		if (target == page::settings)
+			_implementation->current_tab = implementation::tab::settings;
+		else if (target == page::effects)
+			_implementation->current_tab = implementation::tab::effects;
+		_implementation->reset_armed = false;
+		_implementation->reset_armed_frames = 0;
 		_implementation->technique_scroll = 0;
 		_implementation->parameter_scroll = 0;
+	}
+
+	void panel_renderer::set_control_recording(bool enabled)
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		_implementation->control_recording = enabled;
+		if (!enabled)
+			_implementation->recorder = {};
+	}
+
+	bool panel_renderer::find_control(std::string_view id, float &center_x, float &center_y) const
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		for (const control_rect &control : _implementation->recorder.controls)
+		{
+			if (control.id != id)
+				continue;
+			center_x = (control.min_x + control.max_x) * 0.5f;
+			center_y = (control.min_y + control.max_y) * 0.5f;
+			return true;
+		}
+		return false;
+	}
+
+	const std::vector<panel_renderer::control_rect> &panel_renderer::recorded_controls() const
+	{
+		return _implementation->recorder.controls;
 	}
 
 	void panel_renderer::set_srgb_target(bool srgb)
@@ -1024,6 +1397,13 @@ namespace openxr_ui
 	render_result panel_renderer::render_ui(const technique_snapshot &snapshot, const render_input &input)
 	{
 		render_result result;
+		const recorder_scope recorder_reset;
+		s_recorder = _implementation->control_recording ? &_implementation->recorder : nullptr;
+		if (s_recorder != nullptr)
+		{
+			s_recorder->controls.clear();
+			s_recorder->prefix.clear();
+		}
 		const char *const graphics_api_name = _implementation->api == implementation::graphics_api::d3d11 ? "DX11" :
 			_implementation->api == implementation::graphics_api::d3d12 ? "DX12" :
 			_implementation->api == implementation::graphics_api::opengl ? "OpenGL" : "Unknown";
@@ -1069,6 +1449,109 @@ namespace openxr_ui
 		});
 		if (_implementation->selected_technique != 0 && selected_it == snapshot.techniques.end())
 			_implementation->selected_technique = 0;
+		if (_implementation->selected_technique != _implementation->previous_selected_technique ||
+			_implementation->current_tab != _implementation->previous_tab || _implementation->save_as_dialog_open)
+		{
+			_implementation->previous_selected_technique = _implementation->selected_technique;
+			_implementation->previous_tab = _implementation->current_tab;
+			_implementation->reset_armed = false;
+		}
+		if (!_implementation->reset_armed)
+			_implementation->reset_armed_frames = 0;
+		else if (++_implementation->reset_armed_frames > 360)
+			_implementation->reset_armed = false;
+
+		// Header shared by the effects/settings pages (title + tabs) and the effect page (back + name); y 24..64.
+		// It handles its own clicks. The "Effects on" / "This effect on" switch sits left of the pin/expand/close icons.
+		const auto draw_header = [&](const technique *detail) {
+			const float right_edge = io.DisplaySize.x - outer_padding;
+			const float top = outer_padding;
+			const float icon_y = top + space_xs;
+			ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+			ImGui::SetCursorScreenPos({ right_edge - control_height, icon_y });
+			const bool close_hovered = draw_icon_button("close", button_icon::close, { control_height, control_height });
+			draw_hover_help("Close menu", nullptr);
+			ImGui::SetCursorScreenPos({ right_edge - control_height * 2.0f - space_sm, icon_y });
+			const bool expand_hovered = draw_icon_button("expand", input.expanded ? button_icon::collapse : button_icon::expand, { control_height, control_height });
+			draw_hover_help(input.expanded ? "Make panel shorter" : "Make panel taller", nullptr);
+			const float pin_x = right_edge - control_height * 3.0f - space_sm * 2.0f;
+			ImGui::SetCursorScreenPos({ pin_x, icon_y });
+			const bool pin_hovered = draw_icon_button("pin", button_icon::pin, { control_height, control_height }, true, input.panel_locked);
+			draw_hover_help(input.panel_locked ? "Let the panel follow your head again" : "Keep panel in place (stops it following your head)", nullptr);
+
+			const char *const pill_label = detail != nullptr ? "This effect on" : "Effects on";
+			const float pill_x = pin_x - space_md - switch_pill_width(pill_label);
+			ImGui::SetCursorScreenPos({ pill_x, top });
+			const bool pill_hovered = draw_switch_pill(detail != nullptr ? "technique_on" : "effects_on", pill_label,
+				detail != nullptr ? detail->enabled : !input.shaders_temporarily_disabled);
+			draw_hover_help(detail != nullptr ? "Turn this effect off or on" :
+				"Turn every effect off or on, to compare with and without. Your choices are kept.", nullptr);
+
+			bool back_hovered = false;
+			int hovered_tab = -1;
+			if (detail == nullptr)
+			{
+				ImGui::PushFont(bold_font(), vr_theme::font_title);
+				const char *const title = "ReShade";
+				draw_list->AddText({ outer_padding, std::floor(top + (switch_pill_height - ImGui::GetFontSize()) * 0.5f) }, colors().text, title);
+				const float tabs_x = outer_padding + std::ceil(ImGui::CalcTextSize(title).x) + space_md;
+				ImGui::PopFont();
+				const char *const tab_labels[] = { "Effects", "Settings / Gestures" };
+				ImGui::SetCursorScreenPos({ tabs_x, top });
+				hovered_tab = draw_segmented("tab", tab_labels, nullptr, 2, _implementation->current_tab == implementation::tab::settings ? 1 : 0, true);
+			}
+			else
+			{
+				const float back_width = chevron_button_width("Effects");
+				ImGui::SetCursorScreenPos({ outer_padding, icon_y });
+				back_hovered = draw_text_button("back", "Effects", { back_width, control_height });
+				const ImVec2 back_min = ImGui::GetItemRectMin();
+				draw_label_chevron({ back_min.x + 16.0f, back_min.y + control_height * 0.5f }, false, colors().text);
+
+				const float name_x = outer_padding + back_width + space_md;
+				const float text_right = pill_x - space_md;
+				ImGui::PushFont(bold_font(), vr_theme::font_title);
+				const std::string fitted_name = fit_text(detail->name.c_str(), text_right - name_x);
+				draw_list->AddText({ name_x, std::floor(top + (switch_pill_height - ImGui::GetFontSize()) * 0.5f) }, colors().text, fitted_name.c_str());
+				const float file_x = name_x + std::ceil(ImGui::CalcTextSize(fitted_name.c_str()).x) + space_sm;
+				ImGui::PopFont();
+				if (file_x + 40.0f < text_right)
+				{
+					ImGui::PushFont(nullptr, vr_theme::font_small);
+					const std::string fitted_file = fit_text(detail->effect_name.c_str(), text_right - file_x);
+					draw_list->AddText({ file_x, std::floor(top + (switch_pill_height - ImGui::GetFontSize()) * 0.5f) + 1.0f },
+						colors().text_secondary, fitted_file.c_str());
+					ImGui::PopFont();
+				}
+				char detail_label[320];
+				std::snprintf(detail_label, sizeof(detail_label), "%s  [%s]", detail->name.c_str(), detail->effect_name.c_str());
+				draw_hover_details({ name_x, top }, { text_right, top + switch_pill_height }, detail_label, detail->tooltip.c_str());
+			}
+
+			if (input.select_clicked && _implementation->dragging == implementation::drag_target::none)
+			{
+				if (close_hovered)
+					result.action = render_result::command::hide_panel;
+				else if (expand_hovered)
+					result.action = render_result::command::toggle_panel_size;
+				else if (pin_hovered)
+					result.action = render_result::command::toggle_panel_lock;
+				else if (pill_hovered && detail != nullptr)
+				{
+					result.action = render_result::command::toggle_technique;
+					result.target_id = detail->id;
+				}
+				else if (pill_hovered)
+					result.action = render_result::command::toggle_all_techniques;
+				else if (back_hovered)
+				{
+					_implementation->selected_technique = 0;
+					_implementation->parameter_scroll = 0;
+				}
+				else if (hovered_tab >= 0)
+					_implementation->current_tab = hovered_tab == 1 ? implementation::tab::settings : implementation::tab::effects;
+			}
+		};
 
 		if (_implementation->save_as_dialog_open)
 		{
@@ -1103,12 +1586,13 @@ namespace openxr_ui
 					char label[2] = { keys[index], '\0' };
 					if (!_implementation->save_as_uppercase && label[0] >= 'A' && label[0] <= 'Z')
 						label[0] = static_cast<char>(label[0] - 'A' + 'a');
-					const bool hovered = draw_text_button("key", label, { 84.0f, 42.0f });
+					const bool hovered = draw_text_button(label, label, { 84.0f, 42.0f });
 					if (input.select_clicked && hovered && _implementation->save_as_name.size() < 120)
 						_implementation->save_as_name.push_back(label[0]);
 					ImGui::PopID();
 				}
 			};
+			set_control_prefix("key/");
 			draw_keyboard_row("1234567890", 56.0f, 158.0f);
 			draw_keyboard_row("QWERTYUIOP", 56.0f, 208.0f);
 			draw_keyboard_row("ASDFGHJKL", 102.0f, 258.0f);
@@ -1125,13 +1609,14 @@ namespace openxr_ui
 			const bool clear_hovered = draw_text_button("clear", "Clear", { 112.0f, 42.0f });
 
 			ImGui::SetCursorScreenPos({ 56.0f, 430.0f });
-			const bool cancel_hovered = draw_text_button("cancel_save_as", "Cancel", { 160.0f, 46.0f });
+			const bool cancel_hovered = draw_text_button("cancel", "Cancel", { 160.0f, 46.0f });
 			const bool valid_name = !_implementation->save_as_name.empty() &&
 				_implementation->save_as_name.back() != ' ' && _implementation->save_as_name.back() != '.';
 			const char *const create_label = _implementation->save_as_feedback < 0 ? "Failed" : "Create";
 			ImGui::SetCursorScreenPos({ io.DisplaySize.x - outer_padding - 160.0f, 430.0f });
-			const bool create_hovered = draw_text_button("create_preset", create_label, { 160.0f, 46.0f }, valid_name,
+			const bool create_hovered = draw_text_button("create", create_label, { 160.0f, 46.0f }, valid_name,
 				_implementation->save_as_feedback < 0 ? button_tone::danger : button_tone::primary);
+			clear_control_prefix();
 
 			if (input.select_clicked && (close_dialog_hovered || cancel_hovered))
 			{
@@ -1155,129 +1640,124 @@ namespace openxr_ui
 		}
 		else if (_implementation->selected_technique == 0)
 		{
+			const bool settings_tab = _implementation->current_tab == implementation::tab::settings;
 			std::vector<const technique *> displayed_techniques;
 			displayed_techniques.reserve(snapshot.techniques.size());
+			size_t count_all = 0, count_starred = 0, count_hidden = 0, count_enabled = 0;
 			for (const technique &entry : snapshot.techniques)
-				if ((_implementation->show_hidden || !entry.hidden) && (!_implementation->show_favourites_only || entry.favourite))
-					displayed_techniques.push_back(&entry);
-
-			char page_text[128];
-			char page_details[96];
-			char version_suffix[24];
 			{
-				char version_label[16];
-				openxr_ui::format_version_label(version_label);
-				std::snprintf(version_suffix, sizeof(version_suffix), "  \xC2\xB7  %s", version_label);
+				count_all += entry.hidden ? 0 : 1;
+				count_starred += entry.favourite && !entry.hidden ? 1 : 0;
+				count_hidden += entry.hidden ? 1 : 0;
+				count_enabled += entry.enabled ? 1 : 0;
+				const bool shown = _implementation->filter == implementation::list_filter::hidden ? entry.hidden :
+					_implementation->filter == implementation::list_filter::starred ? entry.favourite && !entry.hidden : !entry.hidden;
+				if (shown)
+					displayed_techniques.push_back(&entry);
 			}
-			std::snprintf(page_details, sizeof(page_details), "%zu shown  \xC2\xB7  %s", displayed_techniques.size(), graphics_api_label);
-			std::snprintf(page_text, sizeof(page_text), "%s%s", page_details, version_suffix);
-			const ImVec2 header_origin = ImGui::GetCursorScreenPos();
+
 			const float right_edge = ImGui::GetWindowWidth() - outer_padding;
 			ImDrawList *const header_draw_list = ImGui::GetWindowDrawList();
-			ImGui::PushFont(bold_font(), vr_theme::font_title);
-			const char *const title = "ReShade Techniques";
-			header_draw_list->AddText({ header_origin.x, std::floor(header_origin.y + (control_height - ImGui::GetFontSize()) * 0.5f) },
-				colors().text, title);
-			const float subtitle_x = header_origin.x + ImGui::CalcTextSize(title).x + space_md;
-			ImGui::PopFont();
-			ImGui::SetCursorScreenPos({ right_edge - control_height, header_origin.y });
-			const bool close_hovered = draw_icon_button("close", button_icon::close, { control_height, control_height });
-			ImGui::SetCursorScreenPos({ right_edge - control_height * 2.0f - space_sm, header_origin.y });
-			const bool expand_hovered = draw_panel_size_button(input.expanded);
-			const float pin_x = right_edge - control_height * 2.0f - space_sm * 2.0f - 96.0f;
-			ImGui::SetCursorScreenPos({ pin_x, header_origin.y });
-			const bool pin_hovered = draw_text_button("pin", "Pin UI", { 96.0f, control_height }, true,
-				input.panel_locked ? button_tone::toggled : button_tone::neutral);
-			// The FPS counter is part of the panel's view, so its switch sits right next to Pin UI and Expand.
-			// The box is as wide as its label so it groups tightly with them.
-			const char *const statistics_label = "Always show FPS";
-			const float statistics_box_width = std::ceil(tick_box_label_x + ImGui::CalcTextSize(statistics_label).x + space_sm);
-			const float statistics_x = pin_x - space_sm - statistics_box_width;
-			ImGui::SetCursorScreenPos({ statistics_x, header_origin.y });
-			const bool statistics_hovered = draw_tick_box("always_show_statistics", statistics_label, input.always_show_statistics, statistics_box_width);
+			draw_header(nullptr);
+			const bool can_click = input.select_clicked && _implementation->dragging == implementation::drag_target::none;
+
+			bool previous_preset_hovered = false, next_preset_hovered = false, save_hovered = false, save_as_hovered = false, delete_preset_hovered = false;
+			if (!settings_tab)
 			{
-				// The version is always shown in full; only the count and graphics details shorten when space runs out.
-				ImGui::PushFont(nullptr, vr_theme::font_small);
-				const float details_width = statistics_x - space_md - subtitle_x - ImGui::CalcTextSize(version_suffix).x;
-				const std::string fitted_page_text = fit_text(page_details, details_width) + version_suffix;
-				header_draw_list->AddText({ subtitle_x, std::floor(header_origin.y + (control_height - ImGui::GetFontSize()) * 0.5f) + 1.0f },
-					colors().text_secondary, fitted_page_text.c_str());
-				ImGui::PopFont();
-				draw_hover_details({ subtitle_x, header_origin.y }, { statistics_x - space_md, header_origin.y + control_height }, page_text);
-			}
-
-			const float filter_y = header_origin.y + header_row_step;
-			ImGui::SetCursorScreenPos({ header_origin.x, filter_y });
-			const bool active_first_hovered = draw_text_button("active_first", "Active first", { 144.0f, control_height });
-			ImGui::SetCursorScreenPos({ header_origin.x + 152.0f, filter_y });
-			const bool favourites_only_hovered = draw_text_button("favourites_only", "Starred only", { 144.0f, control_height }, true,
-				_implementation->show_favourites_only ? button_tone::toggled : button_tone::neutral);
-			ImGui::SetCursorScreenPos({ header_origin.x + 304.0f, filter_y });
-			const bool show_hidden_hovered = draw_text_button("show_hidden", _implementation->show_hidden ? "Hide hidden" : "Show hidden", { 144.0f, control_height }, true,
-				_implementation->show_hidden ? button_tone::toggled : button_tone::neutral);
-			ImGui::SetCursorScreenPos({ right_edge - 176.0f, filter_y });
-			const bool disable_all_hovered = draw_text_button("disable_all",
-				input.shaders_temporarily_disabled ? "Restore shaders" : "Disable all", { 176.0f, control_height }, true,
-				input.shaders_temporarily_disabled ? button_tone::warning : button_tone::neutral);
-
-			const float preset_y = header_origin.y + header_row_step * 2.0f;
-			const float preset_controls_x = right_edge - 408.0f;
+			// Preset bar, y 80..112.
+			constexpr float preset_y = 80.0f;
+			float preset_group_x = right_edge - (88.0f + 128.0f + 96.0f + space_sm * 2.0f);
 			{
 				const float text_y = std::floor(preset_y + (control_height - ImGui::GetFontSize()) * 0.5f);
-				header_draw_list->AddText({ header_origin.x, text_y }, colors().text_secondary, "Preset");
-				const float name_x = header_origin.x + ImGui::CalcTextSize("Preset").x + space_sm + space_xs;
-				ImGui::PushFont(bold_font(), 0.0f);
-				const std::string preset_label = fit_text(input.preset_name.empty() ? "No preset" : input.preset_name.c_str(),
-					preset_controls_x - space_md - name_x);
-				header_draw_list->AddText({ name_x, text_y }, colors().text, preset_label.c_str());
+				header_draw_list->AddText({ outer_padding, text_y }, colors().text_secondary, "Preset");
+				const float previous_x = outer_padding + std::ceil(ImGui::CalcTextSize("Preset").x) + space_sm;
+				ImGui::SetCursorScreenPos({ previous_x, preset_y });
+				previous_preset_hovered = draw_icon_button("previous_preset", button_icon::previous, { control_height, control_height }, !input.shaders_temporarily_disabled);
+				const float name_x = previous_x + control_height + space_sm;
+				const char *const preset_name = input.preset_name.empty() ? "No preset" : input.preset_name.c_str();
+				ImGui::PushFont(nullptr, vr_theme::font_small);
+				const float dirty_width = input.preset_dirty ? 16.0f + std::ceil(ImGui::CalcTextSize("Unsaved changes").x) : 0.0f;
+				const float dirty_text_y = std::floor(preset_y + (control_height - ImGui::GetFontSize()) * 0.5f);
 				ImGui::PopFont();
+				const float reserved = control_height + space_sm + (input.preset_dirty ? space_md + dirty_width : 0.0f) + space_md;
+				ImGui::PushFont(bold_font(), vr_theme::font_body);
+				const float box_limit = (std::max)(96.0f, preset_group_x - reserved - name_x);
+				const float box_width = (std::min)((std::max)(220.0f, std::ceil(ImGui::CalcTextSize(preset_name).x) + space_md * 2.0f), box_limit);
+				const std::string preset_label = fit_text(preset_name, box_width - space_md * 2.0f);
+				header_draw_list->AddRectFilled({ name_x, preset_y }, { name_x + box_width, preset_y + control_height }, colors().inset, vr_theme::radius_sm);
+				header_draw_list->AddText({ name_x + space_md, std::floor(preset_y + (control_height - ImGui::GetFontSize()) * 0.5f) }, colors().text, preset_label.c_str());
+				ImGui::PopFont();
+				draw_hover_details({ name_x, preset_y }, { name_x + box_width, preset_y + control_height }, preset_name);
+				const float next_x = name_x + box_width + space_sm;
+				ImGui::SetCursorScreenPos({ next_x, preset_y });
+				next_preset_hovered = draw_icon_button("next_preset", button_icon::next, { control_height, control_height }, !input.shaders_temporarily_disabled);
+				if (input.preset_dirty)
+					draw_status_dot_text(header_draw_list, { next_x + control_height + space_md, dirty_text_y }, colors().warning, "Unsaved changes");
 			}
-			ImGui::SetCursorScreenPos({ preset_controls_x, preset_y });
-			const bool previous_preset_hovered = draw_icon_button("previous_preset", button_icon::previous, { control_height, control_height }, !input.shaders_temporarily_disabled);
-			ImGui::SetCursorScreenPos({ preset_controls_x + 40.0f, preset_y });
-			const bool next_preset_hovered = draw_icon_button("next_preset", button_icon::next, { control_height, control_height }, !input.shaders_temporarily_disabled);
 			const char *const save_label = input.preset_dirty ? "Save" : _implementation->save_feedback > 0 ? "Saved" : _implementation->save_feedback < 0 ? "Failed" : "Save";
 			const button_tone save_tone = input.preset_dirty ? button_tone::primary :
 				_implementation->save_feedback > 0 ? button_tone::success :
 				_implementation->save_feedback < 0 ? button_tone::danger : button_tone::neutral;
-			ImGui::SetCursorScreenPos({ preset_controls_x + 80.0f, preset_y });
-			const bool save_hovered = draw_text_button("save", save_label, { 88.0f, control_height }, !input.shaders_temporarily_disabled, save_tone);
+			ImGui::SetCursorScreenPos({ preset_group_x, preset_y });
+			save_hovered = draw_text_button("save", save_label, { 88.0f, control_height }, !input.shaders_temporarily_disabled, save_tone);
 			const char *const save_as_label = _implementation->save_as_feedback == 2 ? "Creating..." :
-				_implementation->save_as_feedback > 0 ? "Created" : _implementation->save_as_feedback < 0 ? "Failed" : "Save As";
+				_implementation->save_as_feedback > 0 ? "Created" : _implementation->save_as_feedback < 0 ? "Failed" : "Save as...";
 			const button_tone save_as_tone = _implementation->save_as_feedback == 2 ? button_tone::warning :
 				_implementation->save_as_feedback > 0 ? button_tone::success :
 				_implementation->save_as_feedback < 0 ? button_tone::danger : button_tone::neutral;
-			ImGui::SetCursorScreenPos({ preset_controls_x + 176.0f, preset_y });
-			const bool save_as_hovered = draw_text_button("save_as", save_as_label, { 128.0f, control_height },
+			ImGui::SetCursorScreenPos({ preset_group_x + 88.0f + space_sm, preset_y });
+			save_as_hovered = draw_text_button("save_as", save_as_label, { 128.0f, control_height },
 				!input.shaders_temporarily_disabled && _implementation->save_as_feedback != 2, save_as_tone);
-			ImGui::SetCursorScreenPos({ preset_controls_x + 312.0f, preset_y });
-			const bool delete_preset_hovered = draw_text_button("delete_preset", "Delete", { 96.0f, control_height },
+			ImGui::SetCursorScreenPos({ preset_group_x + 88.0f + 128.0f + space_sm * 2.0f, preset_y });
+			delete_preset_hovered = draw_text_button("delete_preset", "Delete", { 96.0f, control_height },
 				!input.shaders_temporarily_disabled && _implementation->save_as_feedback != 2, button_tone::destructive);
-			const float divider_y = preset_y + control_height + space_sm;
-			header_draw_list->AddRectFilled({ header_origin.x, divider_y - 1.0f }, { right_edge, divider_y + 1.0f }, colors().surface);
-			ImGui::SetCursorScreenPos({ header_origin.x, divider_y + space_sm });
-			if (input.select_clicked && close_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::hide_panel;
-			else if (input.select_clicked && expand_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::toggle_panel_size;
-			else if (input.select_clicked && pin_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::toggle_panel_lock;
-			else if (input.select_clicked && active_first_hovered && _implementation->dragging == implementation::drag_target::none)
+
+			// List bar, y 120..160.
+			char count_labels[3][16];
+			std::snprintf(count_labels[0], sizeof(count_labels[0]), "%zu", count_all);
+			std::snprintf(count_labels[1], sizeof(count_labels[1]), "%zu", count_starred);
+			std::snprintf(count_labels[2], sizeof(count_labels[2]), "%zu", count_hidden);
+			const char *const filter_labels[] = { "All", "Starred", "Hidden" };
+			const char *const filter_counts[] = { count_labels[0], count_labels[1], count_labels[2] };
+			constexpr float list_bar_y = 120.0f;
+			ImGui::SetCursorScreenPos({ outer_padding, list_bar_y });
+			const int hovered_filter = draw_segmented("filter", filter_labels, filter_counts, 3, static_cast<size_t>(_implementation->filter), false);
+			const float active_x = outer_padding + segmented_width(filter_labels, filter_counts, 3, false) + space_md;
+			const float active_width = chevron_label_button_width("Active on top");
+			ImGui::SetCursorScreenPos({ active_x, list_bar_y + space_xs });
+			const bool active_first_hovered = draw_chevron_label_button("active_first", "Active on top", { active_width, control_height }, true, true);
+			draw_hover_help("Moves every effect that is on to the top of the list. Effects keep their order among themselves; nothing else is rearranged.", nullptr);
+			ImGui::SetCursorScreenPos({ outer_padding, list_bar_y + 40.0f + space_md });
+
+			if (can_click && previous_preset_hovered)
+				result.action = render_result::command::previous_preset;
+			else if (can_click && next_preset_hovered)
+				result.action = render_result::command::next_preset;
+			else if (can_click && save_hovered)
+				result.action = render_result::command::save_preset;
+			else if (can_click && save_as_hovered)
+			{
+				_implementation->save_as_dialog_open = true;
+				_implementation->save_as_name = input.preset_name.empty() ? "New Preset" : input.preset_name + " Copy";
+				_implementation->save_as_feedback = 0;
+				_implementation->save_as_feedback_frame_count = 0;
+			}
+			else if (can_click && delete_preset_hovered)
+				result.action = render_result::command::delete_preset;
+			else if (can_click && active_first_hovered)
 			{
 				result.action = render_result::command::move_active_to_top;
 				_implementation->technique_scroll = 0;
 			}
-			else if (input.select_clicked && favourites_only_hovered && _implementation->dragging == implementation::drag_target::none)
+			else if (can_click && hovered_filter >= 0 && static_cast<size_t>(hovered_filter) != static_cast<size_t>(_implementation->filter))
 			{
-				_implementation->show_favourites_only = !_implementation->show_favourites_only;
+				_implementation->filter = static_cast<implementation::list_filter>(hovered_filter);
 				_implementation->technique_scroll = 0;
 			}
-			else if (input.select_clicked && show_hidden_hovered && _implementation->dragging == implementation::drag_target::none)
-			{
-				_implementation->show_hidden = !_implementation->show_hidden;
-				_implementation->technique_scroll = 0;
 			}
-			if (input.effect_subfolders.state != effect_subfolder_state::none)
+			else
+				ImGui::SetCursorScreenPos({ outer_padding, 80.0f });
+			if (!settings_tab && input.effect_subfolders.state != effect_subfolder_state::none)
 			{
 				const effect_subfolder_status &subfolders = input.effect_subfolders;
 				const bool offered = subfolders.state == effect_subfolder_state::offered;
@@ -1360,13 +1840,15 @@ namespace openxr_ui
 					dismiss_hovered = draw_text_button("subfolders_ok", "OK", { 80.0f, button_size.y });
 				}
 
-				const bool can_click = input.select_clicked && _implementation->dragging == implementation::drag_target::none;
-				if (can_click && primary_hovered)
+				const bool notice_can_click = input.select_clicked && _implementation->dragging == implementation::drag_target::none;
+				if (notice_can_click && primary_hovered)
 					result.action = render_result::command::include_effect_subfolders;
-				else if (can_click && dismiss_hovered)
+				else if (notice_can_click && dismiss_hovered)
 					result.action = render_result::command::dismiss_effect_subfolder_notice;
 				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + space_sm });
 			}
+			if (!settings_tab)
+			{
 			if (!input.effect_runtime_available)
 			{
 				char message[160];
@@ -1417,22 +1899,38 @@ namespace openxr_ui
 				ImGui::Separator();
 			}
 
-			// As many rows of at least list_row_height as fit between the header and the settings below.
+			// Rows are list_row_height tall; as many as fit between the list bar and the bottom line (8 px above it).
 			const ImVec2 list_min = ImGui::GetCursorScreenPos();
-			const float list_height = display_height - outer_padding - main_footer_height - space_md - list_min.y;
+			const float list_height = display_height - outer_padding - note_height - space_sm - list_min.y;
 			const size_t visible_techniques = std::max<size_t>(1, static_cast<size_t>((list_height + list_row_gap) / (list_row_height + list_row_gap)));
-			const float row_height = std::floor((list_height - list_row_gap * static_cast<float>(visible_techniques - 1)) / static_cast<float>(visible_techniques));
+			const float row_height = list_row_height;
 			const size_t maximum_scroll = displayed_techniques.size() > visible_techniques ? displayed_techniques.size() - visible_techniques : 0;
 			_implementation->technique_scroll = (std::min)(_implementation->technique_scroll, maximum_scroll);
 			_implementation->update_joystick_scroll(input.scroll_y, _implementation->technique_scroll, maximum_scroll);
-			const float row_width = ImGui::GetContentRegionAvail().x - scrollbar_width - space_sm;
+			// The scroll bar column is only taken when the rows do not all fit.
+			const float row_width = ImGui::GetContentRegionAvail().x - (maximum_scroll > 0 ? scrollbar_width + space_sm : 0.0f);
 			const size_t first = _implementation->technique_scroll;
 			const size_t last = (std::min)(first + visible_techniques, displayed_techniques.size());
+			if (displayed_techniques.empty() && !snapshot.techniques.empty())
+			{
+				const char *const empty_text = _implementation->filter == implementation::list_filter::starred ?
+					"No starred effects. Press the star on an effect to add it here." :
+					_implementation->filter == implementation::list_filter::hidden ? "No hidden effects." : "No effects to show.";
+				ImGui::PushFont(nullptr, vr_theme::font_body);
+				const ImVec2 empty_size = ImGui::CalcTextSize(empty_text);
+				ImGui::GetWindowDrawList()->AddText({ std::floor(list_min.x + (row_width - empty_size.x) * 0.5f),
+					std::floor(list_min.y + (list_height - empty_size.y) * 0.5f) }, colors().text_secondary, empty_text);
+				ImGui::PopFont();
+			}
 			for (size_t index = first; index < first + visible_techniques; ++index)
 			{
+				if (index >= last)
+					break;
 				ImGui::PushID(static_cast<int>(index));
+				set_control_row_prefix("effect", index - first);
 				const ImVec2 size = { row_width, row_height };
 				ImGui::InvisibleButton("technique", size);
+				record_last_item("technique");
 				const bool row_hovered = ImGui::IsItemHovered();
 				const ImVec2 minimum = ImGui::GetItemRectMin();
 				const ImVec2 next_row = { minimum.x, minimum.y + row_height + list_row_gap };
@@ -1446,46 +1944,68 @@ namespace openxr_ui
 				{
 					const technique &entry = *displayed_techniques[index];
 					ImGui::SetCursorScreenPos({ minimum.x + 4.0f, minimum.y + 2.0f });
-					ImGui::InvisibleButton("toggle", { 40.0f, row_height - 4.0f });
+					ImGui::InvisibleButton("toggle", { 56.0f, row_height - 4.0f });
+					record_last_item("toggle");
 					const bool toggle_hovered = ImGui::IsItemHovered();
-					draw_check_indicator(draw_list, { minimum.x + 12.0f, std::floor(minimum.y + (row_height - 18.0f) * 0.5f) }, 18.0f, entry.enabled, toggle_hovered);
-					const ImVec2 text_min = { minimum.x + 50.0f, std::floor(minimum.y + (row_height - ImGui::GetFontSize()) * 0.5f) };
+					draw_switch_indicator(draw_list, { minimum.x + 12.0f, std::floor(minimum.y + (row_height - switch_track_height) * 0.5f) }, entry.enabled, toggle_hovered);
+					// Right columns, right to left: Open 96, Hide 80, star 32, down 32, up 32; 4 px inside the row.
+					const float open_x = maximum.x - 4.0f - 96.0f;
+					const float hide_x = open_x - space_sm - 80.0f;
+					const float star_x = hide_x - space_sm - 32.0f;
+					const float down_x = star_x - space_md - 32.0f;
+					const float up_x = down_x - space_sm - 32.0f;
+					const float name_x = minimum.x + 12.0f + switch_track_width + 12.0f;
+					const float text_limit = up_x - space_md;
 					char label[320];
 					std::snprintf(label, sizeof(label), "%s  [%s]", entry.name.c_str(), entry.effect_name.c_str());
-					const ImVec2 text_max = { maximum.x - 344.0f, maximum.y };
-					// The technique name leads; the effect file follows in smaller, quieter text when there is room.
-					const std::string fitted_name = fit_text(entry.name.c_str(), text_max.x - text_min.x);
-					const ImU32 name_color = entry.has_non_default_values ? colors().changed_value : entry.hidden ? colors().text_secondary : colors().text;
-					draw_list->AddText(text_min, name_color, fitted_name.c_str());
-					const float effect_x = text_min.x + ImGui::CalcTextSize(fitted_name.c_str()).x + 12.0f;
-					if (effect_x + 40.0f < text_max.x)
+					// The name leads; the file name follows in smaller, quieter text and is shortened first.
+					ImGui::PushFont(entry.enabled ? bold_font() : nullptr, vr_theme::font_body);
+					const float name_y = std::floor(minimum.y + (row_height - ImGui::GetFontSize()) * 0.5f);
+					// A dot after the name keeps the "has changed values" state visible without relying on colour.
+					const float dot_room = entry.has_non_default_values ? 16.0f : 0.0f;
+					const std::string fitted_name = fit_text(entry.name.c_str(), text_limit - name_x - dot_room);
+					const float name_width = std::ceil(ImGui::CalcTextSize(fitted_name.c_str()).x);
+					draw_list->AddText({ name_x, name_y }, entry.enabled ? colors().text : colors().text_secondary, fitted_name.c_str());
+					ImGui::PopFont();
+					float text_end = name_x + name_width;
+					if (entry.has_non_default_values)
+					{
+						draw_list->AddCircleFilled({ text_end + 8.0f, minimum.y + row_height * 0.5f }, 4.0f, colors().changed_value);
+						text_end += dot_room;
+					}
+					const float effect_x = text_end + space_sm;
+					if (effect_x + 40.0f < text_limit)
 					{
 						ImGui::PushFont(nullptr, vr_theme::font_small);
-						const std::string fitted_effect = fit_text(entry.effect_name.c_str(), text_max.x - effect_x);
-						draw_list->AddText({ effect_x, std::floor(minimum.y + (row_height - ImGui::GetFontSize()) * 0.5f) + 1.0f },
+						const std::string fitted_effect = fit_text(entry.effect_name.c_str(), text_limit - effect_x);
+						draw_list->AddText({ effect_x, std::floor(minimum.y + (row_height - ImGui::GetFontSize()) * 0.5f) },
 							colors().text_disabled, fitted_effect.c_str());
 						ImGui::PopFont();
 					}
-					draw_hover_details(text_min, text_max, label, entry.tooltip.c_str());
+					draw_hover_details({ name_x, minimum.y }, { text_limit, maximum.y }, label, entry.tooltip.c_str());
 					const auto order_it = std::find_if(snapshot.techniques.begin(), snapshot.techniques.end(), [&entry](const technique &candidate) {
 						return candidate.id == entry.id;
 					});
 					const bool can_move_up = order_it != snapshot.techniques.end() && order_it != snapshot.techniques.begin();
 					const bool can_move_down = order_it != snapshot.techniques.end() && order_it + 1 != snapshot.techniques.end();
-					// Row buttons, right to left: Open, Hide, star, down, up; 8 px apart and 4 px inside the row.
 					const float button_y = minimum.y + space_xs;
 					const float button_height = row_height - space_xs * 2.0f;
-					ImGui::SetCursorScreenPos({ maximum.x - 332.0f, button_y });
-					const bool move_up_hovered = draw_icon_button("move_up", button_icon::up, { 32.0f, button_height }, !input.shaders_temporarily_disabled && can_move_up);
-					ImGui::SetCursorScreenPos({ maximum.x - 292.0f, button_y });
-					const bool move_down_hovered = draw_icon_button("move_down", button_icon::down, { 32.0f, button_height }, !input.shaders_temporarily_disabled && can_move_down);
-					const bool move_controls_hovered = ImGui::IsMouseHoveringRect({ maximum.x - 332.0f, button_y }, { maximum.x - 260.0f, button_y + button_height });
-					ImGui::SetCursorScreenPos({ maximum.x - 252.0f, button_y });
-					const bool favourite_hovered = draw_star_button("favourite", { 40.0f, button_height }, entry.favourite);
-					ImGui::SetCursorScreenPos({ maximum.x - 204.0f, button_y });
-					const bool hide_hovered = draw_text_button("hide", entry.hidden ? "Unhide" : "Hide", { 96.0f, button_height });
-					ImGui::SetCursorScreenPos({ maximum.x - 100.0f, button_y });
-					const bool open_hovered = draw_text_button("open", "Open", { 96.0f, button_height }, !input.shaders_temporarily_disabled);
+					ImGui::SetCursorScreenPos({ up_x, button_y });
+					const bool move_up_hovered = draw_icon_button("up", button_icon::up, { 32.0f, button_height }, !input.shaders_temporarily_disabled && can_move_up);
+					draw_hover_help(can_move_up ? "Move up (earlier in the effect order)" : "Already at the top", nullptr);
+					ImGui::SetCursorScreenPos({ down_x, button_y });
+					const bool move_down_hovered = draw_icon_button("down", button_icon::down, { 32.0f, button_height }, !input.shaders_temporarily_disabled && can_move_down);
+					draw_hover_help(can_move_down ? "Move down (later in the effect order)" : "Already at the bottom", nullptr);
+					const bool move_controls_hovered = ImGui::IsMouseHoveringRect({ up_x, button_y }, { down_x + 32.0f, button_y + button_height });
+					ImGui::SetCursorScreenPos({ star_x, button_y });
+					const bool favourite_hovered = draw_star_button("star", { 32.0f, button_height }, entry.favourite);
+					draw_hover_help(entry.favourite ? "Starred: shows under Starred" : "Star this effect", nullptr);
+					ImGui::SetCursorScreenPos({ hide_x, button_y });
+					const bool hide_hovered = draw_text_button("hide", entry.hidden ? "Show" : "Hide", { 80.0f, button_height });
+					draw_hover_help(entry.hidden ? "Show in the list again" : "Hide from list. Find it again under Hidden.", nullptr);
+					ImGui::SetCursorScreenPos({ open_x, button_y });
+					const bool open_hovered = draw_chevron_label_button("open", "Open", { 96.0f, button_height }, !input.shaders_temporarily_disabled, false);
+					draw_hover_help("Change this effect's values", nullptr);
 					if (input.select_clicked && open_hovered && _implementation->dragging == implementation::drag_target::none)
 					{
 						_implementation->selected_technique = entry.id;
@@ -1520,9 +2040,9 @@ namespace openxr_ui
 				}
 				ImGui::SetCursorScreenPos(next_row);
 				ImGui::PopID();
+				clear_control_prefix();
 			}
 
-			const ImVec2 footer_min = { list_min.x, list_min.y + list_height + space_md };
 			ImGui::SetCursorScreenPos({ list_min.x + row_width + space_sm, list_min.y });
 			const float scroll_fraction = maximum_scroll > 0 ? static_cast<float>(_implementation->technique_scroll) / static_cast<float>(maximum_scroll) : 0.0f;
 			const slider_interaction scroll_slider = draw_vertical_slider("technique_scroll", { scrollbar_width, list_height }, scroll_fraction, maximum_scroll > 0);
@@ -1540,63 +2060,45 @@ namespace openxr_ui
 				_implementation->technique_scroll = static_cast<size_t>(std::round(drag_fraction * static_cast<float>(maximum_scroll)));
 			}
 
-			// The left column holds UI behaviour, the right column game-start settings; the gap keeps the two apart.
-			const float settings_column_x = footer_min.x + 488.0f;
-			const float footer_row_2 = footer_min.y + header_row_step;
-			const float footer_row_3 = footer_min.y + header_row_step * 2.0f;
-			ImGui::SetCursorScreenPos(footer_min);
-			const dropdown_interaction theme_choice = draw_dropdown(_implementation->dropdown, "theme", "Theme: ", control_height,
-				vr_theme::theme_names, vr_theme::theme_count, input.theme,
-				input.select_clicked && _implementation->dragging == implementation::drag_target::none);
-			ImGui::SetCursorScreenPos({ settings_column_x, footer_min.y });
-			const char *frame_rate_options[max_frame_rate_divisor];
-			for (uint32_t divisor = 1; divisor <= max_frame_rate_divisor; ++divisor)
-				frame_rate_options[divisor - 1] = frame_rate_divisor_name(divisor);
-			const dropdown_interaction frame_rate = draw_dropdown(_implementation->dropdown, "frame_rate_divisor", "FPS target: ", control_height,
-				frame_rate_options, max_frame_rate_divisor, input.frame_rate_divisor - 1,
-				input.select_clicked && _implementation->dragging == implementation::drag_target::none);
+			// Bottom line: effect counts on the left, graphics and version on the right. The version is always complete;
+			// only the resolution part of the graphics label gives way when room runs out.
+			{
+				char left_text[64];
+				std::snprintf(left_text, sizeof(left_text), "%zu effects, %zu on", snapshot.techniques.size(), count_enabled);
+				draw_api_version_line(header_draw_list, left_text, graphics_api_label, display_height, right_edge);
+			}
+			}
 
-			// Both settings are read by ReShade only at game start, so they share one restart note.
-			const std::string restart_first = "Restart the game to apply your change.\n\n";
-			ImGui::SetCursorScreenPos({ settings_column_x, footer_row_2 });
-			const char *const performance_label = "Performance mode (on = faster shaders)";
-			const bool performance_hovered = draw_tick_box("performance_mode", performance_label, input.performance_mode, 520.0f);
-			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), performance_label,
-				((input.performance_mode_restart_pending ? restart_first : std::string()) +
-				"On: ReShade builds the effects with their current settings fixed, so they run faster. "
-				"How much this helps depends on how many and how heavy the shaders you use are. "
-				"Shader settings can then not be changed; shaders can still be switched on and off. "
-				"Applies after a game restart.").c_str());
-			ImGui::SetCursorScreenPos({ settings_column_x, footer_row_3 });
-			const char *const depth_label = "Depth buffer (off = faster in OpenGL)";
-			const bool depth_hovered = draw_tick_box("depth_buffer", depth_label, !input.depth_detection_disabled, 520.0f);
-			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), depth_label,
-				((input.depth_detection_restart_pending ? restart_first : std::string()) +
-				"On: ReShade gives the game's depth buffer to shaders (ReShade's Generic Depth helper), so shaders that need depth, "
-				"such as MXAO, depth of field and depth fog, work. Off: those shaders stop working; the game itself is not affected. "
-				"In SOMA-VR (OpenGL) turning it off gave about 30 FPS more. In DirectX games ReShade costs only a few FPS in total, "
-				"so turning this off makes little difference there. Applies after a game restart.").c_str());
-			const bool restart_pending = input.performance_mode_restart_pending || input.depth_detection_restart_pending;
-			ImGui::PushFont(nullptr, vr_theme::font_small);
-			ImGui::GetWindowDrawList()->AddText({ settings_column_x + 36.0f, footer_row_3 + header_row_step },
-				restart_pending ? colors().changed_value : colors().text_secondary,
-				restart_pending ? "Restart the game to apply your change." : "These two apply after a game restart.");
-			ImGui::PopFont();
+			if (settings_tab)
+			{
+			// Two columns of group cards: a 20 px title, 8 px gap, then a card with 4 px top and bottom padding and 44 px rows.
+			constexpr float column_width = 476.0f;
+			constexpr float card_padding = 12.0f;
+			constexpr float group_gap = 16.0f;
+			constexpr float title_block = 28.0f;
+			const float left_x = outer_padding;
+			const float right_x = right_edge - column_width;
+			const auto card_height = [](size_t rows) { return 8.0f + settings_row_height * static_cast<float>(rows) + 2.0f * static_cast<float>(rows - 1); };
+			const auto row_top = [](float card_top, size_t row) { return card_top + 4.0f + (settings_row_height + 2.0f) * static_cast<float>(row); };
+			const auto separator_after = [&](float x, float row_y) { draw_row_separator(x, x + column_width, row_y + settings_row_height); };
+			const auto begin_card = [&](float x, float title_y, float height)
+			{
+				draw_card({ x, title_y + title_block }, { x + column_width, title_y + title_block + height });
+				return title_y + title_block;
+			};
+			const auto dropdown_row = [&](float x, float row_y, const char *label, const char *id, const char *const *options, size_t count,
+				size_t selected, const bool *disabled = nullptr)
+			{
+				draw_settings_row_label({ x + card_padding, row_y }, settings_row_height, label);
+				ImGui::SetCursorScreenPos({ x + column_width - card_padding - dropdown_width("", options, count, control_height),
+					row_y + (settings_row_height - control_height) * 0.5f });
+				return draw_dropdown(_implementation->dropdown, id, "", control_height, options, count, selected, can_click, disabled);
+			};
+			const auto switch_row = [&](float x, float row_y, const char *id, const char *label, bool on, const char *note = nullptr)
+			{
+				return draw_switch_row(id, label, on, { x + card_padding, row_y }, column_width - card_padding * 2.0f, note);
+			};
 
-			ImGui::SetCursorScreenPos({ footer_min.x, footer_row_2 });
-			const char *const starts_open_label = "UI starts open";
-			const bool starts_open_hovered = draw_tick_box("starts_open", starts_open_label, input.ui_starts_open,
-				std::ceil(tick_box_label_x + ImGui::CalcTextSize(starts_open_label).x + space_sm));
-			ImGui::SetCursorScreenPos({ ImGui::GetItemRectMax().x + space_md, footer_row_2 });
-			const dropdown_interaction gesture_choice = draw_dropdown(_implementation->dropdown, "preset_gesture", "Head gesture: ", control_height,
-				preset_gesture_names, preset_gesture_count, input.preset_gesture,
-				input.select_clicked && _implementation->dragging == implementation::drag_target::none);
-			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Head gesture: switch preset",
-				"Bring the chosen hand up to the side of your head, like switching on a head torch, and press the chosen button. "
-				"That switches to the next preset. With only one preset, it turns all effects off, and on again the next time.\n\n"
-				"L3+R3 needs no hand movement: click both thumbsticks and let go. It does nothing while the menu shortcut is "
-				"also L3+R3; with Hold L3+R3, a quick click switches preset and a long hold shows the menu.\n\n"
-				"Works only while this menu is closed. The game also receives the button press.");
 			// The game still sees every button and key press, so each choice may also do something in the game or in a mod such as UEVR.
 			const char *const shortcut_details =
 				"Shows or hides this menu. The game also receives the press.\n\n"
@@ -1605,39 +2107,116 @@ namespace openxr_ui
 				"Key: works while the game window is in front.\n\n"
 				"UEVR opens its own menu with L3+R3 and Insert, so in UEVR games pick a hold or B+Y, and End or Page Up. "
 				"Controller and key cannot both be Off.";
-			const bool interaction_free = input.select_clicked && _implementation->dragging == implementation::drag_target::none;
-			const ImVec2 shortcut_row = { footer_min.x, footer_row_3 };
-			const char *const shortcut_label = "Open UI";
-			// Lines up with the tick boxes above; the two lists share their height and baseline with the FPS target list.
-			ImGui::GetWindowDrawList()->AddText({ shortcut_row.x + 7.0f, std::floor(shortcut_row.y + (control_height - ImGui::GetFontSize()) * 0.5f) },
-				colors().text, shortcut_label);
-			ImGui::SetCursorScreenPos({ shortcut_row.x + 7.0f + ImGui::CalcTextSize(shortcut_label).x + space_md, shortcut_row.y });
-			const dropdown_interaction button_choice = draw_dropdown(_implementation->dropdown, "menu_button", "", control_height,
-				menu_button_names, menu_button_count, input.menu_button, interaction_free);
-			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Open UI: controller buttons", shortcut_details);
-			ImGui::SetCursorScreenPos({ ImGui::GetItemRectMax().x + space_sm, shortcut_row.y });
-			const dropdown_interaction key_choice = draw_dropdown(_implementation->dropdown, "menu_key", "", control_height,
-				menu_key_names, menu_key_count, input.menu_key, interaction_free);
-			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Open UI: keyboard key", shortcut_details);
 
-			if (input.select_clicked && previous_preset_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::previous_preset;
-			else if (input.select_clicked && next_preset_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::next_preset;
-			else if (input.select_clicked && save_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::save_preset;
-			else if (input.select_clicked && save_as_hovered && _implementation->dragging == implementation::drag_target::none)
+			// Left column: opening this menu.
+			float title_y = 80.0f;
+			float card_top = begin_card(left_x, title_y, card_height(3));
+			draw_group_title("Opening this menu", { left_x, title_y });
+			float row_y = row_top(card_top, 0);
+			const dropdown_interaction button_choice = dropdown_row(left_x, row_y, "Controller buttons", "menu_button",
+				menu_button_names, menu_button_count, input.menu_button);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Controller buttons", shortcut_details);
+			separator_after(left_x, row_y);
+			row_y = row_top(card_top, 1);
+			const dropdown_interaction key_choice = dropdown_row(left_x, row_y, "Keyboard key", "menu_key",
+				menu_key_names, menu_key_count, input.menu_key);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Keyboard key", shortcut_details);
+			separator_after(left_x, row_y);
+			const bool starts_open_hovered = switch_row(left_x, row_top(card_top, 2), "starts_open", "Open when the game starts", input.ui_starts_open);
+
+			// Left column: gestures. Only these display strings differ from the saved choices, which keep their order.
+			const char *gesture_options[preset_gesture_count] = { "Off", "Head Gesture: Left Trigger", "Head Gesture: Left Grip",
+				"Head Gesture: Left X", "Head Gesture: Right Trigger", "Head Gesture: Right Grip", "Head Gesture: Right A", "L3+R3" };
+			bool gesture_disabled[preset_gesture_count] = {};
+			const bool stick_gesture_enabled = stick_gesture_allowed(input.menu_button, false);
+			if (!stick_gesture_enabled)
 			{
-				_implementation->save_as_dialog_open = true;
-				_implementation->save_as_name = input.preset_name.empty() ? "New Preset" : input.preset_name + " Copy";
-				_implementation->save_as_feedback = 0;
-				_implementation->save_as_feedback_frame_count = 0;
+				gesture_disabled[preset_gesture_both_sticks] = true;
+				gesture_options[preset_gesture_both_sticks] = "L3+R3 (already opens this menu)";
 			}
-			else if (input.select_clicked && delete_preset_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::delete_preset;
-			else if (input.select_clicked && disable_all_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::toggle_all_techniques;
-			else if (button_choice.chosen && button_choice.option != input.menu_button &&
+			title_y = card_top + card_height(3) + group_gap;
+			const char *const gesture_text = "Switch to the next preset without opening the menu: hand to the side of your head + button, "
+				"or click both thumbsticks (L3+R3).";
+			ImGui::PushFont(nullptr, vr_theme::font_small);
+			const float gesture_text_height = std::ceil(ImGui::CalcTextSize(gesture_text, nullptr, false, column_width - card_padding * 2.0f).y);
+			ImGui::PopFont();
+			card_top = begin_card(left_x, title_y, 8.0f + gesture_text_height + 8.0f + settings_row_height);
+			draw_group_title("Gestures", { left_x, title_y });
+			ImGui::PushFont(nullptr, vr_theme::font_small);
+			ImGui::GetWindowDrawList()->AddText(nullptr, 0.0f, { left_x + card_padding, card_top + 8.0f }, colors().text_secondary, gesture_text,
+				nullptr, column_width - card_padding * 2.0f);
+			ImGui::PopFont();
+			const dropdown_interaction gesture_choice = dropdown_row(left_x, card_top + 8.0f + gesture_text_height + 8.0f, "Next preset", "preset_gesture",
+				gesture_options, preset_gesture_count, input.preset_gesture, gesture_disabled);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Next preset",
+				"Bring the chosen hand up to the side of your head, like switching on a head torch, and press the chosen button. "
+				"That switches to the next preset. With only one preset, it turns all effects off, and on again the next time.\n\n"
+				"L3+R3 needs no hand movement: click both thumbsticks and let go. It is not available while the menu shortcut is "
+				"also L3+R3; with Hold L3+R3, a quick click switches preset and a long hold shows the menu.\n\n"
+				"Works only while this menu is closed. The game also receives the button press.");
+
+			// Right column: FPS counter.
+			title_y = 80.0f;
+			card_top = begin_card(right_x, title_y, card_height(2));
+			draw_group_title("FPS counter", { right_x, title_y });
+			const bool statistics_hovered = switch_row(right_x, row_top(card_top, 0), "always_show_statistics", "Show when menu is closed",
+				input.always_show_statistics);
+			separator_after(right_x, row_top(card_top, 0));
+			static_assert(max_frame_rate_divisor == 3, "frame_rate_options lists one name per divisor");
+			const char *const frame_rate_options[max_frame_rate_divisor] = { "Full headset rate", "Half headset rate", "One-third headset rate" };
+			const dropdown_interaction frame_rate = dropdown_row(right_x, row_top(card_top, 1), "FPS graph target", "frame_rate_divisor",
+				frame_rate_options, max_frame_rate_divisor, input.frame_rate_divisor - 1);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "FPS graph target",
+				"Frames at this rate count as on time in the graph. It does not change the game's speed.");
+
+			// Right column: performance. Both settings are read by ReShade only at game start.
+			title_y = card_top + card_height(2) + group_gap;
+			card_top = begin_card(right_x, title_y, card_height(2));
+			draw_group_title("Performance", { right_x, title_y });
+			{
+				ImGui::PushFont(bold_font(), vr_theme::font_small);
+				const float title_width = std::ceil(ImGui::CalcTextSize("PERFORMANCE").x);
+				ImGui::GetWindowDrawList()->AddText({ right_x + title_width, title_y }, colors().warning, " \xC2\xB7 needs game restart");
+				ImGui::PopFont();
+			}
+			const std::string restart_first = "Restart the game to apply your change.\n\n";
+			const char *const restart_note = "Restart to apply";
+			row_y = row_top(card_top, 0);
+			const bool performance_hovered = switch_row(right_x, row_y, "performance_mode", "Faster shaders", input.performance_mode,
+				input.performance_mode_restart_pending ? restart_note : nullptr);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Faster shaders",
+				((input.performance_mode_restart_pending ? restart_first : std::string()) +
+				"ReShade performance mode: effects run faster, but their values can't be changed until you turn it off.").c_str());
+			separator_after(right_x, row_y);
+			const bool depth_hovered = switch_row(right_x, row_top(card_top, 1), "depth_buffer", "Enable depth-based effects",
+				!input.depth_detection_disabled, input.depth_detection_restart_pending ? restart_note : nullptr);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Enable depth-based effects",
+				((input.depth_detection_restart_pending ? restart_first : std::string()) +
+				"Needed for effects like MXAO and depth of field. Off is faster in OpenGL games.").c_str());
+
+			// Right column: look.
+			title_y = card_top + card_height(2) + group_gap;
+			card_top = begin_card(right_x, title_y, card_height(1));
+			draw_group_title("Look", { right_x, title_y });
+			const dropdown_interaction theme_choice = dropdown_row(right_x, row_top(card_top, 0), "Colour theme", "theme",
+				vr_theme::theme_names, vr_theme::theme_count, input.theme);
+
+			// Bottom line: graphics on the left, add-on version on the right.
+			{
+				char version_label[16];
+				openxr_ui::format_version_label(version_label);
+				const std::string right_text = std::string("ReShade VR UI Add-on ") + version_label;
+				ImGui::PushFont(nullptr, vr_theme::font_small);
+				const float bottom_y = display_height - outer_padding - note_height + std::floor((note_height - ImGui::GetFontSize()) * 0.5f);
+				const float right_width = std::ceil(ImGui::CalcTextSize(right_text.c_str()).x);
+				const std::string left_text = fit_text((std::string("Graphics: ") + graphics_api_label).c_str(),
+					(std::max)(0.0f, right_edge - outer_padding - right_width - space_md));
+				header_draw_list->AddText({ outer_padding, bottom_y }, colors().text_secondary, left_text.c_str());
+				header_draw_list->AddText({ right_edge - right_width, bottom_y }, colors().text_secondary, right_text.c_str());
+				ImGui::PopFont();
+			}
+
+			if (button_choice.chosen && button_choice.option != input.menu_button &&
 				!(button_choice.option == menu_button_off && input.menu_key == menu_key_off))
 			{
 				result.action = render_result::command::set_menu_button;
@@ -1649,7 +2228,8 @@ namespace openxr_ui
 				result.action = render_result::command::set_menu_key;
 				result.value = static_cast<double>(key_choice.option);
 			}
-			else if (gesture_choice.chosen && gesture_choice.option != input.preset_gesture)
+			else if (gesture_choice.chosen && gesture_choice.option != input.preset_gesture &&
+				!(gesture_choice.option == preset_gesture_both_sticks && !stick_gesture_enabled))
 			{
 				result.action = render_result::command::set_preset_gesture;
 				result.value = static_cast<double>(gesture_choice.option);
@@ -1684,84 +2264,76 @@ namespace openxr_ui
 				result.action = render_result::command::set_depth_detection_disabled;
 				result.state = !input.depth_detection_disabled;
 			}
+			}
 		}
 		else
 		{
 			const technique &selected = *selected_it;
-			const ImVec2 detail_header = ImGui::GetCursorScreenPos();
+			draw_header(&selected);
+			const ImVec2 detail_header = { outer_padding, 80.0f };
 			const float right_edge = ImGui::GetWindowWidth() - outer_padding;
-			const bool back_hovered = draw_text_button("back", "Back", { 80.0f, control_height });
-			char selected_label[320];
-			std::snprintf(selected_label, sizeof(selected_label), "%s  [%s]", selected.name.c_str(), selected.effect_name.c_str());
-			const float controls_x = right_edge - 440.0f;
-			const float title_x = detail_header.x + 80.0f + space_md;
-			const float selected_text_width = controls_x - title_x - 8.0f;
-			{
-				ImDrawList *const draw_list = ImGui::GetWindowDrawList();
-				ImGui::PushFont(bold_font(), 0.0f);
-				const std::string fitted_name = fit_text(selected.name.c_str(), selected_text_width);
-				const float title_y = std::floor(detail_header.y + (control_height - ImGui::GetFontSize()) * 0.5f);
-				draw_list->AddText({ title_x, title_y }, colors().text, fitted_name.c_str());
-				const float effect_x = title_x + ImGui::CalcTextSize(fitted_name.c_str()).x + space_sm + space_xs;
+			// Top bar: the description on the left, "Restore saved values" and "Reset this effect" on the right.
+			const auto top_button_width = [](const char *text) {
+				ImGui::PushFont(nullptr, vr_theme::font_control);
+				const float width = std::ceil(ImGui::CalcTextSize(text).x) + 32.0f;
 				ImGui::PopFont();
-				if (effect_x + 40.0f < title_x + selected_text_width)
-				{
-					ImGui::PushFont(nullptr, vr_theme::font_small);
-					const std::string fitted_effect = fit_text(selected.effect_name.c_str(), title_x + selected_text_width - effect_x);
-					draw_list->AddText({ effect_x, std::floor(detail_header.y + (control_height - ImGui::GetFontSize()) * 0.5f) + 1.0f },
-						colors().text_disabled, fitted_effect.c_str());
-					ImGui::PopFont();
-				}
-			}
-			draw_hover_details({ title_x, detail_header.y }, { title_x + selected_text_width, detail_header.y + control_height }, selected_label, selected.tooltip.c_str());
-			ImGui::SetCursorScreenPos({ controls_x, detail_header.y });
-			const bool toggle_hovered = draw_text_button("toggle", selected.enabled ? "Disable" : "Enable", { 104.0f, control_height });
-			ImGui::SetCursorScreenPos({ controls_x + 112.0f, detail_header.y });
-			const bool reset_all_hovered = draw_text_button("reset_all", "Reset All", { 120.0f, control_height });
-			ImGui::SetCursorScreenPos({ controls_x + 240.0f, detail_header.y });
-			const bool revert_restore_hovered = draw_text_button("revert_restore", selected.has_restore_state ? "Restore" : "Revert", { 104.0f, control_height },
+				return width;
+			};
+			// The reset button keeps the width of its longer, armed label so it does not jump when pressed once.
+			const float reset_width = (std::max)(top_button_width("Reset this effect"), top_button_width("Press again to reset"));
+			const float restore_width = top_button_width("Restore saved values");
+			const float reset_x = right_edge - reset_width;
+			const float restore_x = reset_x - space_sm - restore_width;
+			const bool reset_armed = _implementation->reset_armed;
+			ImGui::SetCursorScreenPos({ restore_x, detail_header.y });
+			const bool revert_restore_hovered = draw_text_button("revert_restore", "Restore saved values", { restore_width, control_height },
 				(selected.has_restore_state || selected.differs_from_saved) && !input.shaders_temporarily_disabled);
-			ImGui::SetCursorScreenPos({ controls_x + 352.0f, detail_header.y });
-			const char *const save_label = input.preset_dirty ? "Save" : _implementation->save_feedback > 0 ? "Saved" : _implementation->save_feedback < 0 ? "Failed" : "Save";
-			const button_tone save_tone = input.preset_dirty ? button_tone::primary :
-				_implementation->save_feedback > 0 ? button_tone::success :
-				_implementation->save_feedback < 0 ? button_tone::danger : button_tone::neutral;
-			const bool save_hovered = draw_text_button("save", save_label, { 88.0f, control_height }, true, save_tone);
-			if (input.select_clicked && back_hovered && _implementation->dragging == implementation::drag_target::none)
+			draw_hover_help("Restore saved values", "Go back to the values saved in the preset");
+			ImGui::SetCursorScreenPos({ reset_x, detail_header.y });
+			const bool reset_all_hovered = draw_text_button("reset_all", reset_armed ? "Press again to reset" : "Reset this effect",
+				{ reset_width, control_height }, true, reset_armed ? button_tone::danger : button_tone::neutral);
+			draw_hover_help("Reset this effect", "Set every value of this effect to its default. Press twice to confirm.");
+			if (!selected.tooltip.empty())
 			{
-				_implementation->selected_technique = 0;
-				_implementation->parameter_scroll = 0;
+				ImGui::PushFont(nullptr, vr_theme::font_small);
+				const float description_width = restore_x - space_md - detail_header.x;
+				const std::string fitted_description = fit_text(selected.tooltip.c_str(), description_width);
+				ImGui::GetWindowDrawList()->AddText({ detail_header.x, std::floor(detail_header.y + (control_height - ImGui::GetFontSize()) * 0.5f) },
+					colors().text_secondary, fitted_description.c_str());
+				ImGui::PopFont();
+				draw_hover_details({ detail_header.x, detail_header.y }, { detail_header.x + description_width, detail_header.y + control_height },
+					selected.tooltip.c_str());
 			}
-			else if (input.select_clicked && toggle_hovered && _implementation->dragging == implementation::drag_target::none)
+			if (input.select_clicked && reset_all_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
-				result.action = render_result::command::toggle_technique;
-				result.target_id = selected.id;
-			}
-			else if (input.select_clicked && reset_all_hovered && _implementation->dragging == implementation::drag_target::none)
-			{
-				result.action = render_result::command::reset_all_parameters;
-				result.target_id = selected.id;
+				if (!_implementation->reset_armed)
+				{
+					_implementation->reset_armed = true;
+					_implementation->reset_armed_frames = 0;
+				}
+				else
+				{
+					_implementation->reset_armed = false;
+					result.action = render_result::command::reset_all_parameters;
+					result.target_id = selected.id;
+				}
 			}
 			else if (input.select_clicked && revert_restore_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				result.action = selected.has_restore_state ? render_result::command::restore_technique : render_result::command::revert_technique;
 				result.target_id = selected.id;
 			}
-			else if (input.select_clicked && save_hovered && _implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::save_preset;
 
-			// One line each for the effect description and the performance-mode note; the full text shows on hover.
+			// The performance-mode note, when it applies, takes one line above the list; the full text shows on hover.
 			float content_y = detail_header.y + control_height + space_md;
 			const auto draw_note_line = [&](const char *text, ImU32 color) {
 				ImGui::PushFont(nullptr, vr_theme::font_small);
 				const std::string fitted = fit_text(text, right_edge - detail_header.x);
-				ImGui::GetWindowDrawList()->AddText({ detail_header.x, content_y }, color, fitted.c_str());
+				ImGui::GetWindowDrawList()->AddText({ detail_header.x, content_y - space_xs }, color, fitted.c_str());
 				ImGui::PopFont();
-				draw_hover_details({ detail_header.x, content_y }, { right_edge, content_y + note_height }, text);
+				draw_hover_details({ detail_header.x, content_y - space_xs }, { right_edge, content_y - space_xs + note_height }, text);
 				content_y += note_height + space_sm;
 			};
-			if (!selected.tooltip.empty())
-				draw_note_line(selected.tooltip.c_str(), colors().text_secondary);
 			if (input.performance_mode_active)
 				draw_note_line(input.performance_mode ?
 					"Performance mode is on, so this effect's values are fixed and cannot be shown. "
@@ -1782,23 +2354,28 @@ namespace openxr_ui
 						components.push_back({ &entry, component });
 
 			const ImVec2 list_min = ImGui::GetCursorScreenPos();
-			const float list_height = display_height - outer_padding - detail_footer_height - space_md - list_min.y;
-			const size_t visible_parameters = std::max<size_t>(1, static_cast<size_t>((list_height + list_row_gap) / (list_row_height + list_row_gap)));
-			const float row_height = std::floor((list_height - list_row_gap * static_cast<float>(visible_parameters - 1)) / static_cast<float>(visible_parameters));
+			// Bottom bar: 48 tall, ending 8 px above the bottom line; the list stops 16 px above it.
+			constexpr float bottom_bar_height = 48.0f;
+			const float bottom_bar_top = display_height - outer_padding - note_height - space_sm - bottom_bar_height;
+			const float list_height = bottom_bar_top - space_md - list_min.y;
+			constexpr float parameter_row_height = 44.0f;
+			constexpr float parameter_row_gap = 4.0f;
+			const size_t visible_parameters = std::max<size_t>(1, static_cast<size_t>((list_height + parameter_row_gap) / (parameter_row_height + parameter_row_gap)));
+			const float row_height = parameter_row_height;
 			const size_t maximum_scroll = components.size() > visible_parameters ? components.size() - visible_parameters : 0;
 			_implementation->parameter_scroll = (std::min)(_implementation->parameter_scroll, maximum_scroll);
 			_implementation->update_joystick_scroll(input.scroll_y, _implementation->parameter_scroll, maximum_scroll);
-			const float row_width = ImGui::GetContentRegionAvail().x - scrollbar_width - space_sm;
+			// The scroll bar only takes room when the rows do not fit.
+			const float row_width = right_edge - list_min.x - (maximum_scroll > 0 ? scrollbar_width + space_sm : 0.0f);
 			const size_t first = _implementation->parameter_scroll;
 			const size_t last = (std::min)(first + visible_parameters, components.size());
-			for (size_t index = first; index < first + visible_parameters; ++index)
+			for (size_t index = first; index < last; ++index)
 			{
 				ImGui::PushID(static_cast<int>(index));
+				set_control_row_prefix("param", index - first);
 				const ImVec2 row_min = ImGui::GetCursorScreenPos();
 				const ImVec2 row_max = { row_min.x + row_width, row_min.y + row_height };
-				if (index < last)
-					ImGui::GetWindowDrawList()->AddRectFilled(row_min, row_max, colors().surface, vr_theme::radius_md);
-				if (index < last)
+				ImGui::GetWindowDrawList()->AddRectFilled(row_min, row_max, colors().surface, vr_theme::radius_md);
 				{
 					const component_reference &reference = components[index];
 					const parameter &entry = *reference.entry;
@@ -1808,13 +2385,26 @@ namespace openxr_ui
 					else
 						std::snprintf(label, sizeof(label), "%s [%u]", entry.name.c_str(), reference.component + 1);
 					// One line per value: name, slider, value, step buttons, reset. Columns are fixed so every row lines up.
-					constexpr float label_width = 232.0f;
-					const float control_y = row_min.y + space_xs;
-					const float control_size = row_height - space_xs * 2.0f;
+					constexpr float label_width = 300.0f;
+					constexpr float value_width = 64.0f;
+					constexpr float steps_width = 44.0f + 36.0f + 36.0f + 44.0f + space_xs * 3.0f;
+					const float control_y = row_min.y + (row_height - control_height) * 0.5f;
+					const float control_size = control_height;
+					const float reset_icon_x = row_max.x - space_md - control_height;
+					const float steps_x = reset_icon_x - space_md - steps_width;
+					const float value_x = steps_x - space_md - value_width;
 					const ImVec2 label_min = { row_min.x + space_md, row_min.y };
 					const ImVec2 label_max = { label_min.x + label_width, row_max.y };
-					const std::string fitted_label = fit_text(label, label_max.x - label_min.x);
 					const bool changed_from_default = openxr_ui::component_differs_from_default(entry, reference.component);
+					// A value that differs from the default gets a "Changed" badge after its name, so the name leaves room for it.
+					float badge_width = 0.0f;
+					if (changed_from_default)
+					{
+						ImGui::PushFont(nullptr, vr_theme::font_small);
+						badge_width = space_sm + 16.0f + std::ceil(ImGui::CalcTextSize("Changed").x);
+						ImGui::PopFont();
+					}
+					const std::string fitted_label = fit_text(label, label_width - badge_width);
 
 					char value_text[64];
 					if (entry.type == parameter_type::boolean)
@@ -1830,7 +2420,7 @@ namespace openxr_ui
 						static_cast<float>((entry.default_values[reference.component] - entry.minimum) / (entry.maximum - entry.minimum)) : -1.0f;
 					const float slider_x = label_max.x + space_md;
 					ImGui::SetCursorScreenPos({ slider_x, control_y });
-					const slider_interaction value_slider = draw_slider("value_slider", { row_max.x - 352.0f - slider_x, control_size }, slider_fraction, has_slider, default_fraction);
+					const slider_interaction value_slider = draw_slider("slider", { value_x - space_md - slider_x, control_size }, slider_fraction, has_slider, default_fraction);
 					if (input.select_clicked && value_slider.hovered && _implementation->dragging == implementation::drag_target::none)
 					{
 						_implementation->dragging = implementation::drag_target::value_slider;
@@ -1840,29 +2430,33 @@ namespace openxr_ui
 					}
 
 					const ImVec2 value_size = ImGui::CalcTextSize(value_text);
-					ImGui::GetWindowDrawList()->AddText({ row_max.x - 280.0f - value_size.x, std::floor(control_y + (control_size - ImGui::GetFontSize()) * 0.5f) },
+					ImGui::GetWindowDrawList()->AddText({ value_x + value_width - value_size.x, std::floor(row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f) },
 						changed_from_default ? colors().changed_value : colors().text_secondary, value_text);
 
 					bool coarse_decrease_hovered = false;
 					bool decrease_hovered = false;
 					bool increase_hovered = false;
 					bool coarse_increase_hovered = false;
-					ImGui::SetCursorScreenPos({ row_max.x - 268.0f, control_y });
+					ImGui::SetCursorScreenPos({ steps_x, control_y });
 					if (entry.type == parameter_type::boolean)
-						increase_hovered = draw_text_button("change", "Toggle", { 104.0f, control_size });
+					{
+						// The switch sits at the right end of the step-button column and sends the same command Toggle did.
+						ImGui::SetCursorScreenPos({ steps_x + steps_width - switch_track_width, control_y });
+						increase_hovered = draw_switch("switch", entry.values[reference.component] != 0.0, { switch_track_width, control_size });
+					}
 					else
 					{
-						coarse_decrease_hovered = draw_text_button("coarse_decrease", "-10x", { 56.0f, control_size });
-						ImGui::SetCursorScreenPos({ row_max.x - 204.0f, control_y });
-						decrease_hovered = draw_text_button("decrease", "-", { 40.0f, control_size });
-						ImGui::SetCursorScreenPos({ row_max.x - 156.0f, control_y });
-						increase_hovered = draw_text_button("increase", "+", { 40.0f, control_size });
-						ImGui::SetCursorScreenPos({ row_max.x - 108.0f, control_y });
-						coarse_increase_hovered = draw_text_button("coarse_increase", "+10x", { 56.0f, control_size });
+						coarse_decrease_hovered = draw_text_button("minus10", "-10x", { 44.0f, control_size });
+						ImGui::SetCursorScreenPos({ steps_x + 48.0f, control_y });
+						decrease_hovered = draw_text_button("minus", "-", { 36.0f, control_size });
+						ImGui::SetCursorScreenPos({ steps_x + 88.0f, control_y });
+						increase_hovered = draw_text_button("plus", "+", { 36.0f, control_size });
+						ImGui::SetCursorScreenPos({ steps_x + 128.0f, control_y });
+						coarse_increase_hovered = draw_text_button("plus10", "+10x", { 44.0f, control_size });
 					}
-					ImGui::SetCursorScreenPos({ row_max.x - 44.0f, control_y });
+					ImGui::SetCursorScreenPos({ reset_icon_x, control_y });
 					const bool can_reset = entry.resettable && changed_from_default;
-					const bool reset_hovered = draw_reset_button("reset", { 40.0f, control_size }, can_reset);
+					const bool reset_hovered = draw_reset_button("reset", { control_height, control_size }, can_reset);
 					if (reset_hovered && ImGui::BeginTooltip())
 					{
 						char default_text[64] = "";
@@ -1909,18 +2503,30 @@ namespace openxr_ui
 							result.target_id = entry.id;
 						}
 					}
-					ImGui::GetWindowDrawList()->AddText({ label_min.x, std::floor(row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f) },
+					const float name_y = std::floor(row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f);
+					ImGui::GetWindowDrawList()->AddText({ label_min.x, name_y },
 						changed_from_default ? colors().changed_value : colors().text, fitted_label.c_str());
+					if (changed_from_default)
+					{
+						ImGui::PushFont(nullptr, vr_theme::font_small);
+						const float small_height = ImGui::GetFontSize();
+						ImGui::PopFont();
+						draw_status_dot_text(ImGui::GetWindowDrawList(),
+							{ label_min.x + std::ceil(ImGui::CalcTextSize(fitted_label.c_str()).x) + space_sm, std::floor(row_min.y + (row_height - small_height) * 0.5f) },
+							colors().changed_value, "Changed");
+					}
 					draw_hover_details(label_min, label_max, label, entry.tooltip.c_str());
 				}
-				ImGui::SetCursorScreenPos({ row_min.x, row_max.y + list_row_gap });
+				ImGui::SetCursorScreenPos({ row_min.x, row_max.y + parameter_row_gap });
 				ImGui::PopID();
+				clear_control_prefix();
 			}
 
-			const ImVec2 footer_min = { list_min.x, list_min.y + list_height + space_md };
+			if (maximum_scroll > 0)
+			{
 			ImGui::SetCursorScreenPos({ list_min.x + row_width + space_sm, list_min.y });
-			const float scroll_fraction = maximum_scroll > 0 ? static_cast<float>(_implementation->parameter_scroll) / static_cast<float>(maximum_scroll) : 0.0f;
-			const slider_interaction scroll_slider = draw_vertical_slider("parameter_scroll", { scrollbar_width, list_height }, scroll_fraction, maximum_scroll > 0);
+			const float scroll_fraction = static_cast<float>(_implementation->parameter_scroll) / static_cast<float>(maximum_scroll);
+			const slider_interaction scroll_slider = draw_vertical_slider("parameter_scroll", { scrollbar_width, list_height }, scroll_fraction, true);
 			if (input.select_clicked && scroll_slider.hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				_implementation->dragging = implementation::drag_target::parameter_scroll;
@@ -1934,26 +2540,56 @@ namespace openxr_ui
 					(io.MousePos.y - _implementation->drag_start_pointer) / list_height * 0.9f, 0.0f, 1.0f);
 				_implementation->parameter_scroll = static_cast<size_t>(std::round(drag_fraction * static_cast<float>(maximum_scroll)));
 			}
+			}
+
+			// Bottom bar: the preset name and its unsaved state on the left, "Save preset" on the right.
+			{
+				ImDrawList *const bar_list = ImGui::GetWindowDrawList();
+				const ImVec2 bar_min = { detail_header.x, bottom_bar_top };
+				const ImVec2 bar_max = { right_edge, bottom_bar_top + bottom_bar_height };
+				bar_list->AddRectFilled(bar_min, bar_max, colors().inset, vr_theme::radius_md);
+				const float bar_button_y = bar_min.y + space_sm;
+				ImGui::PushFont(nullptr, vr_theme::font_control);
+				const float save_width = std::ceil(ImGui::CalcTextSize("Save preset").x) + 32.0f;
+				ImGui::PopFont();
+				const float save_x = bar_max.x - space_sm - save_width;
+				const char *const save_label = input.preset_dirty ? "Save preset" : _implementation->save_feedback > 0 ? "Saved" : _implementation->save_feedback < 0 ? "Failed" : "Save preset";
+				const button_tone save_tone = input.preset_dirty ? button_tone::primary :
+					_implementation->save_feedback > 0 ? button_tone::success :
+					_implementation->save_feedback < 0 ? button_tone::danger : button_tone::neutral;
+				ImGui::SetCursorScreenPos({ save_x, bar_button_y });
+				const bool save_hovered = draw_text_button("save", save_label, { save_width, control_height }, !input.shaders_temporarily_disabled, save_tone);
+				if (input.select_clicked && save_hovered && result.action == render_result::command::none && _implementation->dragging == implementation::drag_target::none)
+					result.action = render_result::command::save_preset;
+
+				const char *const preset_name = input.preset_name.empty() ? "No preset" : input.preset_name.c_str();
+				float text_x = bar_min.x + space_sm;
+				ImGui::PushFont(nullptr, vr_theme::font_body);
+				const float body_height = ImGui::GetFontSize();
+				bar_list->AddText({ text_x, std::floor(bar_min.y + (bottom_bar_height - body_height) * 0.5f) }, colors().text_secondary, "Preset");
+				text_x += std::ceil(ImGui::CalcTextSize("Preset").x) + space_sm;
+				ImGui::PopFont();
+				float dirty_width = 0.0f;
+				ImGui::PushFont(nullptr, vr_theme::font_small);
+				const float small_height = ImGui::GetFontSize();
+				if (input.preset_dirty)
+					dirty_width = 16.0f + std::ceil(ImGui::CalcTextSize("Unsaved changes").x);
+				ImGui::PopFont();
+				ImGui::PushFont(bold_font(), vr_theme::font_body);
+				const float name_limit = save_x - space_md - text_x - (input.preset_dirty ? dirty_width + space_md : 0.0f);
+				const std::string fitted_name = fit_text(preset_name, (std::max)(0.0f, name_limit));
+				bar_list->AddText({ text_x, std::floor(bar_min.y + (bottom_bar_height - ImGui::GetFontSize()) * 0.5f) }, colors().text, fitted_name.c_str());
+				text_x += std::ceil(ImGui::CalcTextSize(fitted_name.c_str()).x) + space_md;
+				ImGui::PopFont();
+				if (input.preset_dirty)
+					draw_status_dot_text(bar_list, { text_x, std::floor(bar_min.y + (bottom_bar_height - small_height) * 0.5f) }, colors().warning, "Unsaved changes");
+			}
 
 			{
-				char footer_text[96];
-				std::snprintf(footer_text, sizeof(footer_text), "%zu values  \xC2\xB7  %s", components.size(), graphics_api_label);
-				ImGui::PushFont(nullptr, vr_theme::font_small);
-				ImGui::GetWindowDrawList()->AddText({ footer_min.x, std::floor(footer_min.y + (control_height - ImGui::GetFontSize()) * 0.5f) },
-					colors().text_secondary, footer_text);
-				ImGui::PopFont();
+				char values_text[32];
+				std::snprintf(values_text, sizeof(values_text), "%zu values", components.size());
+				draw_api_version_line(ImGui::GetWindowDrawList(), values_text, graphics_api_label, display_height, right_edge);
 			}
-			ImGui::SetCursorScreenPos({ right_edge - control_height - space_sm - 96.0f, footer_min.y });
-			const bool pin_hovered = draw_text_button("pin", "Pin UI", { 96.0f, control_height }, true,
-				input.panel_locked ? button_tone::toggled : button_tone::neutral);
-			ImGui::SetCursorScreenPos({ right_edge - control_height, footer_min.y });
-			const bool expand_hovered = draw_panel_size_button(input.expanded);
-			if (result.action == render_result::command::none && input.select_clicked && expand_hovered &&
-				_implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::toggle_panel_size;
-			else if (result.action == render_result::command::none && input.select_clicked && pin_hovered &&
-				_implementation->dragging == implementation::drag_target::none)
-				result.action = render_result::command::toggle_panel_lock;
 		}
 
 		if (_implementation->save_feedback_frame_count != 0)
