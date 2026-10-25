@@ -12,7 +12,7 @@ Adds a menu inside your VR headset for ReShade effects. Turn effects on and off,
 | --- | --- |
 | OpenXR VR game, or Unreal game played in VR with UEVR | [OpenXR and UEVR](tools/reshade-openxr-ui/INSTALL.md) |
 | SteamVR game | [SteamVR](tools/reshade-openxr-ui/INSTALL-SteamVR.md) |
-| Vulkan or 32-bit VR game | [Vulkan and 32-bit](tools/reshade-openxr-ui/INSTALL-Vulkan-32bit.md) (nothing to download) |
+| Vulkan or 32-bit VR game | [Vulkan and 32-bit](tools/reshade-openxr-ui/INSTALL-Vulkan-32bit.md) |
 
 Not sure? See [Which type is my game?](#which-type-is-my-game)
 

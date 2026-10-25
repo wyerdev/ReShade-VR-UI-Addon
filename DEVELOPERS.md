@@ -159,14 +159,13 @@ its own install guide, renamed to `INSTALL.md`:
 sets. Local builds leave it empty, so their ZIPs have no version. The unpacked
 folders next to the ZIPs never get the suffix, because `install.bat` uses them.
 
-The release page text is built by `tools\release\New-ReleaseNotes.ps1`: first
-`tools\reshade-openxr-ui\RELEASE_NOTES.md` (which ZIP to download; its
+The release page text is built by `tools\release\New-ReleaseNotes.ps1` from
+`tools\reshade-openxr-ui\RELEASE_NOTES.md`: a download table (its
 `{{OPENXR_DOWNLOAD}}` and `{{STEAMVR_DOWNLOAD}}` placeholders become direct
-links to this release's ZIPs), then each install guide's quick steps with the
-rest of the guide as a fold-out section,
-so users find the download and the steps on one page while the steps are still
-written in one place. The System-Wide SteamVR Listener is not part of the
-release for now.
+links to this release's ZIPs) with a link to each install guide at this
+release's tag, then the features with menu pictures, the changelog and the
+checksums. The steps are written only in the install guides. The System-Wide
+SteamVR Listener is not part of the release for now.
 
 The README's download button opens the newest release page, not a file:
 GitHub's "newest file" link (`releases/latest/download/<name>`) only works when

@@ -8,7 +8,7 @@
 2. SteamVR games: put [`ReShadeVR.ini`](https://github.com/wyerdev/ReShade-VR-UI-Addon/blob/main/tools/reshade-openxr-ui/ReShadeVR.ini) next to the game's `.exe`.
 3. Open the menu with the controller's menu button, then click the ReShade icon.
 
-![The ReShade icon in the SteamVR dashboard, with ReShade's menu open above it](https://raw.githubusercontent.com/wyerdev/ReShade-VR-UI-Addon/main/tools/reshade-openxr-ui/images/steamvr-dashboard-reshade-icon.png)
+![The ReShade icon in the SteamVR dashboard, with ReShade's menu open above it](images/steamvr-dashboard-reshade-icon.png)
 
 <details><summary><b>Step by step</b></summary>
 

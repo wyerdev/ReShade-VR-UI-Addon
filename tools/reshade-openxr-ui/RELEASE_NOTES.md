@@ -1,10 +1,10 @@
 ## Download
 
-| Your game | Download |
-| --- | --- |
-| OpenXR VR game, or Unreal game played in VR with UEVR | {{OPENXR_DOWNLOAD}} |
-| SteamVR game | {{STEAMVR_DOWNLOAD}} |
-| Vulkan or 32-bit VR game | Nothing to download |
+| Your game | Download | Install steps |
+| --- | --- | --- |
+| OpenXR VR game, or Unreal game played in VR with UEVR | {{OPENXR_DOWNLOAD}} | [OpenXR and UEVR](https://github.com/{{REPOSITORY}}/blob/{{TAG}}/tools/reshade-openxr-ui/INSTALL.md) |
+| SteamVR game | {{STEAMVR_DOWNLOAD}} | [SteamVR](https://github.com/{{REPOSITORY}}/blob/{{TAG}}/tools/reshade-openxr-ui/INSTALL-SteamVR.md) |
+| Vulkan or 32-bit VR game | **[⬇ ReShadeVR.ini](https://github.com/{{REPOSITORY}}/blob/{{TAG}}/tools/reshade-openxr-ui/ReShadeVR.ini)** (SteamVR games only) | [Vulkan and 32-bit](https://github.com/{{REPOSITORY}}/blob/{{TAG}}/tools/reshade-openxr-ui/INSTALL-Vulkan-32bit.md) |
 
 Not sure which type your game is? Try OpenXR first. If the menu doesn't show up in the headset, it's probably a SteamVR game. Games played with UEVR are OpenXR.
 
