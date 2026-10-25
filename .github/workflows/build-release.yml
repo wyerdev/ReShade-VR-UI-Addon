@@ -104,7 +104,7 @@ jobs:
             -ChecksumsFile build/reshade-openxr-ui-release/SHA256SUMS.txt `
             -Tag '${{ steps.info.outputs.tag }}' -AssetSuffix '${{ steps.info.outputs.asset_suffix }}' `
             -Repository '${{ github.repository }}'
-          $zips = (Get-ChildItem -LiteralPath build/reshade-openxr-ui-release -Filter 'ReShade-VR-UI-Addon-*.zip' -File).FullName
+          $zips = @((Get-ChildItem -LiteralPath build/reshade-openxr-ui-release -Filter 'ReShade-VR-UI-Addon-*.zip' -File).FullName)
           gh release create '${{ steps.info.outputs.tag }}' `
             --target '${{ github.sha }}' `
             --title '${{ steps.info.outputs.title }}' `

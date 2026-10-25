@@ -23,7 +23,7 @@ PENDING and DECISION are always last. When nothing is broken, running, queued, p
 
 ## Commit Message
 
-When the turn's changes are ready to commit, the PENDING commit item must include the commit message (written as [commit-messages.instructions.md](commit-messages.instructions.md) describes) in a fenced code block.
+Before writing the report, run `git status --short`. Only when it lists changes ready to commit does PENDING get a commit item, with the commit message (written as [commit-messages.instructions.md](commit-messages.instructions.md) describes) in a fenced code block. When it lists nothing, give no commit item and no commit message.
 
 ## Sort By Who Acts Next
 
