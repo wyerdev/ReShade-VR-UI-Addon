@@ -190,8 +190,11 @@ Releases are made by GitHub Actions
 - The release text is `RELEASE_NOTES.md`, the install guides, then the
   changelog. The changelog lists only commits written as
   [Conventional Commits](https://www.conventionalcommits.org) (`feat: ...`,
-  `fix: ...`, `docs: ...` and so on); other commit messages are left out.
-  Players read this list, so write the first line of a commit message as what
+  `fix: ...` and so on); `docs:` commits and other commit messages are left
+  out.
+  It covers every commit since the last release that still exists on GitHub,
+  so deleting releases folds their changes into the next one. The release
+  number still counts up from the highest `vN` tag. Players read this list, so write the first line of a commit message as what
   they notice, in everyday words: `fix: download links on the release page
   work again`, not `fix: download names without brackets`.
 - Each release also has `SHA256SUMS.txt`, a SHA-256 checksum (a fingerprint

@@ -1,10 +1,15 @@
-# Works out the next release number and the changelog from Conventional Commits since the last vN tag.
+# Works out the next release number and the changelog from Conventional Commits.
+# The release number follows the highest vN tag. The changelog starts at the last vN tag that still
+# has a published release (-ReleasedTags), so deleting releases folds their changes into the next one.
+# Without -ReleasedTags every vN tag counts as released.
 # Whether to release is decided by the workflow (every push to main unless "(Skip)"), not here.
-# Commits without a conventional prefix are left out of the changelog.
+# Documentation commits and commits without a conventional prefix are left out of the changelog.
 param(
 	[string]$Head = 'HEAD',
 	[string]$NotesFile,
-	[datetime]$Date = [datetime]::UtcNow
+	[datetime]$Date = [datetime]::UtcNow,
+	[AllowEmptyCollection()]
+	[string[]]$ReleasedTags
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,18 +23,25 @@ function Invoke-GitRead([string[]]$Arguments) {
 	return [pscustomobject]@{ ExitCode = $exitCode; Output = @($output) }
 }
 
-$lastTag = $null
+$filterReleased = $PSBoundParameters.ContainsKey('ReleasedTags')
+$released = [System.Collections.Generic.HashSet[string]]::new([string[]]@($ReleasedTags | Where-Object { $_ }))
+
 $lastNumber = 0
+$lastReleasedTag = $null
+$lastReleasedNumber = 0
 $tags = Invoke-GitRead @('tag', '--list', 'v*', '--merged', $Head)
 foreach ($tag in $tags.Output) {
 	$name = "$tag".Trim()
-	if ($name -match '^v(\d+)$' -and [int]$Matches[1] -gt $lastNumber) {
-		$lastNumber = [int]$Matches[1]
-		$lastTag = $name
+	if ($name -notmatch '^v(\d+)$') { continue }
+	$tagNumber = [int]$Matches[1]
+	if ($tagNumber -gt $lastNumber) { $lastNumber = $tagNumber }
+	if ((-not $filterReleased -or $released.Contains($name)) -and $tagNumber -gt $lastReleasedNumber) {
+		$lastReleasedNumber = $tagNumber
+		$lastReleasedTag = $name
 	}
 }
 
-$range = if ($lastTag) { "$lastTag..$Head" } else { $Head }
+$range = if ($lastReleasedTag) { "$lastReleasedTag..$Head" } else { $Head }
 $log = Invoke-GitRead @('log', '--no-merges', '--format=%H%x1f%s%x1f%b%x1e', $range)
 if ($log.ExitCode -ne 0) {
 	throw "git log failed for range $range."
@@ -41,7 +53,6 @@ $sections = [ordered]@{
 	fix      = 'Fixes'
 	perf     = 'Performance'
 	revert   = 'Reverted'
-	docs     = 'Documentation'
 	refactor = 'Code clean-up'
 	build    = 'Build'
 	ci       = 'Build automation'
@@ -71,7 +82,7 @@ foreach ($record in (($log.Output -join "`n") -split [char]0x1e)) {
 	if ($match.Groups['bang'].Success -or $body -match '(?m)^BREAKING[ -]CHANGE:') {
 		$type = 'breaking'
 	}
-	$entries[$type].Add("- $description ($($hash.Substring(0, 7)))")
+	$entries[$type].Add("- $description ($($hash.Substring(0, 7)))")
 }
 
 $notes = [System.Text.StringBuilder]::new()
@@ -89,7 +100,7 @@ if ($NotesFile) {
 $number = $lastNumber + 1
 $day = $Date.ToString('yyyy-MM-dd')
 [pscustomobject]@{
-	LastTag     = $lastTag
+	LastTag     = $lastReleasedTag
 	Number      = $number
 	Tag         = "v$number"
 	Title       = "v$number ($day)"

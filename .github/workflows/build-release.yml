@@ -1,6 +1,6 @@
 name: Build and release
 
-# Every push to main builds the add-on and publishes a GitHub Release tagged vN (N = previous release + 1).
+# Every push to main builds the add-on and publishes a GitHub Release tagged vN (N = highest vN tag + 1).
 # A push whose last commit has "(Skip)" in its first line (any letter case) does not build or release.
 # Only the first line counts, so a message body that mentions (Skip) does not skip the release.
 # Nothing is ever built without being released.
@@ -49,8 +49,15 @@ jobs:
       - name: Work out version and changelog
         id: info
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $info = & tools/release/Get-ReleaseInfo.ps1 -NotesFile changelog.md
+          # The changelog starts at the last release that still exists, not at the last tag,
+          # so deleted releases are folded into this one.
+          $released = @(gh release list --limit 1000 --exclude-drafts --json tagName --jq '.[].tagName')
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list GitHub releases.' }
+          $info = & tools/release/Get-ReleaseInfo.ps1 -NotesFile changelog.md -ReleasedTags $released
+          Write-Host "Changelog since $(if ($info.LastTag) { $info.LastTag } else { 'the first commit' })"
           "tag=$($info.Tag)" >> $env:GITHUB_OUTPUT
           "title=$($info.Title)" >> $env:GITHUB_OUTPUT
           "file_version=$($info.FileVersion)" >> $env:GITHUB_OUTPUT

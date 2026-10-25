@@ -35,8 +35,12 @@ if ($top -match '\{\{') {
 
 $sections = @($top)
 if ($ChangelogFile) {
-	$sections += '## What Changed'
-	$sections += Read-Text $ChangelogFile
+	# Empty when the release has only documentation changes.
+	$changelog = Read-Text $ChangelogFile
+	if ($changelog) {
+		$sections += '## What Changed'
+		$sections += $changelog
+	}
 }
 if ($ChecksumsFile) {
 	$sections += '## SHA-256 Checksums'
