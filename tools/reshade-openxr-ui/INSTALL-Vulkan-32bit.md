@@ -6,7 +6,7 @@
 
 1. For each game, install ReShade. **Tick** the **OpenXR** layer only for OpenXR games.
 2. SteamVR games: put [`ReShadeVR.ini`](https://github.com/wyerdev/ReShade-VR-UI-Addon/blob/main/tools/reshade-openxr-ui/ReShadeVR.ini) next to the game's `.exe`.
-3. Open the menu with the controller's menu button, then click the ReShade icon.
+3. In the SteamVR dashboard, click the ReShade icon with your controller.
 
 ![The ReShade icon in the SteamVR dashboard, with ReShade's menu open above it](images/steamvr-dashboard-reshade-icon.png)
 
@@ -17,7 +17,7 @@
 1. Download ReShade from [reshade.me](https://reshade.me/).
 2. Run ReShade Setup and pick the game's `.exe`. Choose the graphics type the game uses (Vulkan or DirectX). **Tick** the **OpenXR** layer only for OpenXR games.
 3. SteamVR games: [download `ReShadeVR.ini`](https://github.com/wyerdev/ReShade-VR-UI-Addon/blob/main/tools/reshade-openxr-ui/ReShadeVR.ini) (click the download button on that page) and put it in the game folder, next to the game's `.exe`. If the game already has a `ReShadeVR.ini`, keep that one.
-4. SteamVR games: start the game. In the headset, press the controller's menu button and click the ReShade icon.
+4. SteamVR games: start the game. In the SteamVR dashboard, click the ReShade icon with your controller.
 
 </details>
 
