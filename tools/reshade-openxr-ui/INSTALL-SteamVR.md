@@ -12,22 +12,21 @@ For each game, pick one way:
 
 ### Way 1: With The Add-on (Automatic)
 
-For 64-bit DirectX 11 and 12 games. Adds extras, like opening the menu by itself and drawing effects only in the headset.
+For 64-bit DirectX 11 and 12 games. Adds extras, like drawing effects only in the headset.
 
 1. Install ReShade **with full add-on support** and leave the **OpenXR** layer **unticked**.
 2. Copy `ReShade-SteamVR-UI.addon64` next to the game's `.exe`.
-3. The menu opens by itself in the headset.
+3. Open the menu with the controller's menu button, then click the ReShade icon.
 
 <details><summary><b>Step by step</b></summary>
 
 1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
 2. Run ReShade Setup and pick the game's `.exe`. Choose **DirectX 10/11/12**. Leave the **OpenXR** layer **unticked**.
 3. Extract the ZIP. Copy `ReShade-SteamVR-UI.addon64` into the game folder, next to the game's `.exe`.
-4. Start the game. ReShade's menu opens in the headset by itself.
+4. Start the game. In the headset, press the controller's menu button and click the ReShade icon.
 
 Extras you get:
 
-- ReShade's menu opens by itself.
 - Effects are drawn only in the headset, not also on the monitor, which can save FPS.
 - Preset changes no longer flip back and forth between the monitor and the headset.
 - Smaller menu text, so the menu doesn't look zoomed in.
