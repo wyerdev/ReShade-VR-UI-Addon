@@ -1,17 +1,25 @@
 # ReShade In SteamVR Games
 
-In SteamVR games, ReShade has its own menu in the SteamVR dashboard: press the controller's menu button and click the ReShade icon. **The icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.** This download includes that file. You set up each game separately.
+**Download:** [newest version](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest) (the file starting with `ReShade-VR-UI-Addon-SteamVR`).
+
+## Install
+
+1. For each game, install ReShade **with full add-on support** and leave the **OpenXR layer** unticked.
+2. Copy `ReShade-SteamVR-UI.addon64` next to the game's `.exe`.
+3. Open the menu with the controller's menu button, then click the ReShade icon.
 
 ![The ReShade icon in the SteamVR dashboard, with ReShade's menu open above it](https://raw.githubusercontent.com/wyerdev/ReShade-VR-UI-Addon/main/tools/reshade-openxr-ui/images/steamvr-dashboard-reshade-icon.png)
 
-**Download:** [newest version](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest) (the file starting with `ReShade-VR-UI-Addon-SteamVR`).
+<details><summary><b>Step by step</b></summary>
+
+**The ReShade icon only appears if the game has a `ReShadeVR.ini` file next to its `.exe`.** This download includes that file.
 
 For each game, pick one way:
 
 - **Way 1: Automatic.** For 64-bit DirectX 11 and 12 games. The add-on creates `ReShadeVR.ini` for you and adds extras.
 - **Way 2: Manual.** For any game. You copy `ReShadeVR.ini` yourself.
 
-## Way 1: Automatic (With The Add-on)
+### Way 1: Automatic (With The Add-on)
 
 1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
 2. Run ReShade Setup and pick the game's `.exe`. Choose **DirectX 10/11/12**. Leave the **OpenXR layer** unticked.
@@ -28,12 +36,14 @@ Extras you get:
 
 Update: replace the `.addon64` file. Uninstall: delete it. The ReShade icon stays in SteamVR.
 
-## Way 2: Manual (ReShade Only)
+### Way 2: Manual (ReShade Only)
 
 1. Download ReShade from [reshade.me](https://reshade.me/).
 2. Run ReShade Setup and pick the game's `.exe`. Choose the graphics type the game uses (DirectX or Vulkan). Leave the **OpenXR layer** unticked.
 3. Extract the ZIP. Copy `ReShadeVR.ini` from its `without-addon` folder into the game folder, next to the game's `.exe`. If the game already has a `ReShadeVR.ini`, keep that one.
 4. Start the game. In the headset, press the controller's menu button and click the ReShade icon.
+
+</details>
 
 ## Help
 

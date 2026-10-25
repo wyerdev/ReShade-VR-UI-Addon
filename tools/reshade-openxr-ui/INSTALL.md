@@ -1,12 +1,16 @@
 # Install ReShade VR UI Add-on For OpenXR Games And UEVR
 
-Adds a menu in your headset to control ReShade's effects. Install it once; it works in all your OpenXR games.
-
-For 64-bit OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for Unreal games played in VR with UEVR.
-
 **Download:** [newest version](https://github.com/wyerdev/ReShade-VR-UI-Addon/releases/latest) (the file starting with `ReShade-VR-UI-Addon-OpenXR`).
 
 ## Install
+
+1. Install the add-on once (`Install-OpenXR.cmd`). It works in all your OpenXR games.
+2. For each game, install ReShade **with full add-on support** and tick the **OpenXR layer**.
+3. Open and close the menu with `Insert` or both thumbsticks (`L3 + R3`).
+
+<details><summary><b>Step by step</b></summary>
+
+For 64-bit OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for Unreal games played in VR with UEVR.
 
 1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
 2. Run ReShade Setup and pick the game's `.exe`. For UEVR games, pick the one ending in `-Win64-Shipping.exe`.
@@ -19,6 +23,8 @@ For 64-bit OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for Unreal ga
 UEVR uses the same buttons for its own menu. To use other buttons, change **Controller buttons** and **Keyboard key** on the menu's **Settings / Gestures** page.
 
 **UEVR games: effects that need depth (MXAO, depth of field, depth fog) do not work.**
+
+</details>
 
 ## Features
 

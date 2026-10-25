@@ -1,7 +1,6 @@
 # Writes the GitHub release page text: which ZIP to download (direct links to this release's files), the features
-# with menu pictures from this release's tag, the full
-# install steps for each kind of game (taken from the install guides, so the steps stay written in one place),
-# the changelog and the checksums.
+# with menu pictures from this release's tag, each install guide's quick steps with the rest of the guide in a
+# fold-out (taken from the install guides, so the steps stay written in one place), the changelog and the checksums.
 param(
 	[Parameter(Mandatory)][string]$OutFile,
 	[Parameter(Mandatory)][string]$Tag,
@@ -19,14 +18,22 @@ function Read-Text([string]$Path) {
 	return [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path)).Replace("`r`n", "`n").Trim()
 }
 
-# Shows a guide as a fold-out section. Its own title and download line are dropped (the release page already
-# has the downloads), its headings move two levels down, and links to its own sections become plain text,
-# because those links do not work inside a fold-out section.
-function Format-Guide([string]$Summary, [string]$FileName) {
-	$lines = (Read-Text (Join-Path $guideRoot $FileName)) -split "`n" |
-		Where-Object { $_ -notmatch '^# ' -and $_ -notmatch '^\*\*Download:\*\*' } |
-		ForEach-Object { $_ -replace '^(#{2,}) ', '$1## ' -replace '\[([^\]]+)\]\(#[^)]+\)', '**$1**' }
-	return @("<details><summary><b>$Summary</b> (click to open)</summary>", '', (($lines -join "`n") -replace "`n{3,}", "`n`n").Trim(), '', '</details>') -join "`n"
+# Shows a guide's quick install steps (everything before its first fold-out) under a heading, and the rest of
+# the guide in one fold-out. The guide's own title and download line are dropped (the release page already has
+# the downloads), its "Step by step" fold-out is opened up because it is already inside a fold-out, its headings
+# move down, and links to its own sections become plain text, because those links do not work inside a fold-out.
+function Format-Guide([string]$Title, [string]$FileName) {
+	$lines = @((Read-Text (Join-Path $guideRoot $FileName)) -split "`n" |
+		Where-Object { $_ -notmatch '^# ' -and $_ -notmatch '^\*\*Download:\*\*' -and $_ -ne '## Install' } |
+		ForEach-Object { $_ -replace '^(#{2,}) ', '$1## ' -replace '\[([^\]]+)\]\(#[^)]+\)', '**$1**' })
+	$start = [Array]::FindIndex($lines, [Predicate[string]] { param($line) $line -match '^<details>' })
+	$end = [Array]::FindIndex($lines, [Predicate[string]] { param($line) $line -eq '</details>' })
+	if ($start -lt 1 -or $end -lt $start) {
+		throw "$FileName needs quick install steps followed by a ""Step by step"" fold-out."
+	}
+	$quick = ($lines[0..($start - 1)] -join "`n").Trim()
+	$rest = ((@($lines[($start + 1)..($end - 1)]) + @($lines | Select-Object -Skip ($end + 1))) -join "`n") -replace "`n{3,}", "`n`n"
+	return @("### $Title", '', $quick, '', '<details><summary><b>Step by step, help and troubleshooting</b> (click to open)</summary>', '', $rest.Trim(), '', '</details>') -join "`n"
 }
 
 # Markdown link to one ZIP of this release.
@@ -47,10 +54,10 @@ if ($top -match '\{\{') {
 
 $sections = @(
 	$top,
-	'## Install Steps',
-	(Format-Guide 'Install steps: OpenXR games and UEVR' 'INSTALL.md'),
-	(Format-Guide 'Install steps: SteamVR games' 'INSTALL-SteamVR.md'),
-	(Format-Guide 'Install steps: Vulkan and 32-bit games' 'INSTALL-Vulkan-32bit.md')
+	'## Install',
+	(Format-Guide 'OpenXR games and UEVR' 'INSTALL.md'),
+	(Format-Guide 'SteamVR games' 'INSTALL-SteamVR.md'),
+	(Format-Guide 'Vulkan and 32-bit games' 'INSTALL-Vulkan-32bit.md')
 )
 if ($ChangelogFile) {
 	$sections += '## What Changed'

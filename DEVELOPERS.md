@@ -162,7 +162,8 @@ folders next to the ZIPs never get the suffix, because `install.bat` uses them.
 The release page text is built by `tools\release\New-ReleaseNotes.ps1`: first
 `tools\reshade-openxr-ui\RELEASE_NOTES.md` (which ZIP to download; its
 `{{OPENXR_DOWNLOAD}}` and `{{STEAMVR_DOWNLOAD}}` placeholders become direct
-links to this release's ZIPs), then each install guide as a fold-out section,
+links to this release's ZIPs), then each install guide's quick steps with the
+rest of the guide as a fold-out section,
 so users find the download and the steps on one page while the steps are still
 written in one place. The System-Wide SteamVR Listener is not part of the
 release for now.

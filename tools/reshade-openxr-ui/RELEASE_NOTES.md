@@ -6,8 +6,6 @@
 | SteamVR game | {{STEAMVR_DOWNLOAD}} |
 | Vulkan or 32-bit VR game | Nothing to download |
 
-Then open the install steps for your game below.
-
 Not sure which type your game is? Try OpenXR first. If the menu doesn't show up in the headset, it's probably a SteamVR game. Games played with UEVR are OpenXR.
 
 ## Features (OpenXR Games)
