@@ -2,7 +2,7 @@
 
 A separate, optional program for 64-bit DirectX 11 and 12 SteamVR games. It is not part of the ReShade VR UI Add-on install.
 
-**What it changes:** normally you set up ReShade for each SteamVR game and copy `ReShade-SteamVR-UI.addon64` into its folder yourself. With the listener, you only pick the games in ReShade Setup; when they start, it adds ReShade and the SteamVR add-on to them. Don't also copy the add-on into those games' folders.
+**What it changes:** you only pick the games in ReShade Setup; when they start, it adds ReShade and the SteamVR add-on (`ReShade-SteamVR-UI.addon64`) to them. The SteamVR add-on is not released on its own for now.
 
 It starts with Windows and uses a little processor time in the background.
 

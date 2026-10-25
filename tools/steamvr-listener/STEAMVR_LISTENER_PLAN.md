@@ -4,7 +4,7 @@
 
 The system-wide SteamVR listener checks the running programs on a timer. Each check costs a small burst of processor time (about 2-3 ms). Users who are limited by the processor notice these bursts. The goal is a listener that does no work at all while no enabled SteamVR game starts.
 
-The listener is a separate, optional download (`ReShade-System-Wide-SteamVR-Listener.zip`). The normal add-on installer does not include it. Without the listener, SteamVR users copy `ReShade-SteamVR-UI.addon64` into each game folder (see `INSTALL.md`).
+The listener is a separate, optional download (`ReShade-System-Wide-SteamVR-Listener.zip`). The normal add-on installer does not include it. Neither the listener nor the SteamVR add-on is in the GitHub release for now; SteamVR players use ReShade alone (see `tools/reshade-openxr-ui/INSTALL-SteamVR.md`).
 
 ## Idea To Test (Option D)
 

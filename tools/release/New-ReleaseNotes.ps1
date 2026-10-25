@@ -26,7 +26,7 @@ function Format-Download([string]$Name) {
 
 $top = (Read-Text (Join-Path $guideRoot 'RELEASE_NOTES.md')).
 	Replace('{{OPENXR_DOWNLOAD}}', (Format-Download 'ReShade-VR-UI-Addon-OpenXR')).
-	Replace('{{STEAMVR_DOWNLOAD}}', (Format-Download 'ReShade-VR-UI-Addon-SteamVR')).
+	Replace('{{VR_INI_DOWNLOAD}}', "**[$([char]0x2B07) ReShadeVR.ini](https://github.com/$Repository/releases/download/$([Uri]::EscapeDataString($Tag))/ReShadeVR.ini)**").
 	Replace('{{REPOSITORY}}', $Repository).
 	Replace('{{TAG}}', [Uri]::EscapeDataString($Tag))
 if ($top -match '\{\{') {

@@ -10,8 +10,7 @@
   nothing. OpenXR games and UEVR: set ReShade up with the **OpenXR** layer **ticked**.
   SteamVR games: leave the **OpenXR** layer **unticked**.
 - Installing, updating and uninstalling the OpenXR add-on need an
-  administrator window. The SteamVR add-on is just copied into the game
-  folder.
+  administrator window.
 - Games or mods that bring their own ReShade (for example the D2R-PCVR mod for
   Diablo II: Resurrected): the add-on detects this by itself. Its menu then
   controls the game's ReShade, and it adds no headset effects of its own. Tested
@@ -29,7 +28,7 @@
   It does not count frames the headset software makes up by itself
   (reprojection, motion smoothing).
 - The FPS counter does not notice when the headset software runs the game at
-  half speed. Set **FPS graph target** (SteamVR: **FPS target**) yourself so
+  half speed. Set **FPS graph target** yourself so
   the graph colours are right.
 - The **CPU** line is the frame time minus the time the game spent waiting
   for the headset software. It is not graphics card (GPU) time. If the game
@@ -56,20 +55,6 @@
   headset effects stop.
 - Effects only apply to the game's 3D view. Flat title or menu screens that a
   mod shows as a floating panel get no effects.
-
-## SteamVR (OpenVR) Games
-
-- The add-on's page in ReShade's SteamVR menu
-  (**Add-ons** > **ReShade VR UI Add-on for SteamVR**) shows only the FPS
-  line, graph and FPS target. You control effects and presets in ReShade's
-  own menu. There is no separate add-on menu.
-- The FPS line and graph are only on that page; the FPS counter can't be
-  pinned.
-- The add-on changes three things for the game: it creates `ReShadeVR.ini`
-  (without that file the ReShade icon does not appear in SteamVR; the add-on
-  also sets a smaller menu text size there once), stops ReShade copying
-  effect changes between the monitor and the headset (in `ReShade.ini`),
-  and turns effects off on the monitor while the headset shows them.
 
 ## UEVR
 

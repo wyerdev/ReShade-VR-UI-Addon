@@ -129,7 +129,7 @@ build\reshade-openxr-ui\layers\ReShade-OpenXR-UI-Layer.json
 ```
 
 The manifest expects the OpenXR DLL one directory above its `layers` directory. Its `api_layer.name` value, `XR_APILAYER_reshade_vr_ui`, is a stable external identifier used by SteamVR's API-layer toggle and must not be renamed; `build.ps1` enforces it. The user-facing label belongs in `api_layer.description`. The SteamVR DLL has no OpenXR negotiation export. The OpenXR DLL is installed centrally; the SteamVR DLL is copied by the user into each SteamVR game folder.
-To test a SteamVR game with the local build, double-click `install_steamvr_addon.bat` in the repository root (default game: Propagation: Paradise Hotel). Run it with `uninstall` to remove the add-on or `status` to check; a second argument picks another game's `.exe`. It only copies or deletes the add-on file; ReShade itself must be installed for the game with ReShade Setup first. `status` also reports settings that an earlier add-on run left in the game's `ReShade.ini` and `ReShadeVR.ini`; they keep ReShade's icon appearing in SteamVR and its menu readable even after the add-on is removed, so delete them to test plain ReShade (see `INSTALL-SteamVR.md`).
+To test a SteamVR game with the local build, double-click `install_steamvr_addon.bat` in the repository root (default game: Propagation: Paradise Hotel). Run it with `uninstall` to remove the add-on or `status` to check; a second argument picks another game's `.exe`. It only copies or deletes the add-on file; ReShade itself must be installed for the game with ReShade Setup first. `status` also reports settings that an earlier add-on run left in the game's `ReShade.ini` and `ReShadeVR.ini`; they keep ReShade's menu readable and its effects unsynced even after the add-on is removed, so delete them to test plain ReShade (see `INSTALL-SteamVR.md`). ReShade's dashboard icon does not depend on them; plain ReShade shows it and creates `ReShadeVR.ini` by itself.
 
 The build executes the D3D11 WARP interaction test after compiling. It fails if the test fails.
 
@@ -175,7 +175,7 @@ build.bat
 install.bat
 ```
 
-`package.ps1` creates `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip` and `ReShade-VR-UI-Addon-SteamVR.zip`, each with an unpacked directory of the same name. Release builds add the release number and date to the ZIP names only (for example `-v12-2026-10-24`, from `RESHADE_VR_UI_RELEASE_SUFFIX`). `Install-OpenXR.cmd` must run from the complete OpenXR layout because it expects the DLL beside the script and the manifest under `openxr-layers`.
+`package.ps1` creates `build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip` with an unpacked directory of the same name, plus the single file `ReShadeVR.ini` (an unzipped release download, never renamed). The SteamVR add-on is not packaged for now. Release builds add the release number and date to the ZIP names only (for example `-v12-2026-10-24`, from `RESHADE_VR_UI_RELEASE_SUFFIX`). `Install-OpenXR.cmd` must run from the complete OpenXR layout because it expects the DLL beside the script and the manifest under `openxr-layers`.
 
 Installation copies exactly these runtime files:
 

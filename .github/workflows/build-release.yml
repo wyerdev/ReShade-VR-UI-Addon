@@ -77,9 +77,10 @@ jobs:
         shell: pwsh
         run: |
           $zips = Get-ChildItem -LiteralPath build/reshade-openxr-ui-release -Filter 'ReShade-VR-UI-Addon-*.zip' -File
-          if ($zips.Count -ne 2) { throw "Expected 2 ZIPs, found $($zips.Count): $($zips.Name -join ', ')" }
+          if ($zips.Count -ne 1) { throw "Expected 1 ZIP, found $($zips.Count): $($zips.Name -join ', ')" }
+          $ini = Get-Item -LiteralPath build/reshade-openxr-ui-release/ReShadeVR.ini
           # Same "<hash>  <file name>" format as sha256sum, so it can be checked on any system.
-          $lines = Get-FileHash -LiteralPath $zips.FullName -Algorithm SHA256 |
+          $lines = Get-FileHash -LiteralPath (@($zips.FullName) + $ini.FullName) -Algorithm SHA256 |
             ForEach-Object { '{0}  {1}' -f $_.Hash.ToLowerInvariant(), (Split-Path $_.Path -Leaf) }
           [IO.File]::WriteAllText("$PWD/build/reshade-openxr-ui-release/SHA256SUMS.txt", (($lines -join "`n") + "`n"))
           $lines
@@ -89,6 +90,7 @@ jobs:
           name: packages-${{ steps.info.outputs.file_version }}
           path: |
             build/reshade-openxr-ui-release/*.zip
+            build/reshade-openxr-ui-release/ReShadeVR.ini
             build/reshade-openxr-ui-release/SHA256SUMS.txt
             build/steamvr-listener-release/*.zip
           if-no-files-found: error
@@ -108,5 +110,6 @@ jobs:
             --title '${{ steps.info.outputs.title }}' `
             --notes-file release-notes.md `
             @zips `
+            build/reshade-openxr-ui-release/ReShadeVR.ini `
             build/reshade-openxr-ui-release/SHA256SUMS.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -23,7 +23,7 @@ Not sure? See [Which type is my game?](#which-type-is-my-game)
 - **Pin the menu (OpenXR games):** keep it to one side, out of your way.
 - **Pin the FPS counter (OpenXR games):** always see your FPS, even with the menu closed.
 
-**SteamVR games** don't get this menu. You use ReShade's own menu from the ReShade icon in the SteamVR dashboard, and the add-on adds a few extras. See the [SteamVR steps](tools/reshade-openxr-ui/INSTALL-SteamVR.md).
+**SteamVR games** don't get this menu. You use ReShade's own menu from the ReShade icon in the SteamVR dashboard. See the [SteamVR steps](tools/reshade-openxr-ui/INSTALL-SteamVR.md).
 
 ![Settings page of the headset menu, with Next preset, Show when menu is closed and the pin button ringed](tools/reshade-openxr-ui/images/menu-settings.png)
 

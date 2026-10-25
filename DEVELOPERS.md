@@ -145,13 +145,18 @@ build.bat
 `build.bat` creates the release packages after building the add-ons. For a
 clean release build, use `clean.bat` first.
 
-One GitHub release holds two ZIPs. Each ZIP contains only its own add-on and
-its own install guide, renamed to `INSTALL.md`:
+One GitHub release holds one ZIP and one plain file:
 
-| ZIP (in `build\reshade-openxr-ui-release`) | For | Install guide |
+| File (in `build\reshade-openxr-ui-release`) | For | Install guide |
 | --- | --- | --- |
-| `ReShade-VR-UI-Addon-OpenXR<suffix>.zip` | OpenXR games and UEVR | `tools\reshade-openxr-ui\INSTALL.md` |
-| `ReShade-VR-UI-Addon-SteamVR<suffix>.zip` | SteamVR games, set up per game | `tools\reshade-openxr-ui\INSTALL-SteamVR.md` |
+| `ReShade-VR-UI-Addon-OpenXR<suffix>.zip` | OpenXR games and UEVR | `tools\reshade-openxr-ui\INSTALL.md` (inside the ZIP as `INSTALL.md`) |
+| `ReShadeVR.ini` | SteamVR games, optional smaller menu text | `tools\reshade-openxr-ui\INSTALL-SteamVR.md` |
+
+The SteamVR add-on (`ReShade-SteamVR-UI.addon64`) is still built but not
+released for now; its code stays. `ReShadeVR.ini` is not zipped and has no
+suffix (ReShade only reads that exact name). ReShade shows its SteamVR icon
+without it. Because its name never changes, the guides link to it with
+`releases/latest/download/ReShadeVR.ini`.
 
 `<suffix>` is the release number and date, for example
 `ReShade-VR-UI-Addon-OpenXR-v12-2026-10-24.zip`. It comes from the
@@ -161,8 +166,8 @@ folders next to the ZIPs never get the suffix, because `install.bat` uses them.
 
 The release page text is built by `tools\release\New-ReleaseNotes.ps1` from
 `tools\reshade-openxr-ui\RELEASE_NOTES.md`: a download table (its
-`{{OPENXR_DOWNLOAD}}` and `{{STEAMVR_DOWNLOAD}}` placeholders become direct
-links to this release's ZIPs) with a link to each install guide at this
+`{{OPENXR_DOWNLOAD}}` and `{{VR_INI_DOWNLOAD}}`
+placeholders become direct links to this release's ZIP and `ReShadeVR.ini`) with a link to each install guide at this
 release's tag, then the features with menu pictures, the changelog and the
 checksums. The steps are written only in the install guides. The System-Wide
 SteamVR Listener is not part of the release for now.

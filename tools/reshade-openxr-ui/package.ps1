@@ -23,17 +23,15 @@ if (-not [System.IO.Path]::IsPathRooted($OutputDirectory)) {
 $buildDirectory = $BuildDirectory
 
 $addon = Join-Path $buildDirectory 'ReShade-OpenXR-UI.addon64'
-$openvrAddon = Join-Path $buildDirectory 'ReShade-SteamVR-UI.addon64'
 $manifest = Join-Path $buildDirectory 'layers\ReShade-OpenXR-UI-Layer.json'
 $openxrInstallScript = Join-Path $PSScriptRoot 'Install-OpenXR.cmd'
 $openxrUninstallScript = Join-Path $PSScriptRoot 'Uninstall-OpenXR.cmd'
 $openxrInstallGuide = Join-Path $PSScriptRoot 'INSTALL.md'
-$steamvrInstallGuide = Join-Path $PSScriptRoot 'INSTALL-SteamVR.md'
 $steamvrManualIni = Join-Path $PSScriptRoot 'ReShadeVR.ini'
 $projectLicense = Join-Path $repo 'LICENSE'
 $thirdPartyNotices = Join-Path $repo 'THIRD-PARTY-NOTICES.txt'
 
-foreach ($requiredPath in @($addon, $openvrAddon, $manifest, $openxrInstallScript, $openxrUninstallScript, $openxrInstallGuide, $steamvrInstallGuide, $steamvrManualIni, $projectLicense, $thirdPartyNotices)) {
+foreach ($requiredPath in @($addon, $manifest, $openxrInstallScript, $openxrUninstallScript, $openxrInstallGuide, $steamvrManualIni, $projectLicense, $thirdPartyNotices)) {
 	if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
 		throw "Required release file does not exist: $requiredPath"
 	}
@@ -72,15 +70,17 @@ New-ReleaseArchive 'ReShade-VR-UI-Addon-OpenXR' {
 	Copy-Item -LiteralPath $openxrInstallGuide -Destination (Join-Path $packageDirectory 'INSTALL.md')
 }
 
-New-ReleaseArchive 'ReShade-VR-UI-Addon-SteamVR' {
-	param($packageDirectory)
-	Copy-Item -LiteralPath $openvrAddon -Destination $packageDirectory
-	Copy-Item -LiteralPath $steamvrInstallGuide -Destination (Join-Path $packageDirectory 'INSTALL.md')
-	# In its own folder so copying the add-on never overwrites a game's ReShadeVR.ini by accident.
-	$manualDirectory = Join-Path $packageDirectory 'without-addon'
-	New-Item -ItemType Directory -Path $manualDirectory -Force | Out-Null
-	Copy-Item -LiteralPath $steamvrManualIni -Destination $manualDirectory
-}
+# The SteamVR add-on is not released for now (its code stays); SteamVR games get only the plain ReShadeVR.ini.
+# Remove its old package so it cannot be published by mistake.
+Remove-Item -LiteralPath (Join-Path $OutputDirectory 'ReShade-VR-UI-Addon-SteamVR') -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem -LiteralPath $OutputDirectory -Filter 'ReShade-VR-UI-Addon-SteamVR*.zip' -File -ErrorAction SilentlyContinue | Remove-Item -Force
+
+# A release download of its own, without a ZIP, so players can put it straight next to the game.
+# The name has no release suffix because ReShade only reads a file called exactly ReShadeVR.ini.
+$standaloneIni = Join-Path $OutputDirectory 'ReShadeVR.ini'
+Copy-Item -LiteralPath $steamvrManualIni -Destination $standaloneIni -Force
+Write-Host "PACKAGE:$standaloneIni"
+Write-Host "SHA256:$((Get-FileHash -LiteralPath $standaloneIni -Algorithm SHA256).Hash)"
 
 # Remove the former single package so it cannot be published by mistake.
 Remove-Item -LiteralPath (Join-Path $OutputDirectory 'ReShade-VR-UI-Addon') -Recurse -Force -ErrorAction SilentlyContinue
