@@ -18,13 +18,26 @@ The download page has the files and the install steps.
 | SteamVR game | [SteamVR](tools/reshade-openxr-ui/INSTALL-SteamVR.md) |
 | Vulkan or 32-bit VR game | [Vulkan and 32-bit](tools/reshade-openxr-ui/INSTALL-Vulkan-32bit.md) (nothing to download) |
 
-Not sure? See [Which type is my game?](#which-type-is-my-game) below.
+Not sure? [Which type is my game?](#which-type-is-my-game) below shows two ways to find out.
 
 ## Which Type Is My Game?
 
-- Played with UEVR: it's **OpenXR**.
-- Not sure: try **OpenXR** first. If no menu shows in the headset, it's a SteamVR game. Uninstall ReShade for that game in ReShade Setup, then follow the SteamVR steps. The OpenXR add-on can stay installed; it does nothing in other games.
-- Want to check first: search for the game on [PCGamingWiki](https://www.pcgamingwiki.com/). Under **VR support** it lists **OpenXR** or **SteamVR**. Under **API** it shows **Vulkan** and whether the game is 64-bit.
+Played with UEVR? It's **OpenXR**. Otherwise, pick one of these two options:
+
+**Option 1: Check the game folder (about a minute)**
+
+1. In Steam, right-click the game, then **Manage** > **Browse local files**.
+2. In the search box at the top right of that window, search for `openxr_loader`, then for `openvr_api`.
+3. Only `openxr_loader` found: it's **OpenXR**. Only `openvr_api` found: it's **SteamVR**. Both or neither: use Option 2.
+
+To check for Vulkan or 32-bit, look the game up on [PCGamingWiki](https://www.pcgamingwiki.com/) under **API**. Not every game has a page there.
+
+**Option 2: Just try OpenXR**
+
+1. Follow the [OpenXR steps](tools/reshade-openxr-ui/INSTALL.md).
+2. If no menu shows in the headset, it's probably a SteamVR game. Uninstall ReShade for that game in ReShade Setup, then follow the [SteamVR steps](tools/reshade-openxr-ui/INSTALL-SteamVR.md).
+
+The OpenXR add-on can stay installed; it does nothing in other games.
 
 ## Something Not Working?
 
