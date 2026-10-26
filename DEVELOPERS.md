@@ -182,9 +182,10 @@ Releases are made by GitHub Actions
 ([build-release.yml](.github/workflows/build-release.yml)), not by hand:
 
 - Every push to `main` (and every manual run on `main`) builds both ZIPs and
-  publishes them as a GitHub Release. The only way to skip a push is
-  `(Skip)` in the first line of the last commit message (any letter case),
-  which skips the build too; `(Skip)` further down the message is ignored.
+  publishes them as a GitHub Release. A push is skipped, build included, when
+  the first line of its last commit has `(Skip)` (any letter case; elsewhere
+  in the message it is ignored), or when every type line in that commit is
+  `docs:`. A `feat:` or `fix:` line anywhere in the message still releases.
   Nothing is
   built without being released, so pull requests and other branches are not
   built.
@@ -193,13 +194,14 @@ Releases are made by GitHub Actions
   Windows file version `2026.10.24.12`, which ReShade shows in its add-on list.
   Its ZIPs end in `-v12-2026-10-24.zip`. Local builds show `0.0.0.0`.
 - The release text is `RELEASE_NOTES.md`, the install guides, then the
-  changelog. The changelog lists only commits written as
-  [Conventional Commits](https://www.conventionalcommits.org) (`feat: ...`,
-  `fix: ...` and so on); `docs:` commits and other commit messages are left
-  out.
+  changelog. The changelog lists the
+  [Conventional Commits](https://www.conventionalcommits.org) type lines
+  (`feat: ...`, `fix: ...` and so on): the first line of each commit and every
+  body line that starts with a type, so one commit can add several entries.
+  `docs:` lines and other lines are left out.
   It covers every commit since the last release that still exists on GitHub,
   so deleting releases folds their changes into the next one. The release
-  number still counts up from the highest `vN` tag. Players read this list, so write the first line of a commit message as what
+  number still counts up from the highest `vN` tag. Players read this list, so write each type line as what
   they notice, in everyday words: `fix: download links on the release page
   work again`, not `fix: download names without brackets`.
 - Each release also has `SHA256SUMS.txt`, a SHA-256 checksum (a fingerprint

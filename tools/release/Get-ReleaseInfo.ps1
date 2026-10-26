@@ -2,8 +2,8 @@
 # The release number follows the highest vN tag. The changelog starts at the last vN tag that still
 # has a published release (-ReleasedTags), so deleting releases folds their changes into the next one.
 # Without -ReleasedTags every vN tag counts as released.
-# Whether to release is decided by the workflow (every push to main unless "(Skip)"), not here.
-# Documentation commits and commits without a conventional prefix are left out of the changelog.
+# Whether to release is decided by the workflow (every push to main unless a docs commit or "(Skip)"), not here.
+# Documentation entries and lines without a conventional prefix are left out of the changelog.
 param(
 	[string]$Head = 'HEAD',
 	[string]$NotesFile,
@@ -69,20 +69,25 @@ foreach ($record in (($log.Output -join "`n") -split [char]0x1e)) {
 	if ($fields.Count -lt 2) { continue }
 	$hash = $fields[0].Trim()
 	$body = if ($fields.Count -ge 3) { $fields[2] } else { '' }
+	$bodyBreaking = $body -match '(?m)^BREAKING[ -]CHANGE:'
 
-	$match = [regex]::Match($fields[1].Trim(), $pattern)
-	if (-not $match.Success) { continue }
-	$type = $match.Groups['type'].Value.ToLowerInvariant()
-	if (-not $sections.Contains($type)) { continue }
+	# One commit can hold several changes: the summary line and every body line that starts with a type each become an entry.
+	$lines = @($fields[1]) + @($body -split "`r?`n")
+	for ($index = 0; $index -lt $lines.Count; ++$index) {
+		$match = [regex]::Match($lines[$index].TrimEnd(), $pattern)
+		if (-not $match.Success) { continue }
+		$type = $match.Groups['type'].Value.ToLowerInvariant()
+		if (-not $sections.Contains($type)) { continue }
 
-	$description = ($match.Groups['desc'].Value -replace '\s*\(Skip\)\s*', ' ').Trim()
-	if ($match.Groups['scope'].Success) {
-		$description = "**$($match.Groups['scope'].Value):** $description"
+		$description = ($match.Groups['desc'].Value -replace '\s*\(Skip\)\s*', ' ').Trim()
+		if ($match.Groups['scope'].Success) {
+			$description = "**$($match.Groups['scope'].Value):** $description"
+		}
+		if ($match.Groups['bang'].Success -or ($index -eq 0 -and $bodyBreaking)) {
+			$type = 'breaking'
+		}
+		$entries[$type].Add("- $description ($($hash.Substring(0, 7)))")
 	}
-	if ($match.Groups['bang'].Success -or $body -match '(?m)^BREAKING[ -]CHANGE:') {
-		$type = 'breaking'
-	}
-	$entries[$type].Add("- $description ($($hash.Substring(0, 7)))")
 }
 
 $notes = [System.Text.StringBuilder]::new()

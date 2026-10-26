@@ -1,8 +1,9 @@
 name: Build and release
 
 # Every push to main builds the add-on and publishes a GitHub Release tagged vN (N = highest vN tag + 1).
-# A push whose last commit has "(Skip)" in its first line (any letter case) does not build or release.
-# Only the first line counts, so a message body that mentions (Skip) does not skip the release.
+# A push whose last commit has "(Skip)" in its first line (any letter case), or holds only docs changes (a docs
+# first line and no other type line in the message), does not build or release. A message body that mentions
+# (Skip) does not skip the release.
 # Nothing is ever built without being released.
 
 on:
@@ -32,7 +33,12 @@ jobs:
         run: |
           first_line="${MESSAGE%%$'\n'*}"
           shopt -s nocasematch
-          if [[ "$first_line" == *"(skip)"* ]]; then skip=true; else skip=false; fi
+          docs_only=false
+          if [[ "$first_line" =~ ^docs(\([^\)]*\))?!?: ]] &&
+            ! grep -qiE '^(feat|fix|perf|revert|refactor|build|ci|test|style|chore)(\([^)]*\))?!?:' <<< "$MESSAGE"; then
+            docs_only=true
+          fi
+          if [[ "$first_line" == *"(skip)"* || "$docs_only" == true ]]; then skip=true; else skip=false; fi
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
           echo "First line: $first_line"
           echo "Skip build and release: $skip"

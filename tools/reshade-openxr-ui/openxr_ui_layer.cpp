@@ -11,15 +11,18 @@
 #include <openxr/openxr_platform.h>
 #include <openxr/openxr_loader_negotiation.h>
 #include <wrl/client.h>
+#include <Xinput.h>
 
 #include "openxr_effect_fallback.hpp"
 #include "openxr_ui_model.hpp"
 #include "openxr_ui_renderer.hpp"
+#include "vr_gamepad.hpp"
 #include "vr_ui_state.hpp"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -242,6 +245,9 @@ namespace
 		bool select_down = false;
 		bool select_released = false;
 		float scroll_y = 0.0f;
+		openxr_ui::gamepad_pointer gamepad;
+		std::chrono::steady_clock::time_point gamepad_updated{};
+		bool gamepad_pointer_shown = false;
 		bool quad_ready = false;
 		bool quad_logged = false;
 		std::unique_ptr<openxr_ui::effect_fallback> effects;
@@ -1423,6 +1429,119 @@ namespace
 		}
 	}
 
+	using xinput_get_state_function = DWORD(WINAPI *)(DWORD, XINPUT_STATE *);
+	constexpr DWORD no_gamepad_slot = XUSER_MAX_COUNT;
+	std::atomic<xinput_get_state_function> s_xinput_get_state = nullptr;
+	std::atomic<DWORD> s_gamepad_slot = no_gamepad_slot;
+	std::atomic<bool> s_gamepad_search_running = false;
+	std::chrono::steady_clock::time_point s_next_gamepad_search{};
+	bool s_xinput_load_attempted = false;
+
+	// Loading XInput and asking it about empty gamepad slots can each take long enough to cost a frame,
+	// so both happen on a Windows thread-pool worker; the frame only reads a gamepad already found.
+	void CALLBACK search_gamepad(PTP_CALLBACK_INSTANCE instance, void *module)
+	{
+		xinput_get_state_function get_state = s_xinput_get_state.load(std::memory_order_acquire);
+		if (get_state == nullptr && !s_xinput_load_attempted)
+		{
+			s_xinput_load_attempted = true;
+			HMODULE xinput = LoadLibraryW(L"xinput1_4.dll");
+			if (xinput == nullptr)
+				xinput = LoadLibraryW(L"xinput9_1_0.dll");
+			if (xinput != nullptr)
+				get_state = reinterpret_cast<xinput_get_state_function>(GetProcAddress(xinput, "XInputGetState"));
+			s_xinput_get_state.store(get_state, std::memory_order_release);
+			if (get_state == nullptr)
+				openxr_ui_log_message("gamepad support unavailable: Windows XInput could not be loaded.", true);
+		}
+		for (DWORD slot = 0; get_state != nullptr && slot < XUSER_MAX_COUNT; ++slot)
+		{
+			XINPUT_STATE xinput_state = {};
+			if (get_state(slot, &xinput_state) != ERROR_SUCCESS)
+				continue;
+			s_gamepad_slot.store(slot, std::memory_order_release);
+			char message[64];
+			std::snprintf(message, sizeof(message), "gamepad %lu found; it can control the headset menu.", slot + 1);
+			openxr_ui_log_message(message);
+			break;
+		}
+		s_gamepad_search_running.store(false, std::memory_order_release);
+		// Keeps this DLL loaded until the worker has returned.
+		FreeLibraryWhenCallbackReturns(instance, static_cast<HMODULE>(module));
+	}
+
+	// Called from the frame thread only.
+	void start_gamepad_search()
+	{
+		const auto now = std::chrono::steady_clock::now();
+		if (now < s_next_gamepad_search || s_gamepad_search_running.exchange(true, std::memory_order_acq_rel))
+			return;
+		s_next_gamepad_search = now + std::chrono::seconds(1);
+		HMODULE module = nullptr;
+		if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(&search_gamepad), &module) ||
+			!TrySubmitThreadpoolCallback(search_gamepad, module, nullptr))
+		{
+			if (module != nullptr)
+				FreeLibrary(module);
+			s_gamepad_search_running.store(false, std::memory_order_release);
+		}
+	}
+
+	openxr_ui::gamepad_reading read_gamepad()
+	{
+		openxr_ui::gamepad_reading reading;
+		const xinput_get_state_function get_state = s_xinput_get_state.load(std::memory_order_acquire);
+		DWORD slot = s_gamepad_slot.load(std::memory_order_acquire);
+		XINPUT_STATE xinput_state = {};
+		if (get_state == nullptr || slot == no_gamepad_slot || get_state(slot, &xinput_state) != ERROR_SUCCESS)
+		{
+			if (slot != no_gamepad_slot)
+			{
+				s_gamepad_slot.compare_exchange_strong(slot, no_gamepad_slot, std::memory_order_acq_rel);
+				openxr_ui_log_message("gamepad disconnected.");
+			}
+			start_gamepad_search();
+			return reading;
+		}
+		const XINPUT_GAMEPAD &pad = xinput_state.Gamepad;
+		reading.connected = true;
+		reading.buttons = pad.wButtons;
+		reading.left_x = openxr_ui::gamepad_stick(pad.sThumbLX, openxr_ui::gamepad_left_stick_dead_zone);
+		reading.left_y = openxr_ui::gamepad_stick(pad.sThumbLY, openxr_ui::gamepad_left_stick_dead_zone);
+		reading.right_y = openxr_ui::gamepad_stick(pad.sThumbRY, openxr_ui::gamepad_right_stick_dead_zone);
+		return reading;
+	}
+
+	// Runs after update_interaction; a controller pointing at the panel wins over the gamepad pointer.
+	void update_gamepad(session_state &state)
+	{
+		const auto now = std::chrono::steady_clock::now();
+		const float seconds = state.gamepad_updated == std::chrono::steady_clock::time_point{} ? 0.0f :
+			(std::min)(std::chrono::duration<float>(now - state.gamepad_updated).count(), 0.1f);
+		state.gamepad_updated = now;
+		const uint32_t panel_height = state.panel_expanded ? openxr_ui::expanded_panel_height : openxr_ui::compact_panel_height;
+		const openxr_ui::gamepad_frame frame = state.gamepad.update(read_gamepad(), seconds, state.menu_button, state.panel_visible,
+			static_cast<float>(openxr_ui::panel_width), static_cast<float>(panel_height));
+		if (frame.menu_toggled)
+			state.panel_visible = !state.panel_visible;
+		if (!frame.pointer_active || state.pointer_visible)
+		{
+			if (state.gamepad_pointer_shown && !state.pointer_visible)
+				state.select_down = false;
+			state.gamepad_pointer_shown = false;
+			return;
+		}
+		state.gamepad_pointer_shown = true;
+		state.pointer_visible = true;
+		state.pointer_x = static_cast<LONG>(std::lround(frame.pointer_x));
+		state.pointer_y = static_cast<LONG>(std::lround(frame.pointer_y));
+		state.select_clicked = frame.select_clicked;
+		state.select_down = frame.select_down;
+		state.select_released = frame.select_released;
+		if (frame.scroll_y != 0.0f)
+			state.scroll_y = frame.scroll_y;
+	}
+
 	void destroy_quad_target(session_state &state, quad_target &target)
 	{
 		target.renderer.reset();
@@ -1855,6 +1974,7 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 
 	update_head_pose(*state, frame_end_info->displayTime);
 	update_interaction(*state, frame_end_info->displayTime);
+	update_gamepad(*state);
 	std::vector<const XrCompositionLayerBaseHeader *> layers(frame_end_info->layers, frame_end_info->layers + frame_end_info->layerCount);
 
 	XrCompositionLayerQuad quad = { XR_TYPE_COMPOSITION_LAYER_QUAD };

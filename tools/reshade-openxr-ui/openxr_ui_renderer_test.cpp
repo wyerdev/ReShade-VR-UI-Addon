@@ -1,4 +1,5 @@
 #include "openxr_ui_renderer.hpp"
+#include "vr_gamepad.hpp"
 
 #include <d3d11.h>
 #include <wrl/client.h>
@@ -194,11 +195,89 @@ namespace
 		}
 		return true;
 	}
+
+	bool gamepad_logic_works()
+	{
+		if (openxr_ui::gamepad_stick(7000, openxr_ui::gamepad_left_stick_dead_zone) != 0.0f ||
+			openxr_ui::gamepad_stick(32767, openxr_ui::gamepad_left_stick_dead_zone) != 1.0f ||
+			openxr_ui::gamepad_stick(-32768, openxr_ui::gamepad_left_stick_dead_zone) != -1.0f)
+		{
+			std::fputs("Gamepad stick dead zone or range is wrong.\n", stderr);
+			return false;
+		}
+
+		constexpr float width = 1000.0f;
+		constexpr float height = 600.0f;
+		constexpr float frame = 0.01f;
+		openxr_ui::gamepad_reading pad;
+		pad.connected = true;
+		openxr_ui::gamepad_pointer pointer;
+		pad.buttons = openxr_ui::gamepad_left_thumb | openxr_ui::gamepad_right_thumb;
+		if (!pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, false, width, height).menu_toggled ||
+			pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, true, width, height).menu_toggled)
+		{
+			std::fputs("Gamepad L3+R3 did not toggle the menu exactly once per press.\n", stderr);
+			return false;
+		}
+		openxr_ui::gamepad_pointer hold;
+		pad.buttons = openxr_ui::gamepad_b | openxr_ui::gamepad_y;
+		bool toggled_early = false;
+		for (int i = 0; i < 140; ++i)
+			toggled_early |= hold.update(pad, frame, openxr_ui::menu_button_hold_b_and_y, true, width, height).menu_toggled;
+		bool toggled_late = false;
+		for (int i = 0; i < 20; ++i)
+			toggled_late |= hold.update(pad, frame, openxr_ui::menu_button_hold_b_and_y, true, width, height).menu_toggled;
+		if (toggled_early || !toggled_late)
+		{
+			std::fputs("Gamepad Hold B+Y did not wait 1.5 seconds before toggling the menu.\n", stderr);
+			return false;
+		}
+
+		pad.buttons = 0;
+		if (pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, true, width, height).pointer_active)
+		{
+			std::fputs("Gamepad pointer appeared without a stick push or A press.\n", stderr);
+			return false;
+		}
+		pad.buttons = openxr_ui::gamepad_a;
+		openxr_ui::gamepad_frame result = pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, true, width, height);
+		if (!result.pointer_active || result.select_clicked || result.pointer_x != width * 0.5f || result.pointer_y != height * 0.5f)
+		{
+			std::fputs("Gamepad A press that showed the pointer also clicked, or the pointer did not start centred.\n", stderr);
+			return false;
+		}
+		pad.buttons = 0;
+		pad.left_x = 1.0f;
+		pad.left_y = 1.0f;
+		result = pointer.update(pad, 0.1f, openxr_ui::menu_button_both_sticks, true, width, height);
+		if (result.pointer_x <= width * 0.5f || result.pointer_y >= height * 0.5f)
+		{
+			std::fputs("Gamepad left stick did not move the pointer right and up.\n", stderr);
+			return false;
+		}
+		pad.left_x = 0.0f;
+		pad.left_y = 0.0f;
+		pad.buttons = openxr_ui::gamepad_a;
+		const bool clicked = pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, true, width, height).select_clicked;
+		pad.buttons = 0;
+		const bool released = pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, true, width, height).select_released;
+		if (!clicked || !released)
+		{
+			std::fputs("Gamepad A did not click and release.\n", stderr);
+			return false;
+		}
+		if (pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, false, width, height).pointer_active)
+		{
+			std::fputs("Gamepad pointer stayed active with the menu hidden.\n", stderr);
+			return false;
+		}
+		return true;
+	}
 }
 
 int main()
 {
-	if (!preset_gesture_logic_works())
+	if (!preset_gesture_logic_works() || !gamepad_logic_works())
 		return 1;
 	ComPtr<ID3D11Device> device;
 	ComPtr<ID3D11DeviceContext> context;
