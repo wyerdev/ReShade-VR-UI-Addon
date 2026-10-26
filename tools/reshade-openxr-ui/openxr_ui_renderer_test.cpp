@@ -819,12 +819,12 @@ int main()
 		return 1;
 	}
 	openxr_ui::render_result gesture_result;
-	if (!click(renderer, render_target.Get(), snapshot, dropdown_item("preset_gesture", openxr_ui::preset_gesture_left_trigger), gesture_result))
+	if (!click(renderer, render_target.Get(), snapshot, dropdown_item("preset_gesture", openxr_ui::preset_gesture_right_trigger), gesture_result))
 		return 1;
 	if (gesture_result.action != openxr_ui::render_result::command::set_preset_gesture ||
-		gesture_result.value != static_cast<double>(openxr_ui::preset_gesture_left_trigger))
+		gesture_result.value != static_cast<double>(openxr_ui::preset_gesture_right_trigger))
 	{
-		std::fputs("Head gesture drop-down did not pick Left Trigger from its list.\n", stderr);
+		std::fputs("Head gesture drop-down did not pick Right Trigger from its list.\n", stderr);
 		return 1;
 	}
 	// L3+R3 (the last row) cannot be picked while the menu shortcut is also L3+R3; with another shortcut it can.

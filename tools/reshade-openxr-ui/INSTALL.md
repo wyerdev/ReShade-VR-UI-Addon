@@ -33,8 +33,9 @@ UEVR uses the same buttons for its own menu. To use other buttons, change **Cont
 Raise a hand to the side of your head and press a button to switch to the next preset, for example from a preset for dark scenes to one for bright scenes.
 
 1. Save each preset with **Save as...** in the menu.
-2. On **Settings / Gestures**, set **Next preset** to **Head Gesture: Left Trigger** (or another button).
-3. In the game, raise your left hand to the side of your head and pull the trigger.
+2. In the game, raise your left hand to the side of your head and pull the trigger.
+
+To use another button, change **Next preset** on **Settings / Gestures**.
 
 If you only have one preset, the gesture turns effects on and off. To use buttons only, set **Next preset** to **L3+R3** and **Controller buttons** to **Hold L3+R3**.
 

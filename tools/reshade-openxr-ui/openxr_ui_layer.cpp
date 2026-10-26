@@ -217,7 +217,7 @@ namespace
 		XrSpace aim_space = XR_NULL_HANDLE;
 		XrSpace left_hand_space = XR_NULL_HANDLE;
 		XrSpace right_hand_space = XR_NULL_HANDLE;
-		uint32_t preset_gesture = openxr_ui::preset_gesture_off;
+		uint32_t preset_gesture = openxr_ui::preset_gesture_left_trigger;
 		openxr_ui::preset_gesture_tracker preset_gesture_press;
 		bool actions_attached = false;
 		bool input_focused = true;

@@ -47,7 +47,7 @@ namespace
 	uint32_t s_theme = vr_theme::default_theme;
 	uint32_t s_menu_button = openxr_ui::menu_button_both_sticks;
 	uint32_t s_menu_key = openxr_ui::menu_key_insert;
-	uint32_t s_preset_gesture = openxr_ui::preset_gesture_off;
+	uint32_t s_preset_gesture = openxr_ui::preset_gesture_left_trigger;
 	bool s_ui_settings_loaded = false;
 	bool s_performance_mode = false;
 	bool s_performance_mode_at_start = false;
@@ -298,7 +298,7 @@ namespace
 	}
 
 	// Menu shortcut and preset gesture are saved per game, in a section named after the game's executable path.
-	// Games without their own value fall back to the shared [UI] value written by earlier versions.
+	// Games without their own value use the default; shared [UI] values written by earlier versions are ignored.
 	const std::wstring &game_settings_section()
 	{
 		static const std::wstring section = [] {
@@ -316,8 +316,7 @@ namespace
 
 	UINT read_game_setting(const wchar_t *name, UINT default_value, const std::filesystem::path &path)
 	{
-		return GetPrivateProfileIntW(game_settings_section().c_str(), name,
-			GetPrivateProfileIntW(L"UI", name, default_value, path.c_str()), path.c_str());
+		return GetPrivateProfileIntW(game_settings_section().c_str(), name, default_value, path.c_str());
 	}
 
 	void load_ui_settings()
@@ -338,8 +337,8 @@ namespace
 			s_menu_key = key < openxr_ui::menu_key_count ? key : openxr_ui::menu_key_insert;
 			if (s_menu_button == openxr_ui::menu_button_off && s_menu_key == openxr_ui::menu_key_off)
 				s_menu_key = openxr_ui::menu_key_insert;
-			const UINT gesture = read_game_setting(L"PresetGesture", openxr_ui::preset_gesture_off, path);
-			s_preset_gesture = gesture < openxr_ui::preset_gesture_count ? gesture : openxr_ui::preset_gesture_off;
+			const UINT gesture = read_game_setting(L"PresetGesture", openxr_ui::preset_gesture_left_trigger, path);
+			s_preset_gesture = gesture < openxr_ui::preset_gesture_count ? gesture : openxr_ui::preset_gesture_left_trigger;
 			wchar_t theme_name[64] = L"";
 			GetPrivateProfileStringW(L"UI", L"Theme", L"", theme_name, static_cast<DWORD>(std::size(theme_name)), path.c_str());
 			char theme_name_utf8[192] = "";

@@ -178,7 +178,7 @@ int wmain(int argc, wchar_t **argv)
 		bool uevr = false;
 		uint32_t menu_button = openxr_ui::menu_button_hold_both_sticks;
 		bool all_themes = true;
-		uint32_t preset_gesture = openxr_ui::preset_gesture_off;
+		uint32_t preset_gesture = openxr_ui::preset_gesture_left_trigger;
 		bool always_show_statistics = false;
 	};
 	const shot shots[] = {

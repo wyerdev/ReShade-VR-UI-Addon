@@ -70,7 +70,7 @@ namespace openxr_ui
 		// The add-on runs its own effect runtime (UEVR games), which gets no depth buffer.
 		bool depth_effects_unavailable = false;
 		// Choice from vr_preset_gesture.hpp.
-		uint32_t preset_gesture = preset_gesture_off;
+		uint32_t preset_gesture = preset_gesture_left_trigger;
 	};
 
 	struct render_result
