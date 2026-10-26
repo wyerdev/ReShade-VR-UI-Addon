@@ -31,9 +31,9 @@ Evidence (`ReShade.log` and `d2r-vr-frame.log` in the mod folder, 10:13 run):
 This is not caused by our add-on, but our add-on was hiding it.
 
 - The central ReShade install (`%ProgramData%\ReShade`) registers itself as an
-  OpenXR layer for all games. It only works in games picked in ReShade Setup
-  (`ReShadeApps.ini`). In other games, such as `D2RLoader.exe`, its DLL refuses
-  to load.
+  OpenXR layer for all games. Its DLL only loads when a `ReShade.ini` exists
+  next to the game's `.exe` (ReShade Setup creates one for each picked game).
+  In other games, such as `D2RLoader.exe`, it refuses to load.
 - The official OpenXR loader has a flaw: if every extra layer (implicit API layer)
   fails to load and none loads, it cancels VR start with `XR_ERROR_FILE_ACCESS_ERROR`
   (-32). See `ApiLayerInterface::LoadApiLayers` in the Khronos OpenXR-SDK
@@ -43,6 +43,13 @@ This is not caused by our add-on, but our add-on was hiding it.
   started. Without it, only the failing ReShade layer remains and VR never starts.
 - The mod's log shows `create instance failed (-32)` in every run while our
   add-on was uninstalled (09:55 to 10:12).
+- 32-bit OpenXR games hit this whenever ReShade's 32-bit layer refuses to load,
+  because our add-on has no 32-bit layer to clear the error. ReShade Setup
+  registers both `ReShade64_XR.json` and `ReShade32_XR.json` (the latter under
+  `HKLM\SOFTWARE\WOW6432Node\Khronos\OpenXR\1\ApiLayers\Implicit`), set to 0,
+  whenever ReShade is installed with **OpenXR** ticked, for any game. Seen with the
+  BioShock Remastered VR mod: -32 on both its Pimax and SteamVR paths; setting
+  that value to 1 (off) made VR start. The player fix is in `OPENXR-LAYERS.md`.
 
 ### Confirmed
 
