@@ -127,12 +127,16 @@ Output:
 
 ```text
 build\reshade-openxr-ui\ReShade-OpenXR-UI.addon64
+build\reshade-openxr-ui\ReShade-OpenXR-UI.addon32
 build\reshade-openxr-ui\ReShade-SteamVR-UI.addon64
 build\reshade-openxr-ui\ReShade-OpenXR-UI-Renderer-Test.exe
 build\reshade-openxr-ui\layers\ReShade-OpenXR-UI-Layer.json
+build\reshade-openxr-ui\layers\ReShade-OpenXR-UI-Layer32.json
 ```
 
-The manifest expects the OpenXR DLL one directory above its `layers` directory. Its `api_layer.name` value, `XR_APILAYER_reshade_vr_ui`, is a stable external identifier used by SteamVR's API-layer toggle and must not be renamed; `build.ps1` enforces it. The user-facing label belongs in `api_layer.description`. The SteamVR DLL has no OpenXR negotiation export. The OpenXR DLL is installed centrally; the SteamVR DLL is copied by the user into each SteamVR game folder.
+The 32-bit OpenXR add-on is the same source compiled for x86, for 32-bit OpenXR games. In x86 builds the negotiation function is exported under its plain name through a linker directive, because `__stdcall` otherwise decorates it (`_name@12`) and the loader would not find it.
+
+The manifests expect the OpenXR DLL one directory above its `layers` directory. Its `api_layer.name` value, `XR_APILAYER_reshade_vr_ui`, is a stable external identifier used by SteamVR's API-layer toggle and must not be renamed; `build.ps1` enforces it. The user-facing label belongs in `api_layer.description`. The SteamVR DLL has no OpenXR negotiation export. The OpenXR DLL is installed centrally; the SteamVR DLL is copied by the user into each SteamVR game folder.
 To test a SteamVR game with the local build, double-click `install_steamvr_addon.bat` in the repository root (default game: Propagation: Paradise Hotel). Run it with `uninstall` to remove the add-on or `status` to check; a second argument picks another game's `.exe`. It only copies or deletes the add-on file; ReShade itself must be installed for the game with ReShade Setup first. `status` also reports settings that an earlier add-on run left in the game's `ReShade.ini` and `ReShadeVR.ini`; they keep ReShade's menu readable and its effects unsynced even after the add-on is removed, so delete them to test plain ReShade (see `INSTALL-SteamVR.md`). ReShade's dashboard icon does not depend on them; plain ReShade shows it and creates `ReShadeVR.ini` by itself.
 
 The build executes the D3D11 WARP interaction test after compiling. It fails if the test fails.
@@ -185,18 +189,22 @@ Installation copies exactly these runtime files:
 
 ```text
 %ProgramFiles%\ReShade VR UI Add-on\ReShade-OpenXR-UI.addon64
+%ProgramFiles%\ReShade VR UI Add-on\ReShade-OpenXR-UI.addon32
 %ProgramFiles%\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer.json
+%ProgramFiles%\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer32.json
 ```
 
-It then creates one enabled `REG_DWORD` value with data `0`. The value name is the absolute installed manifest path:
+It then creates one enabled `REG_DWORD` value with data `0` in each registry view (`/reg:64` and `/reg:32`). The value name is the absolute installed manifest path:
 
 ```text
-Key:   HKLM\Software\Khronos\OpenXR\1\ApiLayers\Implicit
+Key:   HKLM\Software\Khronos\OpenXR\1\ApiLayers\Implicit            (64-bit view)
 Value: %ProgramFiles%\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer.json
+Key:   HKLM\Software\WOW6432Node\Khronos\OpenXR\1\ApiLayers\Implicit (32-bit view)
+Value: %ProgramFiles%\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer32.json
 Data:  0
 ```
 
-The manifest resolves `..\ReShade-OpenXR-UI.addon64` relative to its own `openxr-layers` directory. The OpenXR loader can therefore discover it in every 64-bit OpenXR process for this user.
+Each manifest resolves its DLL (`..\ReShade-OpenXR-UI.addon64` or `..\ReShade-OpenXR-UI.addon32`) relative to its own `openxr-layers` directory. The OpenXR loader can therefore discover it in every 64-bit and 32-bit OpenXR process.
 
 Official ReShade still controls which games receive ReShade effects and OpenXR support. Install this add-on once, but continue using the official ReShade installer to enable ReShade and OpenXR for each game. The official **full add-on support** build is required; the standard limited build rejects standalone add-ons. The current UI renderer supports 64-bit D3D11, D3D12 and OpenGL OpenXR sessions.
 

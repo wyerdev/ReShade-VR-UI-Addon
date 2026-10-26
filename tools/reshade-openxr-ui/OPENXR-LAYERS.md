@@ -9,9 +9,11 @@ The registry has two lists:
 
 ## Install (`Install-OpenXR.cmd`)
 
-- Copies two files into `C:\Program Files\ReShade VR UI Add-on`: `ReShade-OpenXR-UI.addon64` and `openxr-layers\ReShade-OpenXR-UI-Layer.json`. Older copies are replaced.
-- Adds the entry `C:\Program Files\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer.json` to the 64-bit list, set to `0` (on). If that entry was already `1` (off), it stays `1` (off).
-- Changes nothing else: not the 32-bit list, not ReShade's entries, not your game folders.
+- Copies four files into `C:\Program Files\ReShade VR UI Add-on`: `ReShade-OpenXR-UI.addon64`, `ReShade-OpenXR-UI.addon32`, `openxr-layers\ReShade-OpenXR-UI-Layer.json` and `openxr-layers\ReShade-OpenXR-UI-Layer32.json`. Older copies are replaced.
+- Adds the entry `C:\Program Files\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer.json` to the 64-bit list, set to `0` (on).
+- Adds the entry `C:\Program Files\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer32.json` to the 32-bit list, set to `0` (on).
+- If an entry was already `1` (off), it stays `1` (off).
+- Changes nothing else: not ReShade's entries, not your game folders.
 
 ## While You Play
 
@@ -20,10 +22,10 @@ The registry has two lists:
 
 ## Uninstall (`Uninstall-OpenXR.cmd`)
 
-- Deletes the entry `C:\Program Files\ReShade VR UI Add-on\openxr-layers\ReShade-OpenXR-UI-Layer.json` from the 64-bit list.
-- Deletes the two installed files, then the folder `C:\Program Files\ReShade VR UI Add-on` if nothing else is in it.
+- Deletes both add-on entries: `...\ReShade-OpenXR-UI-Layer.json` from the 64-bit list and `...\ReShade-OpenXR-UI-Layer32.json` from the 32-bit list.
+- Deletes the four installed files, then the folder `C:\Program Files\ReShade VR UI Add-on` if nothing else is in it.
 - Keeps your settings in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Delete that folder if you don't need them.
-- Changes nothing else: not the 32-bit list, not ReShade's entries, not your game folders.
+- Changes nothing else: not ReShade's entries, not your game folders.
 
 ## What ReShade Setup Adds
 
@@ -42,11 +44,15 @@ SteamVR shows the entries in the 64-bit list. Open **SteamVR Settings**, then **
 
 ![SteamVR Settings, OpenXR page, with the Installed OpenXR API Layers list showing ReShade and the ReShade VR UI Add-on](images/steamvr-openxr-api-layers.png)
 
-SteamVR does not show the 32-bit list. Change that list in `regedit`, as below.
+SteamVR does not show the 32-bit list, so the add-on's 32-bit entry is not listed there. Change that list in `regedit`, as below.
 
 ## VR Game Shows Only On The Monitor
 
-ReShade's entry in the 32-bit list can stop 32-bit VR games without a `ReShade.ini` from starting in VR (for example the BioShock Remastered VR mod). Set it to `1` (off):
+ReShade's entry in the 32-bit list can stop 32-bit VR games from starting in VR when ReShade isn't installed for that game (for example the BioShock Remastered VR mod). Fix it one of these ways:
+
+- Install ReShade for the game (ReShade Setup, **OpenXR** **ticked**).
+- Install the add-on, or keep it installed (not yet tested).
+- To play without ReShade: set ReShade's entry to `1` (off), as below.
 
 1. Close the game. Open `regedit` as administrator.
 2. Go to the 32-bit list: `HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Khronos\OpenXR\1\ApiLayers\Implicit`.

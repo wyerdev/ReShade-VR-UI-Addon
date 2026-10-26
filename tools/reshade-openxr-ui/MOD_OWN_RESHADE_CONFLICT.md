@@ -43,13 +43,19 @@ This is not caused by our add-on, but our add-on was hiding it.
   started. Without it, only the failing ReShade layer remains and VR never starts.
 - The mod's log shows `create instance failed (-32)` in every run while our
   add-on was uninstalled (09:55 to 10:12).
-- 32-bit OpenXR games hit this whenever ReShade's 32-bit layer refuses to load,
-  because our add-on has no 32-bit layer to clear the error. ReShade Setup
-  registers both `ReShade64_XR.json` and `ReShade32_XR.json` (the latter under
-  `HKLM\SOFTWARE\WOW6432Node\Khronos\OpenXR\1\ApiLayers\Implicit`), set to 0,
+- 32-bit OpenXR games hit this whenever ReShade's 32-bit layer refuses to load
+  and no other 32-bit layer loads. ReShade Setup registers both
+  `ReShade64_XR.json` and `ReShade32_XR.json` (the latter under
+  `HKLM\SOFTWARE\WOW6432Node\Khronos\OpenXR\1\ApiLayers\Implicit`), set to 0 (on),
   whenever ReShade is installed with **OpenXR** ticked, for any game. Seen with the
   BioShock Remastered VR mod: -32 on both its Pimax and SteamVR paths; setting
   that value to 1 (off) made VR start. The player fix is in `OPENXR-LAYERS.md`.
+- The installer now also adds our 32-bit layer to that list, set to 0 (on)
+  (`ReShade-OpenXR-UI-Layer32.json`, `ReShade-OpenXR-UI.addon32`). It loads
+  without a `ReShade.ini`, so it should clear the error the same way in 32-bit
+  games. Not yet tested in a game without a `ReShade.ini`; with ReShade
+  installed for BioShock, both 32-bit entries at 0 (on) work. See
+  `BIOSHOCK_32BIT.md`.
 
 ### Confirmed
 

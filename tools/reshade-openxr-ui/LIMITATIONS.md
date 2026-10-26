@@ -2,10 +2,10 @@
 
 ## All Games
 
-- Windows and 64-bit games only.
+- Windows only. 32-bit OpenXR games: only DirectX 11 is tested (BioShock Remastered VR).
 - DirectX 11, DirectX 12 and OpenGL for OpenXR games; DirectX 11 and 12 for
   SteamVR (OpenVR) games. Vulkan games are not supported; ReShade alone works
-  there (see [INSTALL-Vulkan-32bit.md](INSTALL-Vulkan-32bit.md)).
+  there (see [INSTALL-Vulkan.md](INSTALL-Vulkan.md)).
 - Needs official ReShade with full add-on support. Without it the add-on does
   nothing. OpenXR games and UEVR: set ReShade up with the **OpenXR** layer **ticked**.
   SteamVR games: leave the **OpenXR** layer **unticked**.

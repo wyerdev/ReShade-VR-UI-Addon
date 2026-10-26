@@ -49,7 +49,7 @@
 
 - Treat every game directory and its ReShade configuration, effects, presets, logs, DLLs, and manifests as read-only evidence. Never edit, generate, copy, delete, or replace files there unless the user explicitly requests that exact target-side change.
 - Never modify a game-local `ReShade.ini` or `ReShadeVR.ini`, copy an add-on into a game directory, or change a game's launch configuration to make a test pass or to compensate for missing product behavior.
-- Never start a game, a game launcher, a mod launcher or an injector, not even with the OpenXR Simulator. The only programs the agent may start are the OpenXR Simulator test programs that `smoke.ps1` and `capture_simulator_ui.ps1` run. The user runs every game test (UEVR, SOMA-VR, D2R-PCVR and any other); the agent prepares the build, names the exact command or `.bat` to run and what to check, then reads the results.
+- Never start a game, a game launcher, a mod launcher or an injector, not even with the OpenXR Simulator. The only programs the agent may start are the OpenXR Simulator test programs that `smoke.ps1` and `capture_simulator_ui.ps1` run, and the game run that the BioShock VR Tests section allows. The user runs every other game test (UEVR, SOMA-VR, D2R-PCVR and any other); the agent prepares the build, names the exact command or `.bat` to run and what to check, then reads the results.
 - A per-game workaround is not an implementation of global add-on activation and must not be reported as a fix. Solve activation in this repository's add-on, installer, or supported machine-wide registration while preserving the no-loader and no-injection architecture.
 - After a user-controlled game test, inspect game-local logs and configuration read-only. Ask the user only for headset observations that cannot be obtained from artifacts.
 - Never change the machine-wide OpenXR runtime; tests select the OpenXR Simulator per process only.
@@ -88,6 +88,18 @@
 - Reaching the game world needs clicks in the game window (focus the window, press a key, click Play), and a run that stops at the start screen tests nothing that matters.
 - To request a test: run `build.bat`, then tell the user to double-click `test_d2r_pcvr.bat` in the repository root (`simulator`, `noaddon`, `stop` and `status` are its options), and list exactly what to check in the headset.
 - After the user's test, read the logs read-only: the mod's `ReShade.log` (includes the add-on log), `d2r-vr-frame.log`, `d2r-pcvr-vrcam.log`. `tools/test_d2r_pcvr.ps1 -Action Status` (it starts nothing) shows whether the game is still running.
+
+## BioShock VR Tests (User Runs Them)
+
+- Current scope: the OpenXR add-on in 32-bit OpenXR games, tested with the BioShock Remastered VR mod (Direct3D 11). Record findings in `tools/reshade-openxr-ui/BIOSHOCK_32BIT.md` and keep it short and current.
+- Test game: BioShock Remastered (Steam app 409710, `C:\Program Files (x86)\Steam\steamapps\common\BioShock Remastered\Build\Final`) with the mod already installed there. Its log is `%LOCALAPPDATA%\BioshockVR\bioshockvr.log`.
+- Run only on the OpenXR Simulator, selected per process. Its 32-bit build comes from the one simulator checkout (`bin-x86`); never create a second simulator copy.
+- The agent may start this game itself (the user approved it), but only through `tools/test_bioshock_vr.ps1` (`test_bioshock_vr.bat` in the repository root for the user; `capture`, `noreshade`, `headset`, `stop` and `status` are its options; only the user runs `headset`, which uses the real headset instead of the simulator), and must close it afterwards.
+- Close BioShock by closing its window. A forced kill leaves `%APPDATA%\BioshockHD\Bioshock\Running.ini` behind, and the next start asks to revert all settings. The agent and the script may delete that leftover file whenever the game is not running, without asking. The script starts `BioshockHD.exe` directly with Steam's app ID set, loads the build's 32-bit add-on and `ReShade32.dll` through per-process layer settings and a repo-owned ReShade base folder (`build\bioshock-vr\reshade-base`), and refuses to run as administrator (the mod then ignores the simulator setting).
+- Every wait step in the script has a 30 second limit.
+- To request a test: run `build.bat`, then tell the user which option to double-click and list what to check.
+- After the user's test, verify it from `build\bioshock-vr\last-run`: `headset.png` (inspect it with the image viewer), `ReShade.log` (includes the add-on log), `bioshockvr.log` and the simulator log.
+
 ## Scripts The User Runs
 
 - Everything the user runs is a `.bat` file in the repository root, next to `build.bat`. Never put a `.bat` in `tools` or another subfolder.

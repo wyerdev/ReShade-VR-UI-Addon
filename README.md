@@ -12,7 +12,7 @@ Adds a menu inside your VR headset for ReShade effects. Turn effects on and off,
 | --- | --- |
 | OpenXR VR game or UEVR | [OpenXR and UEVR](tools/reshade-openxr-ui/INSTALL.md) |
 | SteamVR game | [SteamVR](tools/reshade-openxr-ui/INSTALL-SteamVR.md) |
-| Vulkan or 32-bit VR game | [Vulkan and 32-bit](tools/reshade-openxr-ui/INSTALL-Vulkan-32bit.md) |
+| Vulkan VR game | [Vulkan](tools/reshade-openxr-ui/INSTALL-Vulkan.md) |
 
 Not sure? See [Which type is my game?](#which-type-is-my-game)
 
@@ -39,7 +39,7 @@ Playing it with UEVR? Then it's **OpenXR**. Otherwise, use one of these two opti
 2. In the search box at the top right of that window, search for `openxr_loader`, then for `openvr_api`.
 3. Only `openxr_loader` found: it's **OpenXR**. Only `openvr_api` found: it's **SteamVR**. Both or neither: use Option 2.
 
-To check for Vulkan or 32-bit, look the game up on [PCGamingWiki](https://www.pcgamingwiki.com/) under **API**. Not every game has a page there.
+To check for Vulkan, look the game up on [PCGamingWiki](https://www.pcgamingwiki.com/) under **API**. Not every game has a page there.
 
 **Option 2: Just try OpenXR**
 
@@ -52,16 +52,20 @@ You can leave the OpenXR add-on installed. It does nothing in other games.
 
 OpenXR games find add-ons like this one through two lists in the Windows registry: one for 64-bit games, one for 32-bit games. The OpenXR add-on:
 
-- copies two files to `C:\Program Files\ReShade VR UI Add-on`,
-- adds its entry to the 64-bit list, set to `0` (on), so your 64-bit OpenXR games load it. If you had set it to `1` (off), it stays off.
+- copies four files to `C:\Program Files\ReShade VR UI Add-on`,
+- adds its entry to both lists, set to `0` (on), so your OpenXR games load it. If you had set an entry to `1` (off), it stays off.
 
-While you play, it saves its own settings in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Uninstalling deletes the entry and the two files, and keeps your settings. Nothing else changes: not your game folders, not ReShade. Full details, and how to switch entries on and off: [What the OpenXR add-on changes on your PC](tools/reshade-openxr-ui/OPENXR-LAYERS.md).
+While you play, it saves its own settings in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Uninstalling deletes both entries and the four files, and keeps your settings. Nothing else changes: not your game folders, not ReShade. Full details, and how to switch entries on and off: [What the OpenXR add-on changes on your PC](tools/reshade-openxr-ui/OPENXR-LAYERS.md).
 
 ## Something Not Working?
 
 The end of each install guide has **Help** (unzipping, finding the game folder) and **Troubleshooting**.
 
-**A 32-bit VR game or VR mod shows only on the monitor** (for example BioShock Remastered VR): ReShade's entry in the 32-bit list can block it. Set it to `1` (off): [steps](tools/reshade-openxr-ui/OPENXR-LAYERS.md#vr-game-shows-only-on-the-monitor).
+**A 32-bit VR game or VR mod shows only on the monitor** (for example BioShock Remastered VR): ReShade's entry in the 32-bit list can stop it when ReShade isn't installed for that game. Fix it one of these ways:
+
+- Install ReShade for the game, as in the [OpenXR steps](tools/reshade-openxr-ui/INSTALL.md).
+- Install the OpenXR add-on, or keep it installed (not yet tested).
+- To play without ReShade: set ReShade's 32-bit entry to `1` (off): [steps](tools/reshade-openxr-ui/OPENXR-LAYERS.md#vr-game-shows-only-on-the-monitor).
 
 ## For Developers
 

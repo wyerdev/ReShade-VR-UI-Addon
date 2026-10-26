@@ -1,6 +1,6 @@
-# ReShade In Vulkan And 32-bit VR Games
+# ReShade In Vulkan VR Games
 
-**ReShade already works in these games on its own. You don't need the add-on.**
+**ReShade already works in Vulkan games on its own. You don't need the add-on.**
 
 ## Install
 
@@ -13,7 +13,7 @@
 <details><summary><b>Step by step</b></summary>
 
 1. Download ReShade from [reshade.me](https://reshade.me/).
-2. Run ReShade Setup and pick the game's `.exe`. Choose the graphics type the game uses (Vulkan or DirectX). **Tick** the **OpenXR** layer only for OpenXR games.
+2. Run ReShade Setup and pick the game's `.exe`. Choose **Vulkan**. **Tick** the **OpenXR** layer only for OpenXR games.
 3. SteamVR games, optional, smaller menu text: copy the downloaded `ReShadeVR.ini` next to the game's `.exe`. Already there? See [Troubleshooting](#troubleshooting).
 4. SteamVR games: start the game. In the SteamVR dashboard, click the ReShade icon with your controller. ReShade adds this icon by itself.
 

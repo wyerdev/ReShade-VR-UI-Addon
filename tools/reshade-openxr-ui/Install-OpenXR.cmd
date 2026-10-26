@@ -8,11 +8,16 @@ set "GREEN=%ESC%[92m"
 set "RESET=%ESC%[0m"
 
 set "SOURCE_ADDON=%~dp0ReShade-OpenXR-UI.addon64"
+set "SOURCE_ADDON32=%~dp0ReShade-OpenXR-UI.addon32"
 set "SOURCE_MANIFEST=%~dp0openxr-layers\ReShade-OpenXR-UI-Layer.json"
+set "SOURCE_MANIFEST32=%~dp0openxr-layers\ReShade-OpenXR-UI-Layer32.json"
 set "INSTALL_DIRECTORY=%ProgramFiles%\ReShade VR UI Add-on"
 set "INSTALL_LAYER_DIRECTORY=%INSTALL_DIRECTORY%\openxr-layers"
 set "INSTALL_ADDON=%INSTALL_DIRECTORY%\ReShade-OpenXR-UI.addon64"
+set "INSTALL_ADDON32=%INSTALL_DIRECTORY%\ReShade-OpenXR-UI.addon32"
 set "INSTALL_MANIFEST=%INSTALL_LAYER_DIRECTORY%\ReShade-OpenXR-UI-Layer.json"
+set "INSTALL_MANIFEST32=%INSTALL_LAYER_DIRECTORY%\ReShade-OpenXR-UI-Layer32.json"
+rem /reg:64 reaches the 64-bit list, /reg:32 the 32-bit list (WOW6432Node).
 set "REGISTRY_KEY=HKLM\Software\Khronos\OpenXR\1\ApiLayers\Implicit"
 set "CENTRAL_RESHADE=%ProgramData%\ReShade\ReShade64.dll"
 set "CENTRAL_APPS=%ProgramData%\ReShade\ReShadeApps.ini"
@@ -25,13 +30,16 @@ echo This installer needs administrator rights because it:
 echo   1. Copies the add-on to "%INSTALL_DIRECTORY%".
 echo      Only administrators can change files in Program Files.
 echo   2. Switches the add-on on for all your OpenXR games. Windows
-echo      keeps that list in a protected part of the registry:
+echo      keeps those lists in a protected part of the registry:
 echo      HKEY_LOCAL_MACHINE\Software\Khronos\OpenXR\1\ApiLayers\Implicit
+echo      HKEY_LOCAL_MACHINE\Software\WOW6432Node\Khronos\OpenXR\1\ApiLayers\Implicit
 echo It does not change your game folders or your ReShade install.
 echo.
 
 if not exist "%SOURCE_ADDON%" goto :incomplete
+if not exist "%SOURCE_ADDON32%" goto :incomplete
 if not exist "%SOURCE_MANIFEST%" goto :incomplete
+if not exist "%SOURCE_MANIFEST32%" goto :incomplete
 if not exist "%CENTRAL_RESHADE%" goto :missing_reshade
 if not exist "%CENTRAL_APPS%" goto :missing_reshade
 
@@ -52,6 +60,9 @@ exit /b %ERRORLEVEL%
 set "LAYER_STATE=0"
 reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /t REG_DWORD /reg:64 2>nul | findstr /R /C:"REG_DWORD *0x1" >nul
 if not errorlevel 1 set "LAYER_STATE=1"
+set "LAYER_STATE32=0"
+reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST32%" /t REG_DWORD /reg:32 2>nul | findstr /R /C:"REG_DWORD *0x1" >nul
+if not errorlevel 1 set "LAYER_STATE32=1"
 
 if exist "%INSTALL_LAYER_DIRECTORY%" goto :copy_files
 set "FAILURE_STEP=creating the install folder"
@@ -64,17 +75,32 @@ set "FAILURE_STEP=copying the OpenXR add-on"
 set "FAILURE_PATH=%INSTALL_ADDON%"
 copy /Y "%SOURCE_ADDON%" "%INSTALL_ADDON%" >nul
 if errorlevel 1 goto :failed
+set "FAILURE_PATH=%INSTALL_ADDON32%"
+copy /Y "%SOURCE_ADDON32%" "%INSTALL_ADDON32%" >nul
+if errorlevel 1 goto :failed
 set "FAILURE_STEP=copying the OpenXR layer file"
 set "FAILURE_PATH=%INSTALL_MANIFEST%"
 copy /Y "%SOURCE_MANIFEST%" "%INSTALL_MANIFEST%" >nul
+if errorlevel 1 goto :failed
+set "FAILURE_PATH=%INSTALL_MANIFEST32%"
+copy /Y "%SOURCE_MANIFEST32%" "%INSTALL_MANIFEST32%" >nul
 if errorlevel 1 goto :failed
 
 set "FAILURE_STEP=switching the add-on on for OpenXR games"
 set "FAILURE_PATH=%INSTALL_MANIFEST%"
 reg add "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /t REG_DWORD /d %LAYER_STATE% /f /reg:64 >nul
 if errorlevel 1 goto :failed
+set "FAILURE_STEP=switching the add-on on for 32-bit OpenXR games"
+set "FAILURE_PATH=%INSTALL_MANIFEST32%"
+reg add "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST32%" /t REG_DWORD /d %LAYER_STATE32% /f /reg:32 >nul
+if errorlevel 1 goto :failed
 set "FAILURE_STEP=checking that the add-on is switched on for OpenXR games"
+set "FAILURE_PATH=%INSTALL_MANIFEST%"
 reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /t REG_DWORD /reg:64 >nul 2>&1
+if errorlevel 1 goto :failed
+set "FAILURE_STEP=checking that the add-on is switched on for 32-bit OpenXR games"
+set "FAILURE_PATH=%INSTALL_MANIFEST32%"
+reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST32%" /t REG_DWORD /reg:32 >nul 2>&1
 if errorlevel 1 goto :failed
 
 echo %GREEN%----------------------------------------------------------------
@@ -89,7 +115,8 @@ exit /b 0
 echo %RED%----------------------------------------------------------------
 echo  ERROR: Files are missing. Nothing was installed.
 echo ----------------------------------------------------------------
-echo This file must be next to ReShade-OpenXR-UI.addon64 and the
+echo This file must be next to ReShade-OpenXR-UI.addon64,
+echo ReShade-OpenXR-UI.addon32 and the
 echo openxr-layers folder from the same ZIP.
 echo Extract the complete ZIP to a folder, then run %~nx0 from there.
 echo Running it from inside the ZIP without extracting does not work.%RESET%

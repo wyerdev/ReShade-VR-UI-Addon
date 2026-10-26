@@ -10,8 +10,11 @@ set "RESET=%ESC%[0m"
 set "INSTALL_DIRECTORY=%ProgramFiles%\ReShade VR UI Add-on"
 set "INSTALL_LAYER_DIRECTORY=%INSTALL_DIRECTORY%\openxr-layers"
 set "INSTALL_ADDON=%INSTALL_DIRECTORY%\ReShade-OpenXR-UI.addon64"
+set "INSTALL_ADDON32=%INSTALL_DIRECTORY%\ReShade-OpenXR-UI.addon32"
 set "INSTALL_MANIFEST=%INSTALL_LAYER_DIRECTORY%\ReShade-OpenXR-UI-Layer.json"
+set "INSTALL_MANIFEST32=%INSTALL_LAYER_DIRECTORY%\ReShade-OpenXR-UI-Layer32.json"
 set "PREFERENCES_DIRECTORY=%LOCALAPPDATA%\ReShade VR UI Add-on"
+rem /reg:64 reaches the 64-bit list, /reg:32 the 32-bit list (WOW6432Node).
 set "REGISTRY_KEY=HKLM\Software\Khronos\OpenXR\1\ApiLayers\Implicit"
 
 echo ================================================================
@@ -20,8 +23,9 @@ echo ================================================================
 echo.
 echo This uninstaller needs administrator rights because it:
 echo   1. Switches the add-on off for all your OpenXR games. Windows
-echo      keeps that list in a protected part of the registry:
+echo      keeps those lists in a protected part of the registry:
 echo      HKEY_LOCAL_MACHINE\Software\Khronos\OpenXR\1\ApiLayers\Implicit
+echo      HKEY_LOCAL_MACHINE\Software\WOW6432Node\Khronos\OpenXR\1\ApiLayers\Implicit
 echo   2. Deletes the add-on from "%INSTALL_DIRECTORY%".
 echo      Only administrators can change files in Program Files.
 echo It does not change your game folders or your ReShade install.
@@ -30,8 +34,12 @@ echo.
 set "IS_INSTALLED=0"
 reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /reg:64 >nul 2>&1
 if not errorlevel 1 set "IS_INSTALLED=1"
+reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST32%" /reg:32 >nul 2>&1
+if not errorlevel 1 set "IS_INSTALLED=1"
 if exist "%INSTALL_ADDON%" set "IS_INSTALLED=1"
+if exist "%INSTALL_ADDON32%" set "IS_INSTALLED=1"
 if exist "%INSTALL_MANIFEST%" set "IS_INSTALLED=1"
+if exist "%INSTALL_MANIFEST32%" set "IS_INSTALLED=1"
 if "%IS_INSTALLED%"=="0" goto :not_installed
 
 rem fltmc only succeeds in a window with administrator rights.
@@ -51,14 +59,21 @@ exit /b %ERRORLEVEL%
 reg delete "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /f /reg:64 >nul 2>&1
 reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST%" /reg:64 >nul 2>&1
 if not errorlevel 1 goto :registry_failed
+reg delete "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST32%" /f /reg:32 >nul 2>&1
+reg query "%REGISTRY_KEY%" /v "%INSTALL_MANIFEST32%" /reg:32 >nul 2>&1
+if not errorlevel 1 goto :registry_failed
 
 del /F /Q "%INSTALL_ADDON%" >nul 2>&1
+del /F /Q "%INSTALL_ADDON32%" >nul 2>&1
 del /F /Q "%INSTALL_MANIFEST%" >nul 2>&1
+del /F /Q "%INSTALL_MANIFEST32%" >nul 2>&1
 rmdir "%INSTALL_LAYER_DIRECTORY%" >nul 2>&1
 rmdir "%INSTALL_DIRECTORY%" >nul 2>&1
 
 if exist "%INSTALL_ADDON%" goto :files_failed
+if exist "%INSTALL_ADDON32%" goto :files_failed
 if exist "%INSTALL_MANIFEST%" goto :files_failed
+if exist "%INSTALL_MANIFEST32%" goto :files_failed
 
 echo %GREEN%----------------------------------------------------------------
 echo  DONE: ReShade VR UI Add-on for OpenXR is uninstalled.

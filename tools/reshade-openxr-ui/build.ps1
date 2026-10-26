@@ -52,10 +52,13 @@ $rendererSource = Join-Path $PSScriptRoot 'openxr_ui_renderer.cpp'
 $rendererTestSource = Join-Path $PSScriptRoot 'openxr_ui_renderer_test.cpp'
 $openvrOverlayProbeSource = Join-Path $PSScriptRoot 'openvr_overlay_probe.cpp'
 $manifestSource = Join-Path $PSScriptRoot 'ReShade-OpenXR-UI-Layer.json'
+$manifest32Source = Join-Path $PSScriptRoot 'ReShade-OpenXR-UI-Layer32.json'
 $expectedLayerName = 'XR_APILAYER_reshade_vr_ui'
-$manifestDefinition = Get-Content -LiteralPath $manifestSource -Raw | ConvertFrom-Json
-if ($manifestDefinition.api_layer.name -cne $expectedLayerName) {
-	throw "OpenXR API-layer name '$expectedLayerName' is a stable SteamVR identifier and must not be renamed."
+foreach ($manifestPath in @($manifestSource, $manifest32Source)) {
+	$manifestDefinition = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+	if ($manifestDefinition.api_layer.name -cne $expectedLayerName) {
+		throw "OpenXR API-layer name '$expectedLayerName' is a stable SteamVR identifier and must not be renamed ($manifestPath)."
+	}
 }
 $include = Join-Path $reshadeRoot 'include'
 $openxrInclude = Join-Path $reshadeRoot 'deps\openxr\include'
@@ -66,6 +69,11 @@ $openvrOutputDirectory = Join-Path $OutputDirectory 'openvr'
 $openvrOutput = Join-Path $OutputDirectory 'ReShade-SteamVR-UI.addon64'
 $manifestOutputDirectory = Join-Path $OutputDirectory 'layers'
 $manifestOutput = Join-Path $manifestOutputDirectory 'ReShade-OpenXR-UI-Layer.json'
+$manifest32Output = Join-Path $manifestOutputDirectory 'ReShade-OpenXR-UI-Layer32.json'
+$x86OutputDirectory = Join-Path $OutputDirectory 'x86'
+$output32 = Join-Path $OutputDirectory 'ReShade-OpenXR-UI.addon32'
+$importLibrary32 = Join-Path $x86OutputDirectory 'reshade_openxr_ui_addon.lib'
+$programDatabase32 = Join-Path $OutputDirectory 'ReShade-OpenXR-UI32.pdb'
 $importLibrary = Join-Path $OutputDirectory 'reshade_openxr_ui_addon.lib'
 $programDatabase = Join-Path $OutputDirectory 'ReShade-OpenXR-UI.pdb'
 $openvrImportLibrary = Join-Path $openvrOutputDirectory 'reshade_steamvr_ui_addon.lib'
@@ -89,6 +97,19 @@ if ($LASTEXITCODE -ne 0) {
 
 if (-not (Test-Path $output)) {
 	throw "Build completed without producing $output."
+}
+
+# Same sources for 32-bit OpenXR games, which load only 32-bit layers.
+New-Item -ItemType Directory -Path $x86OutputDirectory -Force | Out-Null
+$versionResource32 = New-VersionResource -DeveloperCommand $developerCommand -OutputDirectory $x86OutputDirectory -FileName 'ReShade-OpenXR-UI.addon32' -Description 'ReShade VR UI Add-on for 32-bit OpenXR games'
+$compileCommand32 = 'call "' + $developerCommand + '" -arch=x86 -host_arch=x64 >nul & cl.exe /nologo /LD /std:c++17 /EHsc /W4 /O2 /MD ' + $releaseDefine + ' /I"' + $include + '" /I"' + $openxrInclude + '" /I"' + $imgui + '" /I"' + $generatedInclude + '" /I"' + $imguiBackend + '" /Fo:"' + $x86OutputDirectory + '\\" "' + $versionResource32 + '" "' + $source + '" "' + $presetSource + '" "' + $layerSource + '" "' + $effectFallbackSource + '" "' + $rendererSource + '" "' + (Join-Path $imgui 'imgui.cpp') + '" "' + (Join-Path $imgui 'imgui_draw.cpp') + '" "' + (Join-Path $imgui 'imgui_tables.cpp') + '" "' + (Join-Path $imgui 'imgui_widgets.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx11.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx12.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_opengl3.cpp') + '" /link d3d11.lib d3d12.lib dxgi.lib /OUT:"' + $output32 + '" /IMPLIB:"' + $importLibrary32 + '" /PDB:"' + $programDatabase32 + '"'
+& cmd.exe /d /c $compileCommand32
+if ($LASTEXITCODE -ne 0) {
+	throw "ReShade VR UI Add-on 32-bit build failed with exit code $LASTEXITCODE."
+}
+
+if (-not (Test-Path $output32)) {
+	throw "Build completed without producing $output32."
 }
 
 New-Item -ItemType Directory -Path $openvrOutputDirectory -Force | Out-Null
@@ -122,5 +143,7 @@ if ($LASTEXITCODE -ne 0) {
 
 New-Item -ItemType Directory -Path $manifestOutputDirectory -Force | Out-Null
 Copy-Item -LiteralPath $manifestSource -Destination $manifestOutput -Force
+Copy-Item -LiteralPath $manifest32Source -Destination $manifest32Output -Force
 Write-Host "Built ReShade VR UI Add-on: $output"
-Write-Host "Wrote OpenXR API-layer manifest: $manifestOutput"
+Write-Host "Built ReShade VR UI Add-on for 32-bit games: $output32"
+Write-Host "Wrote OpenXR API-layer manifests: $manifestOutput, $manifest32Output"

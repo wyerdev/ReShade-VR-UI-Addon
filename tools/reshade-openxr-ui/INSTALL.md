@@ -4,13 +4,13 @@
 
 ## Install
 
-1. Install the add-on once (`Install-OpenXR.cmd`). It works in all your OpenXR games.
+1. Install the add-on once (`Install-OpenXR.cmd`).
 2. For each game, install ReShade **with full add-on support** and **tick** the **OpenXR** layer.
 3. Open and close the menu with `Insert` or both thumbsticks (`L3 + R3`).
 
 <details><summary><b>Step by step</b></summary>
 
-For 64-bit OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for UEVR.
+For OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for UEVR. 32-bit OpenXR games: only DirectX 11 is tested (BioShock Remastered VR).
 
 1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
 2. Run ReShade Setup and pick the game's `.exe`. For UEVR games, pick the one ending in `-Win64-Shipping.exe`.
@@ -75,7 +75,7 @@ For more FPS: on **Settings / Gestures**, switch off **Enable depth-based effect
 
 ## Where It Installs
 
-- Files go to `C:\Program Files\ReShade VR UI Add-on`. Admin rights are needed to put them there and to turn the add-on on for all OpenXR games (registry key `HKEY_LOCAL_MACHINE\Software\Khronos\OpenXR\1\ApiLayers\Implicit`).
+- Files go to `C:\Program Files\ReShade VR UI Add-on`. Admin rights are needed to put them there and to turn the add-on on for all OpenXR games (registry keys `HKEY_LOCAL_MACHINE\Software\Khronos\OpenXR\1\ApiLayers\Implicit` for 64-bit games and `HKEY_LOCAL_MACHINE\Software\WOW6432Node\Khronos\OpenXR\1\ApiLayers\Implicit` for 32-bit games).
 - Admin rights also make it work in games that run as administrator, such as SOMA with the SOMA-VR mod.
 - Settings and logs are in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Uninstalling keeps them.
 - The installer does not change game folders.

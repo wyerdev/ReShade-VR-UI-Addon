@@ -2068,6 +2068,10 @@ extern "C" XrResult XRAPI_CALL xrCreateApiLayerInstance(const XrInstanceCreateIn
 
 extern "C" __declspec(dllexport) XrResult XRAPI_CALL xrNegotiateLoaderApiLayerInterface(const XrNegotiateLoaderInfo *loader_info, const char *, XrNegotiateApiLayerRequest *layer_request)
 {
+#if defined(_M_IX86)
+	// 32-bit __stdcall exports are decorated (_name@12); the OpenXR loader looks up the plain name.
+#pragma comment(linker, "/EXPORT:xrNegotiateLoaderApiLayerInterface=" __FUNCDNAME__)
+#endif
 	if (loader_info == nullptr || layer_request == nullptr ||
 		loader_info->structType != XR_LOADER_INTERFACE_STRUCT_LOADER_INFO ||
 		loader_info->structVersion != XR_LOADER_INFO_STRUCT_VERSION ||
