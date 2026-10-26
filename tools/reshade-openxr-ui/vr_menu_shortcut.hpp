@@ -35,4 +35,41 @@ namespace openxr_ui
 	{
 		return button == menu_button_hold_both_sticks || button == menu_button_hold_b_and_y || button == menu_button_hold_left_menu;
 	}
+
+	inline constexpr float menu_hold_seconds = 1.5f;
+
+	// The single press state of the controller menu shortcut. Callers pass whether any input device reports the
+	// shortcut buttons, because some VR mods report the same controllers both as VR controllers and as a gamepad;
+	// one press must still show or hide the menu only once.
+	class menu_shortcut_press
+	{
+	public:
+		// Returns true on the frame the menu should be shown or hidden.
+		bool update(bool pressed, float seconds, uint32_t menu_button)
+		{
+			bool toggled = false;
+			if (pressed && !_was_pressed)
+			{
+				_held_seconds = 0.0f;
+				_triggered = !menu_button_needs_hold(menu_button);
+				toggled = _triggered;
+			}
+			else if (pressed && !_triggered && (_held_seconds += seconds) >= menu_hold_seconds)
+			{
+				_triggered = true;
+				toggled = true;
+			}
+			_was_pressed = pressed;
+			return toggled;
+		}
+
+		// True once the current or last press has shown or hidden the menu.
+		bool triggered() const { return _triggered; }
+		void mark_triggered() { _triggered = true; }
+
+	private:
+		bool _was_pressed = false;
+		bool _triggered = false;
+		float _held_seconds = 0.0f;
+	};
 }

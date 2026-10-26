@@ -65,7 +65,6 @@ namespace
 	constexpr float pointer_hover_follow_rate = 0.18f;
 	constexpr float pointer_drag_follow_rate = 0.35f;
 	constexpr float pointer_hover_output_step = 2.0f;
-	constexpr XrDuration menu_long_press_duration = 1500000000;
 	// Official ReShade creates its VR runtime on its first xrEndFrame, so it gets this many frames before the fallback starts.
 	constexpr uint32_t effect_fallback_wait_frames = 10;
 
@@ -230,9 +229,8 @@ namespace
 		bool pointer_filter_ready = false;
 		bool select_was_pressed = false;
 		bool select_clicked = false;
-		bool menu_chord_was_pressed = false;
-		bool menu_chord_triggered = false;
-		XrTime menu_chord_started = 0;
+		openxr_ui::menu_shortcut_press menu_shortcut;
+		bool menu_toggled = false;
 		bool menu_key_was_pressed = false;
 		uint32_t menu_button = openxr_ui::menu_button_both_sticks;
 		uint32_t menu_key = openxr_ui::menu_key_insert;
@@ -246,7 +244,7 @@ namespace
 		bool select_released = false;
 		float scroll_y = 0.0f;
 		openxr_ui::gamepad_pointer gamepad;
-		std::chrono::steady_clock::time_point gamepad_updated{};
+		std::chrono::steady_clock::time_point input_updated{};
 		bool gamepad_pointer_shown = false;
 		bool quad_ready = false;
 		bool quad_logged = false;
@@ -1013,7 +1011,7 @@ namespace
 				if (openxr_ui_set_menu_button(static_cast<uint32_t>(render_result.value)))
 				{
 					state.menu_button = static_cast<uint32_t>(render_result.value);
-					state.menu_chord_triggered = true;
+					state.menu_shortcut.mark_triggered();
 				}
 				break;
 			case openxr_ui::render_result::command::set_menu_key:
@@ -1245,7 +1243,7 @@ namespace
 		const bool pressed = read_boolean_action(state, dispatch.right_menu_toggle_action, dispatch.right_hand_path, right) &&
 			read_boolean_action(state, dispatch.left_menu_toggle_action, dispatch.left_hand_path, left) && right && left;
 		if (!state.preset_gesture_press.press_ended(pressed) || state.panel_visible ||
-			!openxr_ui::stick_gesture_allowed(state.menu_button, state.menu_chord_triggered))
+			!openxr_ui::stick_gesture_allowed(state.menu_button, state.menu_shortcut.triggered()))
 			return;
 		if (!openxr_ui_gesture_switch_preset())
 			openxr_ui_log_message("preset gesture recognised, but no preset change was possible right now.");
@@ -1281,21 +1279,11 @@ namespace
 			openxr_ui_log_message("preset gesture recognised, but no preset change was possible right now.");
 	}
 
-	void update_interaction(session_state &state, XrTime display_time)
+	// Returns false when the controller actions could not be read this frame.
+	bool sync_controller_actions(session_state &state)
 	{
-		state.pointer_visible = false;
-		state.select_clicked = false;
-		state.select_released = false;
-		state.scroll_y = 0.0f;
-		if (!state.pointer_visible)
-			state.pointer_filter_ready = false;
-		const bool key_pressed = openxr_ui_menu_key_down(state.menu_key);
-		if (key_pressed && !state.menu_key_was_pressed)
-			state.panel_visible = !state.panel_visible;
-		state.menu_key_was_pressed = key_pressed;
 		if (!state.actions_attached || state.aim_space == XR_NULL_HANDLE)
-			return;
-
+			return false;
 		const XrActiveActionSet active_set = { state.dispatch->action_set, XR_NULL_PATH };
 		XrActionsSyncInfo sync_info = { XR_TYPE_ACTIONS_SYNC_INFO };
 		sync_info.countActiveActionSets = 1;
@@ -1308,7 +1296,29 @@ namespace
 			openxr_ui_log_message(focused ? "controller input focus returned to the game." :
 				"controller input unavailable: the headset runtime reports the game is not focused.", !focused);
 		}
-		if (XR_FAILED(sync_result) && sync_result != XR_SESSION_NOT_FOCUSED)
+		return XR_SUCCEEDED(sync_result) || sync_result == XR_SESSION_NOT_FOCUSED;
+	}
+
+	void update_interaction(session_state &state, XrTime display_time, const openxr_ui::gamepad_reading &gamepad, float seconds)
+	{
+		state.pointer_visible = false;
+		state.select_clicked = false;
+		state.select_released = false;
+		state.scroll_y = 0.0f;
+		if (!state.pointer_visible)
+			state.pointer_filter_ready = false;
+		const bool key_pressed = openxr_ui_menu_key_down(state.menu_key);
+		if (key_pressed && !state.menu_key_was_pressed)
+			state.panel_visible = !state.panel_visible;
+		state.menu_key_was_pressed = key_pressed;
+
+		const bool controller_synced = sync_controller_actions(state);
+		const bool menu_pressed = (controller_synced && menu_button_down(state)) ||
+			openxr_ui::gamepad_menu_pressed(gamepad, state.menu_button);
+		state.menu_toggled = state.menu_shortcut.update(menu_pressed, seconds, state.menu_button);
+		if (state.menu_toggled)
+			state.panel_visible = !state.panel_visible;
+		if (!controller_synced)
 			return;
 
 		XrActionStateGetInfo get_info = { XR_TYPE_ACTION_STATE_GET_INFO };
@@ -1326,25 +1336,6 @@ namespace
 			state.select_was_pressed = pressed;
 		}
 
-		const bool menu_chord_pressed = menu_button_down(state);
-		const bool menu_needs_hold = openxr_ui::menu_button_needs_hold(state.menu_button);
-		if (menu_chord_pressed && !state.menu_chord_was_pressed)
-		{
-			state.menu_chord_started = display_time;
-			state.menu_chord_triggered = false;
-			if (!menu_needs_hold)
-			{
-				state.panel_visible = !state.panel_visible;
-				state.menu_chord_triggered = true;
-			}
-		}
-		else if (menu_chord_pressed && menu_needs_hold && !state.menu_chord_triggered &&
-			display_time - state.menu_chord_started >= menu_long_press_duration)
-		{
-			state.panel_visible = !state.panel_visible;
-			state.menu_chord_triggered = true;
-		}
-		state.menu_chord_was_pressed = menu_chord_pressed;
 		update_preset_gesture(state, display_time);
 
 		get_info.action = state.dispatch->scroll_action;
@@ -1512,18 +1503,23 @@ namespace
 		return reading;
 	}
 
-	// Runs after update_interaction; a controller pointing at the panel wins over the gamepad pointer.
-	void update_gamepad(session_state &state)
+	// Seconds since the previous frame's input update, capped so a long stall does not complete a menu hold at once.
+	float input_frame_seconds(session_state &state)
 	{
 		const auto now = std::chrono::steady_clock::now();
-		const float seconds = state.gamepad_updated == std::chrono::steady_clock::time_point{} ? 0.0f :
-			(std::min)(std::chrono::duration<float>(now - state.gamepad_updated).count(), 0.1f);
-		state.gamepad_updated = now;
+		const float seconds = state.input_updated == std::chrono::steady_clock::time_point{} ? 0.0f :
+			(std::min)(std::chrono::duration<float>(now - state.input_updated).count(), 0.1f);
+		state.input_updated = now;
+		return seconds;
+	}
+
+	// Runs after update_interaction; a controller pointing at the panel wins over the gamepad pointer.
+	void update_gamepad(session_state &state, const openxr_ui::gamepad_reading &reading, float seconds)
+	{
 		const uint32_t panel_height = state.panel_expanded ? openxr_ui::expanded_panel_height : openxr_ui::compact_panel_height;
-		const openxr_ui::gamepad_frame frame = state.gamepad.update(read_gamepad(), seconds, state.menu_button, state.panel_visible,
+		// The press that shows the menu does not also wake the gamepad pointer.
+		const openxr_ui::gamepad_frame frame = state.gamepad.update(reading, seconds, state.panel_visible && !state.menu_toggled,
 			static_cast<float>(openxr_ui::panel_width), static_cast<float>(panel_height));
-		if (frame.menu_toggled)
-			state.panel_visible = !state.panel_visible;
 		if (!frame.pointer_active || state.pointer_visible)
 		{
 			if (state.gamepad_pointer_shown && !state.pointer_visible)
@@ -1973,8 +1969,10 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 		return time_runtime_call(*state, [&] { return state->dispatch->EndFrame(session, frame_end_info); });
 
 	update_head_pose(*state, frame_end_info->displayTime);
-	update_interaction(*state, frame_end_info->displayTime);
-	update_gamepad(*state);
+	const openxr_ui::gamepad_reading gamepad = read_gamepad();
+	const float input_seconds = input_frame_seconds(*state);
+	update_interaction(*state, frame_end_info->displayTime, gamepad, input_seconds);
+	update_gamepad(*state, gamepad, input_seconds);
 	std::vector<const XrCompositionLayerBaseHeader *> layers(frame_end_info->layers, frame_end_info->layers + frame_end_info->layerCount);
 
 	XrCompositionLayerQuad quad = { XR_TYPE_COMPOSITION_LAYER_QUAD };

@@ -213,34 +213,58 @@ namespace
 		pad.connected = true;
 		openxr_ui::gamepad_pointer pointer;
 		pad.buttons = openxr_ui::gamepad_left_thumb | openxr_ui::gamepad_right_thumb;
-		if (!pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, false, width, height).menu_toggled ||
-			pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, true, width, height).menu_toggled)
+		if (!openxr_ui::gamepad_menu_pressed(pad, openxr_ui::menu_button_both_sticks) ||
+			openxr_ui::gamepad_menu_pressed(pad, openxr_ui::menu_button_b_and_y) ||
+			openxr_ui::gamepad_menu_pressed(pad, openxr_ui::menu_button_off))
 		{
-			std::fputs("Gamepad L3+R3 did not toggle the menu exactly once per press.\n", stderr);
+			std::fputs("Gamepad buttons did not match the chosen menu shortcut.\n", stderr);
 			return false;
 		}
-		openxr_ui::gamepad_pointer hold;
-		pad.buttons = openxr_ui::gamepad_b | openxr_ui::gamepad_y;
+		openxr_ui::menu_shortcut_press shortcut;
+		if (!shortcut.update(true, frame, openxr_ui::menu_button_both_sticks) ||
+			shortcut.update(true, frame, openxr_ui::menu_button_both_sticks))
+		{
+			std::fputs("L3+R3 did not toggle the menu exactly once per press.\n", stderr);
+			return false;
+		}
+		// Some VR mods report the VR controllers also as a gamepad, so one press reaches the add-on from two devices,
+		// sometimes a frame apart. It must still show or hide the menu only once.
+		openxr_ui::menu_shortcut_press shared;
+		const bool controller_down[] = { false, true, true, true, false, false, false };
+		const bool gamepad_down[] = { false, false, true, true, true, false, false };
+		int toggles = 0;
+		for (size_t i = 0; i < std::size(controller_down); ++i)
+		{
+			pad.buttons = gamepad_down[i] ? openxr_ui::gamepad_left_thumb | openxr_ui::gamepad_right_thumb : 0;
+			toggles += shared.update(controller_down[i] || openxr_ui::gamepad_menu_pressed(pad, openxr_ui::menu_button_both_sticks),
+				frame, openxr_ui::menu_button_both_sticks) ? 1 : 0;
+		}
+		if (toggles != 1)
+		{
+			std::fputs("One L3+R3 press reported by both the VR controllers and a gamepad did not toggle the menu exactly once.\n", stderr);
+			return false;
+		}
+		openxr_ui::menu_shortcut_press hold;
 		bool toggled_early = false;
 		for (int i = 0; i < 140; ++i)
-			toggled_early |= hold.update(pad, frame, openxr_ui::menu_button_hold_b_and_y, true, width, height).menu_toggled;
+			toggled_early |= hold.update(true, frame, openxr_ui::menu_button_hold_b_and_y);
 		bool toggled_late = false;
 		for (int i = 0; i < 20; ++i)
-			toggled_late |= hold.update(pad, frame, openxr_ui::menu_button_hold_b_and_y, true, width, height).menu_toggled;
-		if (toggled_early || !toggled_late)
+			toggled_late |= hold.update(true, frame, openxr_ui::menu_button_hold_b_and_y);
+		if (toggled_early || !toggled_late || hold.update(true, frame, openxr_ui::menu_button_hold_b_and_y))
 		{
-			std::fputs("Gamepad Hold B+Y did not wait 1.5 seconds before toggling the menu.\n", stderr);
+			std::fputs("Hold B+Y did not wait 1.5 seconds before toggling the menu once.\n", stderr);
 			return false;
 		}
 
 		pad.buttons = 0;
-		if (pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, true, width, height).pointer_active)
+		if (pointer.update(pad, frame, true, width, height).pointer_active)
 		{
 			std::fputs("Gamepad pointer appeared without a stick push or A press.\n", stderr);
 			return false;
 		}
 		pad.buttons = openxr_ui::gamepad_a;
-		openxr_ui::gamepad_frame result = pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, true, width, height);
+		openxr_ui::gamepad_frame result = pointer.update(pad, frame, true, width, height);
 		if (!result.pointer_active || result.select_clicked || result.pointer_x != width * 0.5f || result.pointer_y != height * 0.5f)
 		{
 			std::fputs("Gamepad A press that showed the pointer also clicked, or the pointer did not start centred.\n", stderr);
@@ -249,7 +273,7 @@ namespace
 		pad.buttons = 0;
 		pad.left_x = 1.0f;
 		pad.left_y = 1.0f;
-		result = pointer.update(pad, 0.1f, openxr_ui::menu_button_both_sticks, true, width, height);
+		result = pointer.update(pad, 0.1f, true, width, height);
 		if (result.pointer_x <= width * 0.5f || result.pointer_y >= height * 0.5f)
 		{
 			std::fputs("Gamepad left stick did not move the pointer right and up.\n", stderr);
@@ -258,15 +282,15 @@ namespace
 		pad.left_x = 0.0f;
 		pad.left_y = 0.0f;
 		pad.buttons = openxr_ui::gamepad_a;
-		const bool clicked = pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, true, width, height).select_clicked;
+		const bool clicked = pointer.update(pad, frame, true, width, height).select_clicked;
 		pad.buttons = 0;
-		const bool released = pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, true, width, height).select_released;
+		const bool released = pointer.update(pad, frame, true, width, height).select_released;
 		if (!clicked || !released)
 		{
 			std::fputs("Gamepad A did not click and release.\n", stderr);
 			return false;
 		}
-		if (pointer.update(pad, frame, openxr_ui::menu_button_both_sticks, false, width, height).pointer_active)
+		if (pointer.update(pad, frame, false, width, height).pointer_active)
 		{
 			std::fputs("Gamepad pointer stayed active with the menu hidden.\n", stderr);
 			return false;

@@ -24,7 +24,6 @@ namespace openxr_ui
 	inline constexpr int16_t gamepad_right_stick_dead_zone = 8689;
 	// Panel pixels per second at full stick; the squared response leaves small pushes precise.
 	inline constexpr float gamepad_pointer_speed = 800.0f;
-	inline constexpr float gamepad_menu_hold_seconds = 1.5f;
 
 	struct gamepad_reading
 	{
@@ -65,9 +64,14 @@ namespace openxr_ui
 		}
 	}
 
+	inline bool gamepad_menu_pressed(const gamepad_reading &reading, uint32_t menu_button)
+	{
+		const uint16_t chord = gamepad_menu_buttons(menu_button);
+		return reading.connected && chord != 0 && (reading.buttons & chord) == chord;
+	}
+
 	struct gamepad_frame
 	{
-		bool menu_toggled = false;
 		// The gamepad drives the panel pointer this frame.
 		bool pointer_active = false;
 		float pointer_x = 0.0f;
@@ -78,13 +82,12 @@ namespace openxr_ui
 		float scroll_y = 0.0f;
 	};
 
-	// Left stick moves a pointer over the panel, A clicks, right stick scrolls, and the menu shortcut buttons
-	// show or hide the menu. The pointer appears on the first stick push or A press while the menu is shown.
+	// Left stick moves a pointer over the panel, A clicks, and the right stick scrolls. The pointer appears on the
+	// first stick push or A press while the menu is shown. The menu shortcut is handled by menu_shortcut_press.
 	class gamepad_pointer
 	{
 	public:
-		gamepad_frame update(const gamepad_reading &reading, float seconds, uint32_t menu_button, bool panel_visible,
-			float width, float height)
+		gamepad_frame update(const gamepad_reading &reading, float seconds, bool panel_visible, float width, float height)
 		{
 			gamepad_frame frame;
 			if (!reading.connected)
@@ -93,25 +96,10 @@ namespace openxr_ui
 				return frame;
 			}
 
-			const uint16_t chord = gamepad_menu_buttons(menu_button);
-			const bool chord_pressed = chord != 0 && (reading.buttons & chord) == chord;
-			if (chord_pressed && !_chord_was_pressed)
-			{
-				_chord_held_seconds = 0.0f;
-				_chord_triggered = !menu_button_needs_hold(menu_button);
-				frame.menu_toggled = _chord_triggered;
-			}
-			else if (chord_pressed && !_chord_triggered && (_chord_held_seconds += seconds) >= gamepad_menu_hold_seconds)
-			{
-				_chord_triggered = true;
-				frame.menu_toggled = true;
-			}
-			_chord_was_pressed = chord_pressed;
-
 			const bool a_pressed = (reading.buttons & gamepad_a) != 0;
 			const bool a_was_pressed = _a_was_pressed;
 			_a_was_pressed = a_pressed;
-			if (!panel_visible || frame.menu_toggled)
+			if (!panel_visible)
 			{
 				_active = false;
 				_select_down = false;
@@ -148,9 +136,6 @@ namespace openxr_ui
 		}
 
 	private:
-		bool _chord_was_pressed = false;
-		bool _chord_triggered = false;
-		float _chord_held_seconds = 0.0f;
 		bool _a_was_pressed = false;
 		bool _active = false;
 		bool _select_down = false;
