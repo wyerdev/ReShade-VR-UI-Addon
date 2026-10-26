@@ -592,20 +592,30 @@ namespace
 		return hovered_index;
 	}
 
-	[[maybe_unused]] void draw_group_title(const char *text, ImVec2 pos)
+	// A highlighted group (title in the accent color, accent stripe on its card) marks the one feature the page wants noticed.
+	[[maybe_unused]] void draw_group_title(const char *text, ImVec2 pos, bool highlighted = false)
 	{
 		std::string upper = text;
 		for (char &character : upper)
 			if (character >= 'a' && character <= 'z')
 				character = static_cast<char>(character - 'a' + 'A');
 		ImGui::PushFont(bold_font(), vr_theme::font_small);
-		ImGui::GetWindowDrawList()->AddText(pos, colors().text_secondary, upper.c_str());
+		ImGui::GetWindowDrawList()->AddText(pos, highlighted ? colors().accent : colors().text_secondary, upper.c_str());
 		ImGui::PopFont();
 	}
 
-	[[maybe_unused]] void draw_card(ImVec2 min, ImVec2 max)
+	[[maybe_unused]] void draw_card(ImVec2 min, ImVec2 max, bool highlighted = false)
 	{
-		ImGui::GetWindowDrawList()->AddRectFilled(min, max, colors().surface, vr_theme::radius_md);
+		ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+		if (!highlighted)
+		{
+			draw_list->AddRectFilled(min, max, colors().surface, vr_theme::radius_md);
+			return;
+		}
+		constexpr float stripe_width = 4.0f;
+		// The accent sits only under the left end, so it cannot show through the right corners' soft edges.
+		draw_list->AddRectFilled(min, { min.x + vr_theme::radius_md * 2.0f, max.y }, colors().accent, vr_theme::radius_md, ImDrawFlags_RoundCornersLeft);
+		draw_list->AddRectFilled({ min.x + stripe_width, min.y }, max, colors().surface, vr_theme::radius_md, ImDrawFlags_RoundCornersRight);
 	}
 
 	// Rows are divided by a 2 px band in the background color rather than a thin line.
@@ -2081,9 +2091,9 @@ namespace openxr_ui
 			const auto card_height = [](size_t rows) { return 8.0f + settings_row_height * static_cast<float>(rows) + 2.0f * static_cast<float>(rows - 1); };
 			const auto row_top = [](float card_top, size_t row) { return card_top + 4.0f + (settings_row_height + 2.0f) * static_cast<float>(row); };
 			const auto separator_after = [&](float x, float row_y) { draw_row_separator(x, x + column_width, row_y + settings_row_height); };
-			const auto begin_card = [&](float x, float title_y, float height)
+			const auto begin_card = [&](float x, float title_y, float height, bool highlighted = false)
 			{
-				draw_card({ x, title_y + title_block }, { x + column_width, title_y + title_block + height });
+				draw_card({ x, title_y + title_block }, { x + column_width, title_y + title_block + height }, highlighted);
 				return title_y + title_block;
 			};
 			const auto dropdown_row = [&](float x, float row_y, const char *label, const char *id, const char *const *options, size_t count,
@@ -2140,8 +2150,8 @@ namespace openxr_ui
 			ImGui::PushFont(nullptr, vr_theme::font_small);
 			const float gesture_text_height = std::ceil(ImGui::CalcTextSize(gesture_text, nullptr, false, column_width - card_padding * 2.0f).y);
 			ImGui::PopFont();
-			card_top = begin_card(left_x, title_y, 8.0f + gesture_text_height + 8.0f + settings_row_height);
-			draw_group_title("Gestures", { left_x, title_y });
+			card_top = begin_card(left_x, title_y, 8.0f + gesture_text_height + 8.0f + settings_row_height, true);
+			draw_group_title("Gestures", { left_x, title_y }, true);
 			ImGui::PushFont(nullptr, vr_theme::font_small);
 			ImGui::GetWindowDrawList()->AddText(nullptr, 0.0f, { left_x + card_padding, card_top + 8.0f }, colors().text_secondary, gesture_text,
 				nullptr, column_width - card_padding * 2.0f);
