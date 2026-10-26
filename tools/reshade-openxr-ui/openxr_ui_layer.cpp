@@ -1932,6 +1932,7 @@ extern "C" XrResult XRAPI_CALL xrCreateApiLayerInstance(const XrInstanceCreateIn
 		dispatch->DestroyInstance(*instance);
 		return XR_ERROR_INITIALIZATION_FAILED;
 	}
+	openxr_ui_note_openxr_instance_created();
 	if (openxr_ui_ensure_addon_registered())
 	{
 		openxr_ui_game_brought_own_reshade();

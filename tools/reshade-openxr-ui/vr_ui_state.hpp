@@ -25,6 +25,9 @@ bool openxr_ui_game_brought_own_reshade();
 void openxr_ui_log_message(const char *message, bool error = false);
 std::shared_ptr<const openxr_ui::technique_snapshot> openxr_ui_get_techniques();
 bool openxr_ui_has_effect_runtime();
+// Called by the OpenXR layer, so a windowless ReShade runtime counts as the headset one even when the OpenXR
+// loader is built into the game or a mod instead of being a separate openxr_loader.dll.
+void openxr_ui_note_openxr_instance_created();
 bool openxr_ui_has_vr_runtime();
 bool openxr_ui_uses_effect_runtime(reshade::api::effect_runtime *runtime);
 bool openxr_ui_toggle_technique(uint64_t technique_id);

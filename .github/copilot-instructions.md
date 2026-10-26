@@ -1,9 +1,5 @@
 # ReShade VR UI Add-on Repository Instructions
 
-## Read Every Instruction In Full
-
-- Before starting any task, and again before the final answer, read every instruction, agent and skill file in `.github` in full: this file, every file it links to, and every other file there. Never skip a file, read only part of it, or rely on a search result or memory instead. Then check every change and the whole reply against every rule; fix any break before answering.
-
 ## Repository Scope
 
 - Rule 1: the add-on must never cause a frame-rate drop. Never make the game's frame wait on the GPU or the CPU (no `glFinish`, no per-frame fence or query waits, no blocking flushes) in any graphics API. When synchronization is unavoidable, use per-frame resources so a wait can only happen when the GPU is several frames behind, and measure the frame rate with and without the add-on on the headset before calling a change done.
@@ -138,5 +134,5 @@
 ## Status And Continuation
 
 - Always write the complete answer in the final message the user sees: what was found, what changed, the validation results, and anything the user must do. Never say "see the summary above" or leave results only in earlier messages, tool calls, or internal reasoning; the user may not see those.
-- Never end a turn without visible answer text, and never show the same content twice. When the turn ends with the task-complete tool, put the full answer only in its summary and write no repeated answer text before it (at most one short lead-in line). When the turn ends without that tool, write the full answer once as plain message text after the last tool call.
+- Never end a turn without visible answer text, and never show the same content twice. Whenever the task-complete tool is available, end every turn with it, put the full answer only in its summary, and write no answer text before it (at most one short lead-in line); never write the answer as plain text first and then call the tool. Only when that tool is not available, write the full answer once as plain message text after the last tool call.
 - End every final response or pause, including short answers and answers about the instructions themselves, with the end-of-turn report described in [end-of-turn-report.instructions.md](instructions/end-of-turn-report.instructions.md). Never use `Status:`/`Next:` lines or any other closing format instead.

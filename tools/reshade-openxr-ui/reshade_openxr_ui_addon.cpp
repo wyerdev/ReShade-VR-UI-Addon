@@ -55,6 +55,7 @@ namespace
 	bool s_depth_detection_loaded = false;
 	bool s_depth_detection_disabled = false;
 	bool s_depth_detection_disabled_at_start = false;
+	std::atomic<bool> s_openxr_instance_created = false;
 	bool s_openvr_runtime_sync_disabled = false;
 	bool s_openvr_dashboard_pending = false;
 	bool s_openvr_menu_key_was_pressed = false;
@@ -760,7 +761,7 @@ namespace
 	void on_init_effect_runtime(effect_runtime *runtime)
 	{
 		const bool own_reshade = openxr_ui_game_brought_own_reshade();
-		const bool openxr_loaded = GetModuleHandleW(L"openxr_loader.dll") != nullptr;
+		const bool openxr_loaded = s_openxr_instance_created.load(std::memory_order_acquire) || GetModuleHandleW(L"openxr_loader.dll") != nullptr;
 		const bool openvr_loaded = GetModuleHandleW(L"openvr_api.dll") != nullptr;
 		if (openvr_loaded && !openxr_loaded && !s_openvr_runtime_sync_disabled)
 		{
@@ -1389,6 +1390,11 @@ bool openxr_ui_has_effect_runtime()
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);
 	return s_effect_runtime != nullptr;
+}
+
+void openxr_ui_note_openxr_instance_created()
+{
+	s_openxr_instance_created.store(true, std::memory_order_release);
 }
 
 bool openxr_ui_has_vr_runtime()
