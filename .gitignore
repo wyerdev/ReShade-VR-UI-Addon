@@ -16,6 +16,9 @@
 /tools/reshade-openxr-ui-release/
 /tools/openxr-hubris/
 
+# Local-only files
+/.github/instructions/private.instructions.md
+
 # Local dependency snapshot is intentionally reviewable when updated
 # Keep RESHADE-dependency.md tracked; it records the source used for a build.
 

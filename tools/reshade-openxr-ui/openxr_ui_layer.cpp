@@ -10,8 +10,13 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include <openxr/openxr_loader_negotiation.h>
+#include <roapi.h>
+#include <windows.gaming.input.h>
 #include <wrl/client.h>
-#include <Xinput.h>
+#include <wrl/wrappers/corewrappers.h>
+
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "runtimeobject.lib")
 
 #include "openxr_effect_fallback.hpp"
 #include "openxr_ui_model.hpp"
@@ -43,6 +48,7 @@ extern "C" XrResult XRAPI_CALL xrAcquireSwapchainImage(XrSwapchain swapchain, co
 extern "C" XrResult XRAPI_CALL xrReleaseSwapchainImage(XrSwapchain swapchain, const XrSwapchainImageReleaseInfo *release_info);
 extern "C" XrResult XRAPI_CALL xrSuggestInteractionProfileBindings(XrInstance instance, const XrInteractionProfileSuggestedBinding *suggested_bindings);
 extern "C" XrResult XRAPI_CALL xrAttachSessionActionSets(XrSession session, const XrSessionActionSetsAttachInfo *attach_info);
+extern "C" XrResult XRAPI_CALL xrSyncActions(XrSession session, const XrActionsSyncInfo *sync_info);
 extern "C" XrResult XRAPI_CALL xrGetActionStateBoolean(XrSession session, const XrActionStateGetInfo *get_info, XrActionStateBoolean *action_state);
 extern "C" XrResult XRAPI_CALL xrGetActionStateFloat(XrSession session, const XrActionStateGetInfo *get_info, XrActionStateFloat *action_state);
 extern "C" XrResult XRAPI_CALL xrGetActionStateVector2f(XrSession session, const XrActionStateGetInfo *get_info, XrActionStateVector2f *action_state);
@@ -252,6 +258,11 @@ namespace
 		std::vector<XrAction> walk_float_actions;
 		std::array<std::vector<XrAction>, static_cast<size_t>(openxr_ui::arm_swing_run_button_id::count)> run_actions;
 		bool actions_attached = false;
+		// The game's last xrSyncActions, which also refreshed the menu's actions; the game may call it from another thread.
+		std::atomic<int64_t> app_synced_at = 0;
+		std::atomic<XrResult> app_sync_result = XR_SUCCESS;
+		// Action sets the game last synced, guarded by s_layer_mutex; kept active when the menu has to sync by itself.
+		std::vector<XrActiveActionSet> app_active_sets;
 		bool input_focused = true;
 		bool should_render = true;
 		bool pointer_visible = false;
@@ -1427,15 +1438,39 @@ namespace
 				actions->push_back(binding.action);
 		}
 	}
+	int64_t steady_now_nanoseconds()
+	{
+		return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	}
+
+	void add_menu_action_set(const session_state &state, std::vector<XrActiveActionSet> &active_sets)
+	{
+		const XrActionSet menu_set = state.dispatch->action_set;
+		if (std::none_of(active_sets.begin(), active_sets.end(), [menu_set](const XrActiveActionSet &active) { return active.actionSet == menu_set; }))
+			active_sets.push_back({ menu_set, XR_NULL_PATH });
+	}
+
 	bool sync_controller_actions(session_state &state)
 	{
 		if (!state.actions_attached || state.aim_space == XR_NULL_HANDLE)
 			return false;
-		const XrActiveActionSet active_set = { state.dispatch->action_set, XR_NULL_PATH };
-		XrActionsSyncInfo sync_info = { XR_TYPE_ACTIONS_SYNC_INFO };
-		sync_info.countActiveActionSets = 1;
-		sync_info.activeActionSets = &active_set;
-		const XrResult sync_result = state.dispatch->SyncActions(state.session, &sync_info);
+		// xrSyncActions deactivates every action set it does not list until the next sync. The menu therefore rides on the
+		// game's own sync, and syncs by itself (keeping the game's sets active) only while the game has stopped syncing.
+		constexpr int64_t app_sync_timeout_nanoseconds = 250'000'000;
+		XrResult sync_result = state.app_sync_result.load(std::memory_order_relaxed);
+		if (steady_now_nanoseconds() - state.app_synced_at.load(std::memory_order_relaxed) > app_sync_timeout_nanoseconds)
+		{
+			std::vector<XrActiveActionSet> active_sets;
+			{
+				const std::lock_guard<std::mutex> lock(s_layer_mutex);
+				active_sets = state.app_active_sets;
+			}
+			add_menu_action_set(state, active_sets);
+			XrActionsSyncInfo sync_info = { XR_TYPE_ACTIONS_SYNC_INFO };
+			sync_info.countActiveActionSets = static_cast<uint32_t>(active_sets.size());
+			sync_info.activeActionSets = active_sets.data();
+			sync_result = state.dispatch->SyncActions(state.session, &sync_info);
+		}
 		const bool focused = sync_result != XR_SESSION_NOT_FOCUSED;
 		if (focused != state.input_focused)
 		{
@@ -1568,42 +1603,50 @@ namespace
 		}
 	}
 
-	using xinput_get_state_function = DWORD(WINAPI *)(DWORD, XINPUT_STATE *);
-	constexpr DWORD no_gamepad_slot = XUSER_MAX_COUNT;
-	std::atomic<xinput_get_state_function> s_xinput_get_state = nullptr;
-	std::atomic<DWORD> s_gamepad_slot = no_gamepad_slot;
+	namespace game_input = ABI::Windows::Gaming::Input;
+	using gamepad_list = ABI::Windows::Foundation::Collections::IVectorView<game_input::Gamepad *>;
+
+	// The gamepad is read through Windows.Gaming.Input, not XInput. VR mods such as UEVR turn the VR controllers into a fake
+	// XInput gamepad and only announce it to the game while nothing reads it; the add-on's XInput reads looked like the
+	// game's, so the game never connected that gamepad and lost all VR-controller input.
+	// Never released: releasing COM objects while the DLL unloads is unsafe under the loader lock.
+	ComPtr<game_input::IGamepadStatics> &s_gamepad_statics = *new ComPtr<game_input::IGamepadStatics>(); // Worker only.
+	bool s_gamepad_statics_attempted = false; // Worker only.
+	std::mutex s_gamepad_mutex;
+	ComPtr<game_input::IGamepad> &s_gamepad = *new ComPtr<game_input::IGamepad>(); // Guarded by s_gamepad_mutex.
 	std::atomic<bool> s_gamepad_search_running = false;
 	std::chrono::steady_clock::time_point s_next_gamepad_search{};
-	bool s_xinput_load_attempted = false;
 
-	// Loading XInput and asking it about empty gamepad slots can each take long enough to cost a frame,
-	// so both happen on a Windows thread-pool worker; the frame only reads a gamepad already found.
+	// Starting Windows.Gaming.Input and listing gamepads can each take long enough to cost a frame, so both happen on a
+	// Windows thread-pool worker once a second; the frame only reads the gamepad found last.
 	void CALLBACK search_gamepad(PTP_CALLBACK_INSTANCE instance, void *module)
 	{
-		xinput_get_state_function get_state = s_xinput_get_state.load(std::memory_order_acquire);
-		if (get_state == nullptr && !s_xinput_load_attempted)
+		if (!s_gamepad_statics_attempted)
 		{
-			s_xinput_load_attempted = true;
-			HMODULE xinput = LoadLibraryW(L"xinput1_4.dll");
-			if (xinput == nullptr)
-				xinput = LoadLibraryW(L"xinput9_1_0.dll");
-			if (xinput != nullptr)
-				get_state = reinterpret_cast<xinput_get_state_function>(GetProcAddress(xinput, "XInputGetState"));
-			s_xinput_get_state.store(get_state, std::memory_order_release);
-			if (get_state == nullptr)
-				openxr_ui_log_message("gamepad support unavailable: Windows XInput could not be loaded.", true);
+			s_gamepad_statics_attempted = true;
+			// Keeps the multithreaded COM apartment alive for the process, so worker and frame threads may use the gamepad.
+			CO_MTA_USAGE_COOKIE cookie = nullptr;
+			if (FAILED(CoIncrementMTAUsage(&cookie)) || FAILED(RoGetActivationFactory(
+				Microsoft::WRL::Wrappers::HStringReference(RuntimeClass_Windows_Gaming_Input_Gamepad).Get(), IID_PPV_ARGS(&s_gamepad_statics))))
+			{
+				s_gamepad_statics.Reset();
+				openxr_ui_log_message("gamepad support unavailable: Windows.Gaming.Input could not be started.", true);
+			}
 		}
-		for (DWORD slot = 0; get_state != nullptr && slot < XUSER_MAX_COUNT; ++slot)
+		ComPtr<game_input::IGamepad> found;
+		ComPtr<gamepad_list> gamepads;
+		unsigned int count = 0;
+		if (s_gamepad_statics != nullptr && SUCCEEDED(s_gamepad_statics->get_Gamepads(&gamepads)) &&
+			SUCCEEDED(gamepads->get_Size(&count)) && count != 0)
+			gamepads->GetAt(0, &found);
+		bool changed = false;
 		{
-			XINPUT_STATE xinput_state = {};
-			if (get_state(slot, &xinput_state) != ERROR_SUCCESS)
-				continue;
-			s_gamepad_slot.store(slot, std::memory_order_release);
-			char message[64];
-			std::snprintf(message, sizeof(message), "gamepad %lu found; it can control the headset menu.", slot + 1);
-			openxr_ui_log_message(message);
-			break;
+			const std::lock_guard<std::mutex> lock(s_gamepad_mutex);
+			changed = found != s_gamepad;
+			s_gamepad = found;
 		}
+		if (changed)
+			openxr_ui_log_message(found != nullptr ? "gamepad found; it can control the headset menu." : "gamepad disconnected.");
 		s_gamepad_search_running.store(false, std::memory_order_release);
 		// Keeps this DLL loaded until the worker has returned.
 		FreeLibraryWhenCallbackReturns(instance, static_cast<HMODULE>(module));
@@ -1626,28 +1669,46 @@ namespace
 		}
 	}
 
+	// Windows.Gaming.Input button flags mapped to the XInput bits the menu logic uses.
+	uint16_t gamepad_buttons(game_input::GamepadButtons buttons)
+	{
+		const struct { game_input::GamepadButtons from; uint16_t to; } mapping[] = {
+			{ game_input::GamepadButtons_View, openxr_ui::gamepad_back },
+			{ game_input::GamepadButtons_LeftThumbstick, openxr_ui::gamepad_left_thumb },
+			{ game_input::GamepadButtons_RightThumbstick, openxr_ui::gamepad_right_thumb },
+			{ game_input::GamepadButtons_A, openxr_ui::gamepad_a },
+			{ game_input::GamepadButtons_B, openxr_ui::gamepad_b },
+			{ game_input::GamepadButtons_Y, openxr_ui::gamepad_y },
+		};
+		uint16_t result = 0;
+		for (const auto &button : mapping)
+			if ((buttons & button.from) != 0)
+				result |= button.to;
+		return result;
+	}
+
+	int16_t gamepad_raw_axis(double value)
+	{
+		return static_cast<int16_t>(std::lround(std::clamp(value, -1.0, 1.0) * 32767.0));
+	}
+
 	openxr_ui::gamepad_reading read_gamepad()
 	{
 		openxr_ui::gamepad_reading reading;
-		const xinput_get_state_function get_state = s_xinput_get_state.load(std::memory_order_acquire);
-		DWORD slot = s_gamepad_slot.load(std::memory_order_acquire);
-		XINPUT_STATE xinput_state = {};
-		if (get_state == nullptr || slot == no_gamepad_slot || get_state(slot, &xinput_state) != ERROR_SUCCESS)
+		start_gamepad_search();
+		ComPtr<game_input::IGamepad> gamepad;
 		{
-			if (slot != no_gamepad_slot)
-			{
-				s_gamepad_slot.compare_exchange_strong(slot, no_gamepad_slot, std::memory_order_acq_rel);
-				openxr_ui_log_message("gamepad disconnected.");
-			}
-			start_gamepad_search();
-			return reading;
+			const std::lock_guard<std::mutex> lock(s_gamepad_mutex);
+			gamepad = s_gamepad;
 		}
-		const XINPUT_GAMEPAD &pad = xinput_state.Gamepad;
+		game_input::GamepadReading pad = {};
+		if (gamepad == nullptr || FAILED(gamepad->GetCurrentReading(&pad)))
+			return reading;
 		reading.connected = true;
-		reading.buttons = pad.wButtons;
-		reading.left_x = openxr_ui::gamepad_stick(pad.sThumbLX, openxr_ui::gamepad_left_stick_dead_zone);
-		reading.left_y = openxr_ui::gamepad_stick(pad.sThumbLY, openxr_ui::gamepad_left_stick_dead_zone);
-		reading.right_y = openxr_ui::gamepad_stick(pad.sThumbRY, openxr_ui::gamepad_right_stick_dead_zone);
+		reading.buttons = gamepad_buttons(pad.Buttons);
+		reading.left_x = openxr_ui::gamepad_stick(gamepad_raw_axis(pad.LeftThumbstickX), openxr_ui::gamepad_left_stick_dead_zone);
+		reading.left_y = openxr_ui::gamepad_stick(gamepad_raw_axis(pad.LeftThumbstickY), openxr_ui::gamepad_left_stick_dead_zone);
+		reading.right_y = openxr_ui::gamepad_stick(gamepad_raw_axis(pad.RightThumbstickY), openxr_ui::gamepad_right_stick_dead_zone);
 		return reading;
 	}
 
@@ -1864,6 +1925,7 @@ extern "C" XrResult XRAPI_CALL xrGetInstanceProcAddr(XrInstance instance, const 
 	OPENXR_UI_HOOK("xrReleaseSwapchainImage", xrReleaseSwapchainImage)
 	OPENXR_UI_HOOK("xrSuggestInteractionProfileBindings", xrSuggestInteractionProfileBindings)
 	OPENXR_UI_HOOK("xrAttachSessionActionSets", xrAttachSessionActionSets)
+	OPENXR_UI_HOOK("xrSyncActions", xrSyncActions)
 	OPENXR_UI_HOOK("xrGetActionStateBoolean", xrGetActionStateBoolean)
 	OPENXR_UI_HOOK("xrGetActionStateFloat", xrGetActionStateFloat)
 	OPENXR_UI_HOOK("xrGetActionStateVector2f", xrGetActionStateVector2f)
@@ -2097,6 +2159,29 @@ extern "C" XrResult XRAPI_CALL xrAttachSessionActionSets(XrSession session, cons
 		state->walk_float_actions = state->dispatch->walk_float_actions;
 		state->run_actions = state->dispatch->run_actions;
 	}
+	return result;
+}
+
+extern "C" XrResult XRAPI_CALL xrSyncActions(XrSession session, const XrActionsSyncInfo *sync_info)
+{
+	session_state *const state = find_session(session);
+	if (state == nullptr)
+		return XR_ERROR_HANDLE_INVALID;
+	if (sync_info == nullptr || !state->actions_attached || (sync_info->countActiveActionSets != 0 && sync_info->activeActionSets == nullptr))
+		return state->dispatch->SyncActions(session, sync_info);
+
+	std::vector<XrActiveActionSet> active_sets(sync_info->activeActionSets, sync_info->activeActionSets + sync_info->countActiveActionSets);
+	{
+		const std::lock_guard<std::mutex> lock(s_layer_mutex);
+		state->app_active_sets = active_sets;
+	}
+	add_menu_action_set(*state, active_sets);
+	XrActionsSyncInfo combined_info = *sync_info;
+	combined_info.countActiveActionSets = static_cast<uint32_t>(active_sets.size());
+	combined_info.activeActionSets = active_sets.data();
+	const XrResult result = state->dispatch->SyncActions(session, &combined_info);
+	state->app_sync_result.store(result, std::memory_order_relaxed);
+	state->app_synced_at.store(steady_now_nanoseconds(), std::memory_order_relaxed);
 	return result;
 }
 
