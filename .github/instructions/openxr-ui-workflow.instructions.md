@@ -9,6 +9,7 @@ applyTo: "tools/reshade-openxr-ui/**"
 
 - Use the existing isolated OpenXR Simulator bundle supplied with `-TestRoot`. Do not rebuild, install, register, or modify it unless the task specifically targets the simulator and the user approves that scope.
 - Never deploy to Hubris or modify runtime registration as part of simulator validation.
+- Files that test scripts create (temporary presets, capture manifests, capture app-data folders, old captures and logs under `build`) belong to the agent. When leftovers from an earlier cut-off run block a test, delete them without asking and rerun.
 
 ## Command Invocation
 

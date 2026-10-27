@@ -1,6 +1,7 @@
 #pragma once
 
 #include "openxr_ui_model.hpp"
+#include "vr_arm_swing.hpp"
 #include "vr_frame_statistics.hpp"
 #include "vr_menu_shortcut.hpp"
 #include "vr_preset_gesture.hpp"
@@ -54,6 +55,19 @@ uint32_t openxr_ui_get_preset_gesture();
 bool openxr_ui_set_preset_gesture(uint32_t gesture);
 // Next preset; with only one preset, turns effects off, and on again on the next call.
 bool openxr_ui_gesture_switch_preset();
+// Walking by swinging the arms; saved per game, off by default. Strength in percent, see vr_arm_swing.hpp.
+bool openxr_ui_get_arm_swing_walk();
+bool openxr_ui_set_arm_swing_walk(bool enabled);
+uint32_t openxr_ui_get_arm_swing_strength();
+bool openxr_ui_set_arm_swing_strength(uint32_t percent);
+// Values from vr_arm_swing.hpp; Click left stick by default.
+uint32_t openxr_ui_get_arm_swing_run();
+bool openxr_ui_set_arm_swing_run(uint32_t mode);
+uint32_t openxr_ui_get_arm_swing_run_at();
+bool openxr_ui_set_arm_swing_run_at(uint32_t percent);
+// Off by default.
+bool openxr_ui_get_arm_swing_block_stick();
+bool openxr_ui_set_arm_swing_block_stick(bool enabled);
 bool openxr_ui_get_always_show_statistics();
 bool openxr_ui_set_always_show_statistics(bool enabled);
 // 1 = full headset rate, 2 = half, 3 = third; colours the FPS graph.

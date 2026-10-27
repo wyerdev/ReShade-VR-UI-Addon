@@ -60,6 +60,8 @@ $controllerCommandPath = Join-Path $simulatorDataDirectory 'controller_pose_comm
 $stdoutPath = Join-Path $outputDirectory 'probe.stdout.txt'
 $stderrPath = Join-Path $outputDirectory 'probe.stderr.txt'
 $vrConfigPath = Join-Path $TestRoot 'ReShadeVR.ini'
+$desktopConfigPath = Join-Path $TestRoot 'ReShade.ini'
+$reshadeLogPath = Join-Path $TestRoot 'ReShade.log'
 $sourcePresetPath = Join-Path $TestRoot 'OpenXR-Effect-Off.ini'
 $createdPresetPath = Join-Path $TestRoot 'HI.ini'
 
@@ -86,7 +88,17 @@ if (-not (Test-Path -LiteralPath $controlsPath) -or
 }
 if (-not (Test-Path -LiteralPath $controlsPath)) { throw "The preview did not write $controlsPath." }
 $script:controls = Get-Content -LiteralPath $controlsPath -Raw | ConvertFrom-Json
+# A run that was cut off can leave ReShade on its temporary preset; every run starts from the source preset.
+foreach ($configPath in @($vrConfigPath, $desktopConfigPath)) {
+	if (-not (Test-Path -LiteralPath $configPath)) { continue }
+	$configText = [System.IO.File]::ReadAllText($configPath)
+	$repairedText = $configText -replace ('(?m)^PresetPath=.*' + [regex]::Escape((Split-Path -Leaf $createdPresetPath)) + '(\r?)$'), ('PresetPath=.\' + (Split-Path -Leaf $sourcePresetPath) + '$1')
+	if ($repairedText -ne $configText) {
+		[System.IO.File]::WriteAllText($configPath, $repairedText)
+	}
+}
 $savedVrConfig = [System.IO.File]::ReadAllBytes($vrConfigPath)
+$savedDesktopConfig = if (Test-Path -LiteralPath $desktopConfigPath) { [System.IO.File]::ReadAllBytes($desktopConfigPath) } else { $null }
 $savedSourcePreset = [System.IO.File]::ReadAllBytes($sourcePresetPath)
 
 Add-Type -AssemblyName System.Drawing
@@ -149,6 +161,26 @@ function Wait-ForFrame {
 		if ((Get-Date) -gt $deadline) { throw "OpenXR probe did not reach frame $Frame within 30 seconds." }
 	}
 	throw "OpenXR probe exited before frame $Frame."
+}
+
+function Get-LogMatchCount {
+	param([Parameter(Mandatory = $true)][string]$Text)
+	if (-not (Test-Path -LiteralPath $reshadeLogPath -PathType Leaf)) { return 0 }
+	$stream = [System.IO.File]::Open($reshadeLogPath, 'Open', 'Read', 'ReadWrite')
+	try { $log = (New-Object System.IO.StreamReader($stream)).ReadToEnd() }
+	finally { $stream.Dispose() }
+	return ([regex]::Matches($log, [regex]::Escape($Text))).Count
+}
+
+# Waits for the add-on to log that an operation finished, instead of guessing how many frames it takes.
+function Wait-ForLog {
+	param([Parameter(Mandatory = $true)][string]$Text, [Parameter(Mandatory = $true)][int]$PreviousCount)
+	$deadline = (Get-Date).AddSeconds(30)
+	while (-not $process.WaitForExit(50)) {
+		if ((Get-LogMatchCount $Text) -gt $PreviousCount) { return }
+		if ((Get-Date) -gt $deadline) { throw "The add-on did not log '$Text' within 30 seconds." }
+	}
+	throw "OpenXR probe exited before the add-on logged '$Text'."
 }
 
 function Set-ControllerPointer {
@@ -225,16 +257,18 @@ function Save-SimulatorWindow {
 				}
 			}
 		}
-		if ($hasScenePixels) {
-			$bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
+		if ($hasScenePixels -or $attempt -eq 9) {
+			$savePath = if ($hasScenePixels) { $Path } else { [System.IO.Path]::ChangeExtension($Path, '.blank.png') }
+			$bitmap.Save($savePath, [System.Drawing.Imaging.ImageFormat]::Png)
 			$bitmap.Dispose()
-			return
+			if ($hasScenePixels) { return }
+			break
 		}
 
 		$bitmap.Dispose()
 		Wait-ForFrame ((Get-FrameCount) + 15)
 	}
-	throw 'The OpenXR Simulator preview remained blank across ten capture attempts.'
+	throw "The OpenXR Simulator preview remained blank across ten capture attempts; the last one is $savePath."
 }
 
 $savedEnvironment = @{
@@ -394,14 +428,20 @@ try {
 	Invoke-ControlClick -Page save-as -Id 'key/clear'
 	Invoke-ControlClick -Page save-as -Id 'key/H'
 	Invoke-ControlClick -Page save-as -Id 'key/I'
+	$createdText = 'controller created and switched to inherited preset'
+	$createdCount = Get-LogMatchCount $createdText
 	Invoke-ControlClick -Page save-as -Id 'key/create'
 	Wait-ForFrame ((Get-FrameCount) + 10)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'creating.png')
-	Wait-ForFrame ((Get-FrameCount) + 150)
+	Wait-ForLog $createdText $createdCount
+	if (-not (Test-Path -LiteralPath $createdPresetPath)) { throw "Save As did not create $createdPresetPath." }
+	Wait-ForFrame ((Get-FrameCount) + 15)
 	Save-SimulatorWindow (Join-Path $outputDirectory 'created.png')
 
+	$deletedText = 'controller deleted the outgoing ReShade preset'
+	$deletedCount = Get-LogMatchCount $deletedText
 	Invoke-ControlClick -Page effects -Id 'delete_preset'
-	Wait-ForFrame ((Get-FrameCount) + 130)
+	Wait-ForLog $deletedText $deletedCount
 	if (Test-Path -LiteralPath $createdPresetPath) {
 		throw "Deleted preset was recreated after ReShade flushed its preset cache: $createdPresetPath"
 	}
@@ -434,5 +474,6 @@ finally {
 	Remove-Item -LiteralPath $testLocalAppData -Recurse -Force -ErrorAction SilentlyContinue
 	Remove-Item -LiteralPath $createdPresetPath -Force -ErrorAction SilentlyContinue
 	[System.IO.File]::WriteAllBytes($vrConfigPath, $savedVrConfig)
+	if ($null -ne $savedDesktopConfig) { [System.IO.File]::WriteAllBytes($desktopConfigPath, $savedDesktopConfig) }
 	[System.IO.File]::WriteAllBytes($sourcePresetPath, $savedSourcePreset)
 }

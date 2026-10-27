@@ -20,7 +20,7 @@ For OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for UEVR. 32-bit Ope
 6. Start the game. For UEVR, set UEVR to **OpenXR** before you inject.
 7. Press both thumbsticks in (`L3 + R3`) or the `Insert` key to open the menu in the headset. Turn effects on there.
 
-UEVR uses the same buttons for its own menu. To use other buttons, change **Controller buttons** and **Keyboard key** on the menu's **Settings / Gestures** page.
+UEVR uses the same buttons for its own menu. To use other buttons, change **Controller buttons** and **Keyboard key** on the menu's **Settings** page.
 
 **UEVR games: effects that need depth (MXAO, depth of field, depth fog) do not work.**
 
@@ -35,9 +35,22 @@ Raise a hand to the side of your head and press a button to switch to the next p
 1. Save each preset with **Save as...** in the menu.
 2. In the game, raise your left hand to the side of your head and pull the trigger.
 
-To use another button, change **Next preset** on **Settings / Gestures**.
+To use another button, change **Next preset** on **Gestures**.
 
 If you only have one preset, the gesture turns effects on and off. To use buttons only, set **Next preset** to **L3+R3** and **Controller buttons** to **Hold L3+R3**.
+
+### Walk By Swinging Your Arms
+
+Swing your arms in turn, as when walking, to move forward. For games that walk with the left thumbstick.
+
+1. On **Gestures**, switch on **Walk by swinging arms**.
+2. Close the menu and swing your arms. Faster swings move you faster.
+
+- **Swing strength:** how fast you move for the same swing.
+- **Run:** swing faster than **Run at** to run. You keep moving forward, and the add-on also presses the game's run button: **Click left stick** clicks the left thumbstick in (`L3`) once when you start and once when you stop running, for games where a click turns sprint on and off. **Hold A**, **Hold B**, **Hold X** or **Hold Y** holds that button while you run. **Off** presses nothing.
+- **Block left stick forward:** pushing the left thumbstick forward does nothing, so only your arms move you forward. Backward and sideways still work.
+
+These settings are saved per game.
 
 ### Pin The Menu
 
@@ -45,7 +58,7 @@ Turn your head to the side and click the pin button at the top right of the menu
 
 ### Pin The FPS Counter
 
-On **Settings / Gestures**, switch on **Show when menu is closed**, then pin the menu. Your FPS now always shows in that spot.
+On **Settings**, switch on **Show when menu is closed**, then pin the menu. Your FPS now always shows in that spot.
 
 ## Update Or Uninstall
 
@@ -56,7 +69,7 @@ On **Settings / Gestures**, switch on **Show when menu is closed**, then pin the
 
 In OpenGL games (for example SOMA-VR), ReShade's depth effects support costs a lot of FPS (about 30 FPS in SOMA-VR).
 
-For more FPS: on **Settings / Gestures**, switch off **Enable depth-based effects** and restart the game. Effects that need depth (for example MXAO, depth of field, fog) then stop working. Switch it on again to get them back. The setting is saved per game.
+For more FPS: on **Settings**, switch off **Enable depth-based effects** and restart the game. Effects that need depth (for example MXAO, depth of field, fog) then stop working. Switch it on again to get them back. The setting is saved per game.
 
 ## Help
 

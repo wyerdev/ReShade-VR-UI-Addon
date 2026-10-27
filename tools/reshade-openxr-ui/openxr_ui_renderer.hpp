@@ -1,6 +1,7 @@
 #pragma once
 
 #include "openxr_ui_model.hpp"
+#include "vr_arm_swing.hpp"
 #include "vr_frame_statistics.hpp"
 #include "vr_menu_shortcut.hpp"
 #include "vr_preset_gesture.hpp"
@@ -71,6 +72,12 @@ namespace openxr_ui
 		bool depth_effects_unavailable = false;
 		// Choice from vr_preset_gesture.hpp.
 		uint32_t preset_gesture = preset_gesture_left_trigger;
+		bool arm_swing_walk = false;
+		// Percent, see vr_arm_swing.hpp.
+		uint32_t arm_swing_strength = arm_swing_strength_default;
+		uint32_t arm_swing_run = arm_swing_run_click;
+		uint32_t arm_swing_run_at = arm_swing_run_at_default;
+		bool arm_swing_block_stick = false;
 	};
 
 	struct render_result
@@ -108,6 +115,13 @@ namespace openxr_ui
 			dismiss_effect_subfolder_notice,
 			set_theme,
 			set_preset_gesture,
+			set_arm_swing_walk,
+			// Sent on every change while the slider is dragged.
+			set_arm_swing_strength,
+			set_arm_swing_run,
+			// Sent on every change while the slider is dragged.
+			set_arm_swing_run_at,
+			set_arm_swing_block_stick,
 		};
 
 		command action = command::none;
@@ -153,6 +167,7 @@ namespace openxr_ui
 			effect_detail,
 			save_as,
 			settings,
+			gestures,
 		};
 		// Opens a page directly, for the preview tool and tests. `technique_id` selects the effect for effect_detail.
 		void show_page(page target, uint64_t technique_id = 0, const std::string &save_as_name = {});

@@ -189,8 +189,9 @@ int wmain(int argc, wchar_t **argv)
 		{ "effects-expanded", openxr_ui::panel_renderer::page::effects, true, false },
 		{ "detail-expanded", openxr_ui::panel_renderer::page::effect_detail, true, false },
 		{ "settings", openxr_ui::panel_renderer::page::settings, false, false },
+		{ "gestures", openxr_ui::panel_renderer::page::gestures, false, false },
 		// The L3+R3 gesture is unavailable while L3+R3 opens the menu; only the default theme needs this.
-		{ "settings-both-sticks", openxr_ui::panel_renderer::page::settings, false, false, false, openxr_ui::menu_button_both_sticks, false },
+		{ "gestures-both-sticks", openxr_ui::panel_renderer::page::gestures, false, false, false, openxr_ui::menu_button_both_sticks, false },
 		// The README and release page picture: the settings their tips recommend.
 		{ "settings-readme", openxr_ui::panel_renderer::page::settings, false, false, false, openxr_ui::menu_button_hold_both_sticks, false,
 			openxr_ui::preset_gesture_left_trigger, true },
@@ -261,15 +262,23 @@ int wmain(int argc, wchar_t **argv)
 	record_page("detail", openxr_ui::panel_renderer::page::effect_detail);
 	record_page("save-as", openxr_ui::panel_renderer::page::save_as);
 	record_page("settings", openxr_ui::panel_renderer::page::settings);
+	record_page("gestures", openxr_ui::panel_renderer::page::gestures);
 	// Each drop-down is opened by clicking its box, like a user, and its open list recorded.
-	for (const char *dropdown : { "frame_rate_divisor", "menu_button", "menu_key" })
+	const std::pair<const char *, openxr_ui::panel_renderer::page> dropdowns[] = {
+		{ "frame_rate_divisor", openxr_ui::panel_renderer::page::settings },
+		{ "menu_button", openxr_ui::panel_renderer::page::settings },
+		{ "menu_key", openxr_ui::panel_renderer::page::settings },
+		{ "arm_swing_run", openxr_ui::panel_renderer::page::gestures },
+	};
+	for (const auto &[dropdown, page] : dropdowns)
 	{
-		renderer.show_page(openxr_ui::panel_renderer::page::settings, 1, "Sharp and Vivid Copy");
+		const char *const page_name = page == openxr_ui::panel_renderer::page::settings ? "settings" : "gestures";
+		renderer.show_page(page, 1, "Sharp and Vivid Copy");
 		settle(base_input());
 		openxr_ui::render_input input = base_input();
 		if (!renderer.find_control(dropdown, input.pointer_x, input.pointer_y))
 		{
-			std::fprintf(stderr, "Control \"%s\" was not drawn on the settings page.\n", dropdown);
+			std::fprintf(stderr, "Control \"%s\" was not drawn on the %s page.\n", dropdown, page_name);
 			return 1;
 		}
 		input.pointer_visible = true;
@@ -277,7 +286,7 @@ int wmain(int argc, wchar_t **argv)
 		renderer.render(render_target.Get(), snapshot, input);
 		input.select_clicked = false;
 		renderer.render(render_target.Get(), snapshot, input);
-		pages.push_back({ std::string("settings-") + dropdown + "-open", renderer.recorded_controls() });
+		pages.push_back({ std::string(page_name) + "-" + dropdown + "-open", renderer.recorded_controls() });
 	}
 	renderer.set_control_recording(false);
 

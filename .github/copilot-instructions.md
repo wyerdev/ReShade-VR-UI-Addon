@@ -108,6 +108,7 @@
 
 ## Keep Findings Documented
 
+- Every feature or change ends complete in the same task, written as finished and working: code, tests, every player doc and developer doc that should mention it (README feature list, install guides, limitations, release page) and new or updated menu pictures when the menu changed (a control the docs ring keeps its ring on whichever page it moves to). Never hold back or shorten docs because a headset test is still to come; the headset test goes in the end-of-turn report only.
 - Write down every finding the user would otherwise have to remember (setup steps, settings that make something work, side effects such as settings an add-on leaves in a game folder) in the user-facing guide it belongs to (`INSTALL.md`, `INSTALL-SteamVR.md`, `LIMITATIONS.md`) in the same task, not only in developer notes.
 - Before answering a question about how something works, read the existing docs, and answer from what was already found. Do not reason it out again from scratch if not needed.
 - When the user asks to fix the instructions or docs, change the files in the same turn and say which lines changed.
@@ -125,7 +126,7 @@
 
 ## Edit And Validation Discipline
 
-- Any failing build, test or validation is the agent's job to fix in the same task, whoever or whichever change caused it. Never report a failure as "pre-existing" or "not from this change" as a reason to leave it; find the cause, fix it, and rerun until everything passes. Only ask the user first when the fix needs a decision only they can make.
+- Any failing build, test or validation is the agent's job to fix in the same task, whoever or whichever change caused it. Never report a failure as "pre-existing" or "not from this change" as a reason to leave it; find the cause, fix it, and rerun until everything passes. Never stop to ask whether to fix it. Only ask the user first when the fix needs a decision only they can make.
 - Never implement or suggest workarounds. Find the root cause of a problem and fix it there, so the situation cannot happen in the first place. Code that detects a bad situation and hides or tolerates it (for example, making a second copy switch itself off) is a workaround, not a fix.
 - Never state a cause as fact until a test proves it. If a change does not make the failing test pass, say plainly that the cause is still unknown.
 - Use `apply_patch` for edits to existing files.

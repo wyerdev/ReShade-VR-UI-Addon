@@ -20,12 +20,15 @@ Not sure? See [Which type is my game?](#which-type-is-my-game)
 
 - **Headset menu (OpenXR games, including UEVR):** turn effects on and off, change their settings, and save or switch presets.
 - **Head gesture to switch presets (OpenXR games):** raise a hand to the side of your head and press a button to switch to the next preset, for example from a preset for dark scenes to one for bright scenes.
+- **Walk by swinging your arms (OpenXR games):** swing your arms to walk, and swing faster to run.
 - **Pin the menu (OpenXR games):** keep it to one side, out of your way.
 - **Pin the FPS counter (OpenXR games):** always see your FPS, even with the menu closed.
 
 **SteamVR games** don't get this menu. You use ReShade's own menu from the ReShade icon in the SteamVR dashboard. See the [SteamVR steps](tools/reshade-openxr-ui/INSTALL-SteamVR.md).
 
-![Settings page of the headset menu, with Next preset, Show when menu is closed and the pin button ringed](tools/reshade-openxr-ui/images/menu-settings.png)
+![Gestures page of the headset menu, with Next preset and Walk by swinging arms ringed](tools/reshade-openxr-ui/images/menu-gestures.png)
+
+![Settings page of the headset menu, with Show when menu is closed and the pin button ringed](tools/reshade-openxr-ui/images/menu-settings.png)
 
 ![Effects page of the headset menu](tools/reshade-openxr-ui/images/menu-effects.png)
 

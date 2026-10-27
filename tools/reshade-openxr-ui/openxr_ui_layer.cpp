@@ -43,6 +43,9 @@ extern "C" XrResult XRAPI_CALL xrAcquireSwapchainImage(XrSwapchain swapchain, co
 extern "C" XrResult XRAPI_CALL xrReleaseSwapchainImage(XrSwapchain swapchain, const XrSwapchainImageReleaseInfo *release_info);
 extern "C" XrResult XRAPI_CALL xrSuggestInteractionProfileBindings(XrInstance instance, const XrInteractionProfileSuggestedBinding *suggested_bindings);
 extern "C" XrResult XRAPI_CALL xrAttachSessionActionSets(XrSession session, const XrSessionActionSetsAttachInfo *attach_info);
+extern "C" XrResult XRAPI_CALL xrGetActionStateBoolean(XrSession session, const XrActionStateGetInfo *get_info, XrActionStateBoolean *action_state);
+extern "C" XrResult XRAPI_CALL xrGetActionStateFloat(XrSession session, const XrActionStateGetInfo *get_info, XrActionStateFloat *action_state);
+extern "C" XrResult XRAPI_CALL xrGetActionStateVector2f(XrSession session, const XrActionStateGetInfo *get_info, XrActionStateVector2f *action_state);
 extern "C" XrResult XRAPI_CALL xrWaitFrame(XrSession session, const XrFrameWaitInfo *wait_info, XrFrameState *frame_state);
 extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInfo *frame_end_info);
 
@@ -111,6 +114,7 @@ namespace
 		PFN_xrSyncActions SyncActions = nullptr;
 		PFN_xrGetActionStatePose GetActionStatePose = nullptr;
 		PFN_xrGetActionStateBoolean GetActionStateBoolean = nullptr;
+		PFN_xrGetActionStateFloat GetActionStateFloat = nullptr;
 		PFN_xrGetActionStateVector2f GetActionStateVector2f = nullptr;
 		PFN_xrWaitFrame WaitFrame = nullptr;
 		PFN_xrEndFrame EndFrame = nullptr;
@@ -154,6 +158,13 @@ namespace
 		XrPath right_b_click_path = XR_NULL_PATH;
 		XrPath left_y_click_path = XR_NULL_PATH;
 		bool actions_ready = false;
+		// The game's own actions on the left thumbstick, which arm swing walking pushes forward. Guarded by s_layer_mutex.
+		XrPath left_thumbstick_path = XR_NULL_PATH;
+		XrPath left_thumbstick_y_path = XR_NULL_PATH;
+		std::vector<XrAction> walk_vector_actions;
+		std::vector<XrAction> walk_float_actions;
+		// The game's own actions on each button arm swing running can press, indexed by arm_swing_run_button_id.
+		std::array<std::vector<XrAction>, static_cast<size_t>(openxr_ui::arm_swing_run_button_id::count)> run_actions;
 	};
 
 	struct quad_target
@@ -218,6 +229,28 @@ namespace
 		XrSpace right_hand_space = XR_NULL_HANDLE;
 		uint32_t preset_gesture = openxr_ui::preset_gesture_left_trigger;
 		openxr_ui::preset_gesture_tracker preset_gesture_press;
+		bool arm_swing_walk = false;
+		uint32_t arm_swing_strength = openxr_ui::arm_swing_strength_default;
+		// Saved once the slider is let go, so dragging it does not write the settings file every frame.
+		bool arm_swing_strength_unsaved = false;
+		openxr_ui::arm_swing_tracker arm_swing;
+		uint32_t arm_swing_run = openxr_ui::arm_swing_run_click;
+		uint32_t arm_swing_run_at = openxr_ui::arm_swing_run_at_default;
+		bool arm_swing_run_at_unsaved = false;
+		bool arm_swing_block_stick = false;
+		openxr_ui::arm_swing_run_button arm_swing_run_button;
+		// Read by the game's input calls, which may run on another thread.
+		std::atomic<float> arm_swing_forward = 0.0f;
+		std::atomic<bool> arm_swing_run_pressed = false;
+		// The button arm_swing_run_pressed applies to, as an arm_swing_run_button_id.
+		std::atomic<uint32_t> arm_swing_run_target = 0;
+		// The emulated press as the game last read it, so a change is reported once.
+		std::atomic<bool> arm_swing_run_reported = false;
+		std::atomic<bool> stick_forward_blocked = false;
+		// Copied when the game attaches its actions; bindings cannot change after that.
+		std::vector<XrAction> walk_vector_actions;
+		std::vector<XrAction> walk_float_actions;
+		std::array<std::vector<XrAction>, static_cast<size_t>(openxr_ui::arm_swing_run_button_id::count)> run_actions;
 		bool actions_attached = false;
 		bool input_focused = true;
 		bool should_render = true;
@@ -327,6 +360,7 @@ namespace
 			load_proc(get_instance_proc, instance, "xrSyncActions", dispatch.SyncActions) &&
 			load_proc(get_instance_proc, instance, "xrGetActionStatePose", dispatch.GetActionStatePose) &&
 			load_proc(get_instance_proc, instance, "xrGetActionStateBoolean", dispatch.GetActionStateBoolean) &&
+			load_proc(get_instance_proc, instance, "xrGetActionStateFloat", dispatch.GetActionStateFloat) &&
 			load_proc(get_instance_proc, instance, "xrGetActionStateVector2f", dispatch.GetActionStateVector2f) &&
 			load_proc(get_instance_proc, instance, "xrWaitFrame", dispatch.WaitFrame) &&
 			load_proc(get_instance_proc, instance, "xrEndFrame", dispatch.EndFrame) &&
@@ -481,9 +515,7 @@ namespace
 			string_to_path(dispatch, "/user/hand/right/input/grip/pose", dispatch.right_grip_pose_path) &&
 			string_to_path(dispatch, "/user/hand/left/input/trigger/value", dispatch.left_trigger_path) &&
 			string_to_path(dispatch, "/user/hand/left/input/squeeze/value", dispatch.left_squeeze_path) &&
-			string_to_path(dispatch, "/user/hand/right/input/squeeze/value", dispatch.right_squeeze_path) &&
-			string_to_path(dispatch, "/user/hand/left/input/x/click", dispatch.left_x_click_path) &&
-			string_to_path(dispatch, "/user/hand/right/input/a/click", dispatch.right_a_click_path);
+			string_to_path(dispatch, "/user/hand/right/input/squeeze/value", dispatch.right_squeeze_path);
 	}
 
 	std::vector<XrActionSuggestedBinding> oculus_bindings(const instance_dispatch &dispatch)
@@ -605,8 +637,17 @@ namespace
 			!string_to_path(dispatch, "/user/hand/right/input/menu/click", dispatch.menu_click_path) ||
 			!string_to_path(dispatch, "/user/hand/left/input/menu/click", dispatch.left_menu_click_path) ||
 			!string_to_path(dispatch, "/user/hand/right/input/b/click", dispatch.right_b_click_path) ||
-			!string_to_path(dispatch, "/user/hand/left/input/y/click", dispatch.left_y_click_path))
+			!string_to_path(dispatch, "/user/hand/left/input/y/click", dispatch.left_y_click_path) ||
+			!string_to_path(dispatch, "/user/hand/left/input/x/click", dispatch.left_x_click_path) ||
+			!string_to_path(dispatch, "/user/hand/right/input/a/click", dispatch.right_a_click_path))
 			return false;
+
+		if (!string_to_path(dispatch, "/user/hand/left/input/thumbstick", dispatch.left_thumbstick_path) ||
+			!string_to_path(dispatch, "/user/hand/left/input/thumbstick/y", dispatch.left_thumbstick_y_path))
+		{
+			dispatch.left_thumbstick_path = XR_NULL_PATH;
+			openxr_ui_log_message("walking by swinging arms unavailable: the left thumbstick path could not be created.", true);
+		}
 
 		suggest_bindings(dispatch, dispatch.oculus_profile, oculus_bindings(dispatch));
 		suggest_bindings(dispatch, dispatch.simple_profile, {
@@ -932,6 +973,11 @@ namespace
 				openxr_ui_get_theme(),
 				state.effects != nullptr,
 				state.preset_gesture,
+				state.arm_swing_walk,
+				state.arm_swing_strength,
+				state.arm_swing_run,
+				state.arm_swing_run_at,
+				state.arm_swing_block_stick,
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
@@ -1024,6 +1070,26 @@ namespace
 					state.preset_gesture = static_cast<uint32_t>(render_result.value);
 					state.preset_gesture_press = {};
 				}
+				break;
+			case openxr_ui::render_result::command::set_arm_swing_walk:
+				if (openxr_ui_set_arm_swing_walk(render_result.state))
+					state.arm_swing_walk = render_result.state;
+				break;
+			case openxr_ui::render_result::command::set_arm_swing_strength:
+				state.arm_swing_strength = openxr_ui::clamp_arm_swing_strength(static_cast<uint32_t>(render_result.value));
+				state.arm_swing_strength_unsaved = true;
+				break;
+			case openxr_ui::render_result::command::set_arm_swing_run:
+				if (openxr_ui_set_arm_swing_run(static_cast<uint32_t>(render_result.value)))
+					state.arm_swing_run = static_cast<uint32_t>(render_result.value);
+				break;
+			case openxr_ui::render_result::command::set_arm_swing_run_at:
+				state.arm_swing_run_at = openxr_ui::clamp_arm_swing_run_at(static_cast<uint32_t>(render_result.value));
+				state.arm_swing_run_at_unsaved = true;
+				break;
+			case openxr_ui::render_result::command::set_arm_swing_block_stick:
+				if (openxr_ui_set_arm_swing_block_stick(render_result.state))
+					state.arm_swing_block_stick = render_result.state;
 				break;
 			case openxr_ui::render_result::command::set_ui_starts_open:
 				if (openxr_ui_set_ui_starts_open(render_result.state))
@@ -1279,7 +1345,88 @@ namespace
 			openxr_ui_log_message("preset gesture recognised, but no preset change was possible right now.");
 	}
 
-	// Returns false when the controller actions could not be read this frame.
+	void stop_arm_swing(session_state &state, float seconds)
+	{
+		state.arm_swing.reset();
+		state.arm_swing_forward.store(0.0f, std::memory_order_relaxed);
+		// A running game gets its stop click, or its held button released.
+		state.arm_swing_run_target.store(static_cast<uint32_t>(openxr_ui::arm_swing_run_button_for(state.arm_swing_run)), std::memory_order_relaxed);
+		state.arm_swing_run_pressed.store(state.arm_swing_run_button.update(0.0f, state.arm_swing_run, state.arm_swing_run_at, seconds),
+			std::memory_order_relaxed);
+	}
+
+	const std::vector<XrAction> &run_actions_for(const session_state &state, uint32_t mode)
+	{
+		return state.run_actions[static_cast<size_t>(openxr_ui::arm_swing_run_button_for(mode))];
+	}
+
+	// Costs two hand locations per frame while switched on; the result reaches the game on its next thumbstick read.
+	void update_arm_swing(session_state &state, XrTime display_time, float seconds)
+	{
+		state.stick_forward_blocked.store(state.arm_swing_walk && state.arm_swing_block_stick, std::memory_order_relaxed);
+		if (!state.arm_swing_walk || state.panel_visible || state.left_hand_space == XR_NULL_HANDLE || state.right_hand_space == XR_NULL_HANDLE ||
+			(state.walk_vector_actions.empty() && state.walk_float_actions.empty()))
+			return stop_arm_swing(state, seconds);
+		// Heights are measured from the head, so crouching or bobbing the head is not a swing.
+		const bool local = state.local_space != XR_NULL_HANDLE && state.head_valid;
+		const XrSpace base_space = local ? state.local_space : state.view_space;
+		XrSpaceLocation left = { XR_TYPE_SPACE_LOCATION };
+		XrSpaceLocation right = { XR_TYPE_SPACE_LOCATION };
+		if (XR_FAILED(state.dispatch->LocateSpace(state.left_hand_space, base_space, display_time, &left)) ||
+			XR_FAILED(state.dispatch->LocateSpace(state.right_hand_space, base_space, display_time, &right)) ||
+			(left.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) == 0 ||
+			(right.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) == 0)
+			return stop_arm_swing(state, seconds);
+		const float head_height = local ? state.head_position.y : 0.0f;
+		state.arm_swing_forward.store(state.arm_swing.update(left.pose.position.y - head_height, right.pose.position.y - head_height,
+			seconds, state.arm_swing_strength), std::memory_order_relaxed);
+		const uint32_t run_mode = run_actions_for(state, state.arm_swing_run).empty() ? openxr_ui::arm_swing_run_off : state.arm_swing_run;
+		state.arm_swing_run_target.store(static_cast<uint32_t>(openxr_ui::arm_swing_run_button_for(state.arm_swing_run)), std::memory_order_relaxed);
+		state.arm_swing_run_pressed.store(state.arm_swing_run_button.update(state.arm_swing.level(), run_mode, state.arm_swing_run_at, seconds),
+			std::memory_order_relaxed);
+	}
+
+	// True when the read is one of the game's actions in `actions`, on the given hand or on no hand in particular.
+	bool reads_hand_action(const XrActionStateGetInfo *get_info, const std::vector<XrAction> &actions, XrPath hand_path)
+	{
+		if (get_info == nullptr || (get_info->subactionPath != XR_NULL_PATH && get_info->subactionPath != hand_path))
+			return false;
+		return std::find(actions.begin(), actions.end(), get_info->action) != actions.end();
+	}
+
+	// Changes a game's read of its walking stick: forward from the stick removed when blocked, then the swing's forward added.
+	void apply_arm_swing(const session_state &state, const XrActionStateGetInfo *get_info, const std::vector<XrAction> &walk_actions,
+		float &stick_y, XrBool32 &changed)
+	{
+		if (!reads_hand_action(get_info, walk_actions, state.dispatch->left_hand_path))
+			return;
+		const float original = stick_y;
+		if (state.stick_forward_blocked.load(std::memory_order_relaxed))
+			stick_y = openxr_ui::block_stick_forward(stick_y);
+		stick_y = std::clamp(stick_y + state.arm_swing_forward.load(std::memory_order_relaxed), -1.0f, 1.0f);
+		if (stick_y != original)
+			changed = XR_TRUE;
+	}
+
+	void record_walk_actions(instance_dispatch &dispatch, const XrInteractionProfileSuggestedBinding &suggested_bindings)
+	{
+		if (dispatch.left_thumbstick_path == XR_NULL_PATH || suggested_bindings.suggestedBindings == nullptr)
+			return;
+		const std::lock_guard<std::mutex> lock(s_layer_mutex);
+		for (uint32_t index = 0; index < suggested_bindings.countSuggestedBindings; ++index)
+		{
+			const XrActionSuggestedBinding &binding = suggested_bindings.suggestedBindings[index];
+			const XrPath run_paths[] = { dispatch.left_thumbstick_click_path, dispatch.right_a_click_path, dispatch.right_b_click_path,
+				dispatch.left_x_click_path, dispatch.left_y_click_path };
+			static_assert(std::size(run_paths) == static_cast<size_t>(openxr_ui::arm_swing_run_button_id::count));
+			const auto run_path = std::find(std::begin(run_paths), std::end(run_paths), binding.binding);
+			std::vector<XrAction> *const actions = binding.binding == dispatch.left_thumbstick_path ? &dispatch.walk_vector_actions :
+				binding.binding == dispatch.left_thumbstick_y_path ? &dispatch.walk_float_actions :
+				run_path != std::end(run_paths) ? &dispatch.run_actions[run_path - std::begin(run_paths)] : nullptr;
+			if (actions != nullptr && std::find(actions->begin(), actions->end(), binding.action) == actions->end())
+				actions->push_back(binding.action);
+		}
+	}
 	bool sync_controller_actions(session_state &state)
 	{
 		if (!state.actions_attached || state.aim_space == XR_NULL_HANDLE)
@@ -1319,7 +1466,7 @@ namespace
 		if (state.menu_toggled)
 			state.panel_visible = !state.panel_visible;
 		if (!controller_synced)
-			return;
+			return stop_arm_swing(state, seconds);
 
 		XrActionStateGetInfo get_info = { XR_TYPE_ACTION_STATE_GET_INFO };
 		get_info.subactionPath = state.dispatch->right_hand_path;
@@ -1337,6 +1484,7 @@ namespace
 		}
 
 		update_preset_gesture(state, display_time);
+		update_arm_swing(state, display_time, seconds);
 
 		get_info.action = state.dispatch->scroll_action;
 		XrActionStateVector2f scroll_state = { XR_TYPE_ACTION_STATE_VECTOR2F };
@@ -1716,6 +1864,9 @@ extern "C" XrResult XRAPI_CALL xrGetInstanceProcAddr(XrInstance instance, const 
 	OPENXR_UI_HOOK("xrReleaseSwapchainImage", xrReleaseSwapchainImage)
 	OPENXR_UI_HOOK("xrSuggestInteractionProfileBindings", xrSuggestInteractionProfileBindings)
 	OPENXR_UI_HOOK("xrAttachSessionActionSets", xrAttachSessionActionSets)
+	OPENXR_UI_HOOK("xrGetActionStateBoolean", xrGetActionStateBoolean)
+	OPENXR_UI_HOOK("xrGetActionStateFloat", xrGetActionStateFloat)
+	OPENXR_UI_HOOK("xrGetActionStateVector2f", xrGetActionStateVector2f)
 	OPENXR_UI_HOOK("xrWaitFrame", xrWaitFrame)
 	OPENXR_UI_HOOK("xrEndFrame", xrEndFrame)
 #undef OPENXR_UI_HOOK
@@ -1764,6 +1915,11 @@ extern "C" XrResult XRAPI_CALL xrCreateSession(XrInstance instance, const XrSess
 	state->menu_button = openxr_ui_get_menu_button();
 	state->menu_key = openxr_ui_get_menu_key();
 	state->preset_gesture = openxr_ui_get_preset_gesture();
+	state->arm_swing_walk = openxr_ui_get_arm_swing_walk();
+	state->arm_swing_strength = openxr_ui_get_arm_swing_strength();
+	state->arm_swing_run = openxr_ui_get_arm_swing_run();
+	state->arm_swing_run_at = openxr_ui_get_arm_swing_run_at();
+	state->arm_swing_block_stick = openxr_ui_get_arm_swing_block_stick();
 	openxr_ui::panel_renderer::select_theme(openxr_ui_get_theme());
 	state->panel_visible = state->ui_starts_open;
 	if (create_info != nullptr)
@@ -1901,6 +2057,8 @@ extern "C" XrResult XRAPI_CALL xrSuggestInteractionProfileBindings(XrInstance in
 	const std::shared_ptr<instance_dispatch> dispatch = find_instance(instance);
 	if (dispatch == nullptr)
 		return XR_ERROR_HANDLE_INVALID;
+	if (suggested_bindings != nullptr)
+		record_walk_actions(*dispatch, *suggested_bindings);
 	if (suggested_bindings == nullptr || !dispatch->actions_ready)
 		return dispatch->SuggestInteractionProfileBindings(instance, suggested_bindings);
 
@@ -1932,7 +2090,55 @@ extern "C" XrResult XRAPI_CALL xrAttachSessionActionSets(XrSession session, cons
 	const XrResult result = state->dispatch->AttachSessionActionSets(session, &combined_info);
 	state->actions_attached = XR_SUCCEEDED(result);
 	if (state->actions_attached)
+	{
 		openxr_ui_log_message("right-controller aim and select actions attached.");
+		const std::lock_guard<std::mutex> lock(s_layer_mutex);
+		state->walk_vector_actions = state->dispatch->walk_vector_actions;
+		state->walk_float_actions = state->dispatch->walk_float_actions;
+		state->run_actions = state->dispatch->run_actions;
+	}
+	return result;
+}
+
+extern "C" XrResult XRAPI_CALL xrGetActionStateBoolean(XrSession session, const XrActionStateGetInfo *get_info, XrActionStateBoolean *action_state)
+{
+	session_state *const state = find_session(session);
+	if (state == nullptr)
+		return XR_ERROR_HANDLE_INVALID;
+	const XrResult result = state->dispatch->GetActionStateBoolean(session, get_info, action_state);
+	if (XR_FAILED(result) || action_state == nullptr || !action_state->isActive)
+		return result;
+	const auto button = static_cast<openxr_ui::arm_swing_run_button_id>(state->arm_swing_run_target.load(std::memory_order_relaxed));
+	const XrPath hand_path = openxr_ui::arm_swing_run_button_on_right_hand(button) ? state->dispatch->right_hand_path : state->dispatch->left_hand_path;
+	if (!reads_hand_action(get_info, state->run_actions[static_cast<size_t>(button)], hand_path))
+		return result;
+	const bool pressed = state->arm_swing_run_pressed.load(std::memory_order_relaxed);
+	if (pressed != state->arm_swing_run_reported.exchange(pressed, std::memory_order_relaxed))
+		action_state->changedSinceLastSync = XR_TRUE;
+	if (pressed)
+		action_state->currentState = XR_TRUE;
+	return result;
+}
+
+extern "C" XrResult XRAPI_CALL xrGetActionStateFloat(XrSession session, const XrActionStateGetInfo *get_info, XrActionStateFloat *action_state)
+{
+	session_state *const state = find_session(session);
+	if (state == nullptr)
+		return XR_ERROR_HANDLE_INVALID;
+	const XrResult result = state->dispatch->GetActionStateFloat(session, get_info, action_state);
+	if (XR_SUCCEEDED(result) && action_state != nullptr && action_state->isActive)
+		apply_arm_swing(*state, get_info, state->walk_float_actions, action_state->currentState, action_state->changedSinceLastSync);
+	return result;
+}
+
+extern "C" XrResult XRAPI_CALL xrGetActionStateVector2f(XrSession session, const XrActionStateGetInfo *get_info, XrActionStateVector2f *action_state)
+{
+	session_state *const state = find_session(session);
+	if (state == nullptr)
+		return XR_ERROR_HANDLE_INVALID;
+	const XrResult result = state->dispatch->GetActionStateVector2f(session, get_info, action_state);
+	if (XR_SUCCEEDED(result) && action_state != nullptr && action_state->isActive)
+		apply_arm_swing(*state, get_info, state->walk_vector_actions, action_state->currentState.y, action_state->changedSinceLastSync);
 	return result;
 }
 
@@ -1966,13 +2172,26 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 	if (frame_end_info != nullptr && state->should_render)
 		record_effect_layout(*state, *frame_end_info);
 	if (frame_end_info == nullptr || !state->quad_ready || !state->should_render)
+	{
+		stop_arm_swing(*state, input_frame_seconds(*state));
 		return time_runtime_call(*state, [&] { return state->dispatch->EndFrame(session, frame_end_info); });
+	}
 
 	update_head_pose(*state, frame_end_info->displayTime);
 	const openxr_ui::gamepad_reading gamepad = read_gamepad();
 	const float input_seconds = input_frame_seconds(*state);
 	update_interaction(*state, frame_end_info->displayTime, gamepad, input_seconds);
 	update_gamepad(*state, gamepad, input_seconds);
+	if (state->arm_swing_strength_unsaved && !state->select_down)
+	{
+		openxr_ui_set_arm_swing_strength(state->arm_swing_strength);
+		state->arm_swing_strength_unsaved = false;
+	}
+	if (state->arm_swing_run_at_unsaved && !state->select_down)
+	{
+		openxr_ui_set_arm_swing_run_at(state->arm_swing_run_at);
+		state->arm_swing_run_at_unsaved = false;
+	}
 	std::vector<const XrCompositionLayerBaseHeader *> layers(frame_end_info->layers, frame_end_info->layers + frame_end_info->layerCount);
 
 	XrCompositionLayerQuad quad = { XR_TYPE_COMPOSITION_LAYER_QUAD };

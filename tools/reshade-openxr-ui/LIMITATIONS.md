@@ -18,11 +18,14 @@
   [MOD_OWN_RESHADE_CONFLICT.md](MOD_OWN_RESHADE_CONFLICT.md).
 - Controllers: Oculus Touch style controllers work best. Other controllers get
   fewer controls.
-- The head gesture for switching presets (**Next preset** on **Settings / Gestures**)
+- The head gesture for switching presets (**Next preset** on **Gestures**)
   works only in OpenXR games, not yet in SteamVR (OpenVR) games, and needs
   Oculus Touch style controllers. The game also receives the button press.
   The **L3+R3** choice does nothing while **Controller buttons** is also
   **L3+R3**; pick **Hold L3+R3** there to use both.
+- **Walk by swinging arms** works only in OpenXR games that walk with the left
+  thumbstick, not in SteamVR (OpenVR) games. **Run** works only in games that
+  sprint with a left thumbstick click (`L3`) or a held A, B, X or Y button.
 - **Open when the game starts** takes effect the next time you start the game.
 - The FPS counter counts the frames the game sends to the headset.
   It does not count frames the headset software makes up by itself

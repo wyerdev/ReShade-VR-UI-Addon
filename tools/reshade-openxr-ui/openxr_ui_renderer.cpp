@@ -1065,6 +1065,8 @@ namespace openxr_ui
 			technique_scroll,
 			value_slider,
 			parameter_scroll,
+			arm_swing_strength,
+			arm_swing_run_at,
 		};
 
 		ImGuiContext *context = nullptr;
@@ -1085,6 +1087,7 @@ namespace openxr_ui
 		{
 			effects,
 			settings,
+			gestures,
 		};
 		enum class list_filter
 		{
@@ -1337,6 +1340,8 @@ namespace openxr_ui
 		_implementation->selected_technique = target == page::effect_detail ? technique_id : 0;
 		if (target == page::settings)
 			_implementation->current_tab = implementation::tab::settings;
+		else if (target == page::gestures)
+			_implementation->current_tab = implementation::tab::gestures;
 		else if (target == page::effects)
 			_implementation->current_tab = implementation::tab::effects;
 		_implementation->reset_armed = false;
@@ -1506,9 +1511,9 @@ namespace openxr_ui
 				draw_list->AddText({ outer_padding, std::floor(top + (switch_pill_height - ImGui::GetFontSize()) * 0.5f) }, colors().text, title);
 				const float tabs_x = outer_padding + std::ceil(ImGui::CalcTextSize(title).x) + space_md;
 				ImGui::PopFont();
-				const char *const tab_labels[] = { "Effects", "Settings / Gestures" };
+				const char *const tab_labels[] = { "Effects", "Settings", "Gestures" };
 				ImGui::SetCursorScreenPos({ tabs_x, top });
-				hovered_tab = draw_segmented("tab", tab_labels, nullptr, 2, _implementation->current_tab == implementation::tab::settings ? 1 : 0, true);
+				hovered_tab = draw_segmented("tab", tab_labels, nullptr, 3, static_cast<size_t>(_implementation->current_tab), true);
 			}
 			else
 			{
@@ -1559,7 +1564,7 @@ namespace openxr_ui
 					_implementation->parameter_scroll = 0;
 				}
 				else if (hovered_tab >= 0)
-					_implementation->current_tab = hovered_tab == 1 ? implementation::tab::settings : implementation::tab::effects;
+					_implementation->current_tab = static_cast<implementation::tab>(hovered_tab);
 			}
 		};
 
@@ -1650,6 +1655,7 @@ namespace openxr_ui
 		}
 		else if (_implementation->selected_technique == 0)
 		{
+			const bool effects_tab = _implementation->current_tab == implementation::tab::effects;
 			const bool settings_tab = _implementation->current_tab == implementation::tab::settings;
 			std::vector<const technique *> displayed_techniques;
 			displayed_techniques.reserve(snapshot.techniques.size());
@@ -1672,7 +1678,7 @@ namespace openxr_ui
 			const bool can_click = input.select_clicked && _implementation->dragging == implementation::drag_target::none;
 
 			bool previous_preset_hovered = false, next_preset_hovered = false, save_hovered = false, save_as_hovered = false, delete_preset_hovered = false;
-			if (!settings_tab)
+			if (effects_tab)
 			{
 			// Preset bar, y 80..112.
 			constexpr float preset_y = 80.0f;
@@ -1767,7 +1773,7 @@ namespace openxr_ui
 			}
 			else
 				ImGui::SetCursorScreenPos({ outer_padding, 80.0f });
-			if (!settings_tab && input.effect_subfolders.state != effect_subfolder_state::none)
+			if (effects_tab && input.effect_subfolders.state != effect_subfolder_state::none)
 			{
 				const effect_subfolder_status &subfolders = input.effect_subfolders;
 				const bool offered = subfolders.state == effect_subfolder_state::offered;
@@ -1857,7 +1863,7 @@ namespace openxr_ui
 					result.action = render_result::command::dismiss_effect_subfolder_notice;
 				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + space_sm });
 			}
-			if (!settings_tab)
+			if (effects_tab)
 			{
 			if (!input.effect_runtime_available)
 			{
@@ -2079,7 +2085,7 @@ namespace openxr_ui
 			}
 			}
 
-			if (settings_tab)
+			if (!effects_tab)
 			{
 			// Two columns of group cards: a 20 px title, 8 px gap, then a card with 4 px top and bottom padding and 44 px rows.
 			constexpr float column_width = 476.0f;
@@ -2109,6 +2115,23 @@ namespace openxr_ui
 				return draw_switch_row(id, label, on, { x + card_padding, row_y }, column_width - card_padding * 2.0f, note);
 			};
 
+			// Bottom line: graphics on the left, add-on version on the right.
+			{
+				char version_label[16];
+				openxr_ui::format_version_label(version_label);
+				const std::string right_text = std::string("ReShade VR UI Add-on ") + version_label;
+				ImGui::PushFont(nullptr, vr_theme::font_small);
+				const float bottom_y = display_height - outer_padding - note_height + std::floor((note_height - ImGui::GetFontSize()) * 0.5f);
+				const float right_width = std::ceil(ImGui::CalcTextSize(right_text.c_str()).x);
+				const std::string left_text = fit_text((std::string("Graphics: ") + graphics_api_label).c_str(),
+					(std::max)(0.0f, right_edge - outer_padding - right_width - space_md));
+				header_draw_list->AddText({ outer_padding, bottom_y }, colors().text_secondary, left_text.c_str());
+				header_draw_list->AddText({ right_edge - right_width, bottom_y }, colors().text_secondary, right_text.c_str());
+				ImGui::PopFont();
+			}
+
+			if (settings_tab)
+			{
 			// The game still sees every button and key press, so each choice may also do something in the game or in a mod such as UEVR.
 			const char *const shortcut_details =
 				"Shows or hides this menu. The game also receives the press.\n\n"
@@ -2134,36 +2157,12 @@ namespace openxr_ui
 			separator_after(left_x, row_y);
 			const bool starts_open_hovered = switch_row(left_x, row_top(card_top, 2), "starts_open", "Open when the game starts", input.ui_starts_open);
 
-			// Left column: gestures. Only these display strings differ from the saved choices, which keep their order.
-			const char *gesture_options[preset_gesture_count] = { "Off", "Head Gesture: Left Trigger", "Head Gesture: Left Grip",
-				"Head Gesture: Left X", "Head Gesture: Right Trigger", "Head Gesture: Right Grip", "Head Gesture: Right A", "L3+R3" };
-			bool gesture_disabled[preset_gesture_count] = {};
-			const bool stick_gesture_enabled = stick_gesture_allowed(input.menu_button, false);
-			if (!stick_gesture_enabled)
-			{
-				gesture_disabled[preset_gesture_both_sticks] = true;
-				gesture_options[preset_gesture_both_sticks] = "L3+R3 (already opens this menu)";
-			}
+			// Left column: look.
 			title_y = card_top + card_height(3) + group_gap;
-			const char *const gesture_text = "Switch to the next preset without opening the menu: hand to the side of your head + button, "
-				"or click both thumbsticks (L3+R3).";
-			ImGui::PushFont(nullptr, vr_theme::font_small);
-			const float gesture_text_height = std::ceil(ImGui::CalcTextSize(gesture_text, nullptr, false, column_width - card_padding * 2.0f).y);
-			ImGui::PopFont();
-			card_top = begin_card(left_x, title_y, 8.0f + gesture_text_height + 8.0f + settings_row_height, true);
-			draw_group_title("Gestures", { left_x, title_y }, true);
-			ImGui::PushFont(nullptr, vr_theme::font_small);
-			ImGui::GetWindowDrawList()->AddText(nullptr, 0.0f, { left_x + card_padding, card_top + 8.0f }, colors().text_secondary, gesture_text,
-				nullptr, column_width - card_padding * 2.0f);
-			ImGui::PopFont();
-			const dropdown_interaction gesture_choice = dropdown_row(left_x, card_top + 8.0f + gesture_text_height + 8.0f, "Next preset", "preset_gesture",
-				gesture_options, preset_gesture_count, input.preset_gesture, gesture_disabled);
-			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Next preset",
-				"Bring the chosen hand up to the side of your head, like switching on a head torch, and press the chosen button. "
-				"That switches to the next preset. With only one preset, it turns all effects off, and on again the next time.\n\n"
-				"L3+R3 needs no hand movement: click both thumbsticks and let go. It is not available while the menu shortcut is "
-				"also L3+R3; with Hold L3+R3, a quick click switches preset and a long hold shows the menu.\n\n"
-				"Works only while this menu is closed. The game also receives the button press.");
+			card_top = begin_card(left_x, title_y, card_height(1));
+			draw_group_title("Look", { left_x, title_y });
+			const dropdown_interaction theme_choice = dropdown_row(left_x, row_top(card_top, 0), "Colour theme", "theme",
+				vr_theme::theme_names, vr_theme::theme_count, input.theme);
 
 			// Right column: FPS counter.
 			title_y = 80.0f;
@@ -2204,28 +2203,6 @@ namespace openxr_ui
 				((input.depth_detection_restart_pending ? restart_first : std::string()) +
 				"Needed for effects like MXAO and depth of field. Off is faster in OpenGL games.").c_str());
 
-			// Right column: look.
-			title_y = card_top + card_height(2) + group_gap;
-			card_top = begin_card(right_x, title_y, card_height(1));
-			draw_group_title("Look", { right_x, title_y });
-			const dropdown_interaction theme_choice = dropdown_row(right_x, row_top(card_top, 0), "Colour theme", "theme",
-				vr_theme::theme_names, vr_theme::theme_count, input.theme);
-
-			// Bottom line: graphics on the left, add-on version on the right.
-			{
-				char version_label[16];
-				openxr_ui::format_version_label(version_label);
-				const std::string right_text = std::string("ReShade VR UI Add-on ") + version_label;
-				ImGui::PushFont(nullptr, vr_theme::font_small);
-				const float bottom_y = display_height - outer_padding - note_height + std::floor((note_height - ImGui::GetFontSize()) * 0.5f);
-				const float right_width = std::ceil(ImGui::CalcTextSize(right_text.c_str()).x);
-				const std::string left_text = fit_text((std::string("Graphics: ") + graphics_api_label).c_str(),
-					(std::max)(0.0f, right_edge - outer_padding - right_width - space_md));
-				header_draw_list->AddText({ outer_padding, bottom_y }, colors().text_secondary, left_text.c_str());
-				header_draw_list->AddText({ right_edge - right_width, bottom_y }, colors().text_secondary, right_text.c_str());
-				ImGui::PopFont();
-			}
-
 			if (button_choice.chosen && button_choice.option != input.menu_button &&
 				!(button_choice.option == menu_button_off && input.menu_key == menu_key_off))
 			{
@@ -2237,12 +2214,6 @@ namespace openxr_ui
 			{
 				result.action = render_result::command::set_menu_key;
 				result.value = static_cast<double>(key_choice.option);
-			}
-			else if (gesture_choice.chosen && gesture_choice.option != input.preset_gesture &&
-				!(gesture_choice.option == preset_gesture_both_sticks && !stick_gesture_enabled))
-			{
-				result.action = render_result::command::set_preset_gesture;
-				result.value = static_cast<double>(gesture_choice.option);
 			}
 			else if (input.select_clicked && starts_open_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
@@ -2273,6 +2244,151 @@ namespace openxr_ui
 			{
 				result.action = render_result::command::set_depth_detection_disabled;
 				result.state = !input.depth_detection_disabled;
+			}
+			}
+			else
+			{
+			// Each gesture gets its own card: a short description, then its rows.
+			const float text_width = column_width - card_padding * 2.0f;
+			const auto text_card = [&](float x, float title_y, const char *title, const char *text, size_t rows)
+			{
+				ImGui::PushFont(nullptr, vr_theme::font_small);
+				const float text_height = std::ceil(ImGui::CalcTextSize(text, nullptr, false, text_width).y);
+				const float top = begin_card(x, title_y, 8.0f + text_height + 4.0f + card_height(rows));
+				ImGui::GetWindowDrawList()->AddText(nullptr, 0.0f, { x + card_padding, top + 8.0f }, colors().text_secondary, text, nullptr, text_width);
+				ImGui::PopFont();
+				draw_group_title(title, { x, title_y });
+				// Shifted so row_top() places the first row below the text.
+				return top + 8.0f + text_height + 4.0f;
+			};
+
+			// Left column: switching presets. Only these display strings differ from the saved choices, which keep their order.
+			const char *gesture_options[preset_gesture_count] = { "Off", "Head Gesture: Left Trigger", "Head Gesture: Left Grip",
+				"Head Gesture: Left X", "Head Gesture: Right Trigger", "Head Gesture: Right Grip", "Head Gesture: Right A", "L3+R3" };
+			bool gesture_disabled[preset_gesture_count] = {};
+			const bool stick_gesture_enabled = stick_gesture_allowed(input.menu_button, false);
+			if (!stick_gesture_enabled)
+			{
+				gesture_disabled[preset_gesture_both_sticks] = true;
+				gesture_options[preset_gesture_both_sticks] = "L3+R3 (already opens this menu)";
+			}
+			float rows_top = text_card(left_x, 80.0f, "Switch preset", "Switch to the next preset without opening the menu: "
+				"hand to the side of your head + button, or click both thumbsticks (L3+R3).", 1);
+			const dropdown_interaction gesture_choice = dropdown_row(left_x, row_top(rows_top, 0), "Next preset", "preset_gesture",
+				gesture_options, preset_gesture_count, input.preset_gesture, gesture_disabled);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Next preset",
+				"Bring the chosen hand up to the side of your head, like switching on a head torch, and press the chosen button. "
+				"That switches to the next preset. With only one preset, it turns all effects off, and on again the next time.\n\n"
+				"L3+R3 needs no hand movement: click both thumbsticks and let go. It is not available while the menu shortcut is "
+				"also L3+R3; with Hold L3+R3, a quick click switches preset and a long hold shows the menu.\n\n"
+				"Works only while this menu is closed. The game also receives the button press.");
+
+			// Right column: walking and running by swinging the arms.
+			rows_top = text_card(right_x, 80.0f, "Arm swing walking", "Swing your arms in turn, as when walking, to move forward. "
+				"For games that walk with the left thumbstick.", 5);
+			const char *const walk_details =
+				"Swing your arms up and down in turn, left up while right goes down, to walk forward. Faster swings walk faster.\n\n"
+				"It pushes the game's left thumbstick forward for you, so it works in games that walk with the left thumbstick. "
+				"Works only while this menu is closed. Saved for this game only.";
+			float row_y = row_top(rows_top, 0);
+			const bool walk_hovered = switch_row(right_x, row_y, "arm_swing_walk", "Walk by swinging arms", input.arm_swing_walk);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Walk by swinging arms", walk_details);
+			separator_after(right_x, row_y);
+
+			// Both sliders start after the longest of their labels, so their tracks line up.
+			const float slider_x = right_x + card_padding + (std::max)(std::ceil(ImGui::CalcTextSize("Swing strength").x),
+				std::ceil(ImGui::CalcTextSize("Run at").x)) + space_md;
+			const float value_width = std::ceil(ImGui::CalcTextSize("300%").x);
+			const float value_x = right_x + column_width - card_padding - value_width;
+			const auto percent_slider_row = [&](float y, const char *id, const char *label, const char *details, uint32_t value,
+				uint32_t minimum, uint32_t maximum, uint32_t fallback, implementation::drag_target target)
+			{
+				draw_settings_row_label({ right_x + card_padding, y }, settings_row_height, label);
+				const auto fraction = [&](uint32_t percent) {
+					return static_cast<float>(percent - minimum) / static_cast<float>(maximum - minimum);
+				};
+				ImGui::SetCursorScreenPos({ slider_x, y + (settings_row_height - control_height) * 0.5f });
+				const slider_interaction slider = draw_slider(id, { value_x - space_md - slider_x, control_height }, fraction(value), true,
+					fraction(fallback));
+				draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), label, details);
+				if (can_click && slider.hovered)
+				{
+					_implementation->dragging = target;
+					_implementation->release_frame_count = 0;
+				}
+				if ((can_click && slider.hovered) || (_implementation->dragging == target && (input.select_clicked || input.select_down)))
+				{
+					const float percent = static_cast<float>(minimum) + slider.fraction * static_cast<float>(maximum - minimum);
+					value = std::clamp(static_cast<uint32_t>(std::lround(percent / static_cast<float>(arm_swing_strength_step))) *
+						arm_swing_strength_step, minimum, maximum);
+				}
+				char value_text[16];
+				std::snprintf(value_text, sizeof(value_text), "%u%%", value);
+				ImGui::GetWindowDrawList()->AddText({ value_x + value_width - std::ceil(ImGui::CalcTextSize(value_text).x),
+					std::floor(y + (settings_row_height - ImGui::GetFontSize()) * 0.5f) }, colors().text_secondary, value_text);
+				return value;
+			};
+			row_y = row_top(rows_top, 1);
+			const uint32_t arm_swing_strength = percent_slider_row(row_y, "arm_swing_strength", "Swing strength",
+				"How much walking each swing gives. Higher walks faster with the same swings.", input.arm_swing_strength,
+				arm_swing_strength_min, arm_swing_strength_max, arm_swing_strength_default, implementation::drag_target::arm_swing_strength);
+			separator_after(right_x, row_y);
+
+			row_y = row_top(rows_top, 2);
+			const dropdown_interaction run_choice = dropdown_row(right_x, row_y, "Run", "arm_swing_run", arm_swing_run_names,
+				arm_swing_run_mode_count, input.arm_swing_run);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Run",
+				"Swing your arms faster than the Run at setting to run. You keep moving forward, and the add-on also presses a "
+				"button for you.\n\n"
+				"Click left stick: for games where one click of the left stick starts running. It clicks once when you start "
+				"running and once when you slow down to walking.\n"
+				"Hold A, B, X or Y: for games that run while that button is held. It holds the button while you run.");
+			separator_after(right_x, row_y);
+
+			row_y = row_top(rows_top, 3);
+			const uint32_t arm_swing_run_at = percent_slider_row(row_y, "arm_swing_run_at", "Run at",
+				"How fast you must swing to run. 100% runs as soon as your swings walk at full speed; higher needs faster swings.",
+				input.arm_swing_run_at, arm_swing_run_at_min, arm_swing_run_at_max, arm_swing_run_at_default,
+				implementation::drag_target::arm_swing_run_at);
+			separator_after(right_x, row_y);
+
+			const bool block_hovered = switch_row(right_x, row_top(rows_top, 4), "arm_swing_block_stick", "Block left stick forward",
+				input.arm_swing_block_stick);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Block left stick forward",
+				"While walking by swinging arms is on, pushing the left thumbstick forward does nothing, so walking always needs "
+				"swings. Backwards and sideways still work.");
+
+			if (gesture_choice.chosen && gesture_choice.option != input.preset_gesture &&
+				!(gesture_choice.option == preset_gesture_both_sticks && !stick_gesture_enabled))
+			{
+				result.action = render_result::command::set_preset_gesture;
+				result.value = static_cast<double>(gesture_choice.option);
+			}
+			else if (can_click && walk_hovered)
+			{
+				result.action = render_result::command::set_arm_swing_walk;
+				result.state = !input.arm_swing_walk;
+			}
+			else if (arm_swing_strength != input.arm_swing_strength)
+			{
+				result.action = render_result::command::set_arm_swing_strength;
+				result.value = static_cast<double>(arm_swing_strength);
+			}
+			else if (run_choice.chosen && run_choice.option != input.arm_swing_run)
+			{
+				result.action = render_result::command::set_arm_swing_run;
+				result.value = static_cast<double>(run_choice.option);
+			}
+			else if (arm_swing_run_at != input.arm_swing_run_at)
+			{
+				result.action = render_result::command::set_arm_swing_run_at;
+				result.value = static_cast<double>(arm_swing_run_at);
+			}
+			else if (can_click && block_hovered)
+			{
+				result.action = render_result::command::set_arm_swing_block_stick;
+				result.state = !input.arm_swing_block_stick;
+			}
 			}
 			}
 		}

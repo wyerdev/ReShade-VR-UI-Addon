@@ -99,7 +99,7 @@ correct.
 
 The menu pictures in the README and on the release page come from
 `tools\reshade-openxr-ui\readme_images.ps1`. Run it after a menu design change
-and check the two pictures it writes to `tools\reshade-openxr-ui\images`.
+and check the three pictures it writes to `tools\reshade-openxr-ui\images`.
 
 Most users do not need the following two scripts. They are optional integration
 tests for a full ReShade graphics proxy, not for testing this

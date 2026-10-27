@@ -48,6 +48,11 @@ namespace
 	uint32_t s_menu_button = openxr_ui::menu_button_both_sticks;
 	uint32_t s_menu_key = openxr_ui::menu_key_insert;
 	uint32_t s_preset_gesture = openxr_ui::preset_gesture_left_trigger;
+	bool s_arm_swing_walk = false;
+	uint32_t s_arm_swing_strength = openxr_ui::arm_swing_strength_default;
+	uint32_t s_arm_swing_run = openxr_ui::arm_swing_run_click;
+	uint32_t s_arm_swing_run_at = openxr_ui::arm_swing_run_at_default;
+	bool s_arm_swing_block_stick = false;
 	bool s_ui_settings_loaded = false;
 	bool s_performance_mode = false;
 	bool s_performance_mode_at_start = false;
@@ -339,6 +344,14 @@ namespace
 				s_menu_key = openxr_ui::menu_key_insert;
 			const UINT gesture = read_game_setting(L"PresetGesture", openxr_ui::preset_gesture_left_trigger, path);
 			s_preset_gesture = gesture < openxr_ui::preset_gesture_count ? gesture : openxr_ui::preset_gesture_left_trigger;
+			s_arm_swing_walk = read_game_setting(L"ArmSwingWalk", 0, path) != 0;
+			s_arm_swing_strength = openxr_ui::clamp_arm_swing_strength(
+				read_game_setting(L"ArmSwingStrength", openxr_ui::arm_swing_strength_default, path));
+			const UINT run = read_game_setting(L"ArmSwingRun", openxr_ui::arm_swing_run_click, path);
+			s_arm_swing_run = run < openxr_ui::arm_swing_run_mode_count ? run : openxr_ui::arm_swing_run_click;
+			s_arm_swing_run_at = openxr_ui::clamp_arm_swing_run_at(
+				read_game_setting(L"ArmSwingRunAt", openxr_ui::arm_swing_run_at_default, path));
+			s_arm_swing_block_stick = read_game_setting(L"ArmSwingBlockStick", 0, path) != 0;
 			wchar_t theme_name[64] = L"";
 			GetPrivateProfileStringW(L"UI", L"Theme", L"", theme_name, static_cast<DWORD>(std::size(theme_name)), path.c_str());
 			char theme_name_utf8[192] = "";
@@ -1719,6 +1732,106 @@ bool openxr_ui_set_preset_gesture(uint32_t gesture)
 	char message[96];
 	std::snprintf(message, sizeof(message), "preset gesture is %s.", openxr_ui::preset_gesture_names[gesture]);
 	log_runtime_message(reshade::log::level::info, message);
+	return true;
+}
+
+bool openxr_ui_get_arm_swing_walk()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_arm_swing_walk;
+}
+
+bool openxr_ui_set_arm_swing_walk(bool enabled)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	if (!save_menu_shortcut(L"ArmSwingWalk", enabled ? 1 : 0, "failed to save the arm swing walking setting."))
+		return false;
+	s_arm_swing_walk = enabled;
+	log_runtime_message(reshade::log::level::info, enabled ? "walking by swinging arms is on." : "walking by swinging arms is off.");
+	return true;
+}
+
+uint32_t openxr_ui_get_arm_swing_strength()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_arm_swing_strength;
+}
+
+bool openxr_ui_set_arm_swing_strength(uint32_t percent)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	percent = openxr_ui::clamp_arm_swing_strength(percent);
+	if (!save_menu_shortcut(L"ArmSwingStrength", percent, "failed to save the arm swing strength setting."))
+		return false;
+	s_arm_swing_strength = percent;
+	char message[64];
+	std::snprintf(message, sizeof(message), "arm swing strength is %u%%.", percent);
+	log_runtime_message(reshade::log::level::info, message);
+	return true;
+}
+
+uint32_t openxr_ui_get_arm_swing_run()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_arm_swing_run;
+}
+
+bool openxr_ui_set_arm_swing_run(uint32_t mode)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	if (mode >= openxr_ui::arm_swing_run_mode_count ||
+		!save_menu_shortcut(L"ArmSwingRun", mode, "failed to save the arm swing running setting."))
+		return false;
+	s_arm_swing_run = mode;
+	char message[64];
+	std::snprintf(message, sizeof(message), "arm swing running is %s.", openxr_ui::arm_swing_run_names[mode]);
+	log_runtime_message(reshade::log::level::info, message);
+	return true;
+}
+
+uint32_t openxr_ui_get_arm_swing_run_at()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_arm_swing_run_at;
+}
+
+bool openxr_ui_set_arm_swing_run_at(uint32_t percent)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	percent = openxr_ui::clamp_arm_swing_run_at(percent);
+	if (!save_menu_shortcut(L"ArmSwingRunAt", percent, "failed to save the arm swing running speed."))
+		return false;
+	s_arm_swing_run_at = percent;
+	char message[64];
+	std::snprintf(message, sizeof(message), "arm swing running starts at %u%%.", percent);
+	log_runtime_message(reshade::log::level::info, message);
+	return true;
+}
+
+bool openxr_ui_get_arm_swing_block_stick()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_arm_swing_block_stick;
+}
+
+bool openxr_ui_set_arm_swing_block_stick(bool enabled)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	if (!save_menu_shortcut(L"ArmSwingBlockStick", enabled ? 1 : 0, "failed to save the left stick block setting."))
+		return false;
+	s_arm_swing_block_stick = enabled;
+	log_runtime_message(reshade::log::level::info, enabled ? "left stick forward is blocked while arm swing walking is on." :
+		"left stick forward is no longer blocked.");
 	return true;
 }
 

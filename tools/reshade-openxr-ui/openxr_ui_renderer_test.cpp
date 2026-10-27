@@ -297,11 +297,188 @@ namespace
 		}
 		return true;
 	}
+
+	// Runs `seconds` of swinging, the hands moving in opposite directions at `speed` metres per second, 90 frames a second.
+	float swing(openxr_ui::arm_swing_tracker &tracker, float speed, float seconds, uint32_t strength, bool opposite = true)
+	{
+		constexpr float frame = 1.0f / 90.0f;
+		constexpr float half_swing_seconds = 0.5f;
+		float left = -0.6f;
+		float right = -0.6f;
+		float forward = 0.0f;
+		for (float time = 0.0f; time < seconds; time += frame)
+		{
+			const float direction = std::fmod(time, 2.0f * half_swing_seconds) < half_swing_seconds ? 1.0f : -1.0f;
+			left += direction * speed * frame;
+			right += (opposite ? -direction : direction) * speed * frame;
+			forward = tracker.update(left, right, frame, strength);
+		}
+		return forward;
+	}
+
+	bool arm_swing_logic_works()
+	{
+		openxr_ui::arm_swing_tracker still;
+		openxr_ui::arm_swing_tracker together;
+		openxr_ui::arm_swing_tracker slow;
+		openxr_ui::arm_swing_tracker fast;
+		openxr_ui::arm_swing_tracker strong;
+		if (swing(still, 0.0f, 2.0f, 100) != 0.0f || swing(together, 1.5f, 2.0f, 100, false) != 0.0f)
+		{
+			std::fputs("Arm swing walked with still hands or with both hands moving the same way.\n", stderr);
+			return false;
+		}
+		const float slow_forward = swing(slow, 0.7f, 2.0f, 100);
+		const float fast_forward = swing(fast, 1.2f, 2.0f, 100);
+		const float strong_forward = swing(strong, 0.7f, 2.0f, 200);
+		if (slow_forward <= 0.0f || fast_forward <= slow_forward || strong_forward <= slow_forward || fast_forward > 1.0f)
+		{
+			std::fprintf(stderr, "Arm swing forward values are wrong: slow %.3f, fast %.3f, slow at 200%% %.3f.\n",
+				slow_forward, fast_forward, strong_forward);
+			return false;
+		}
+		if (swing(fast, 0.0f, 2.0f, 100) != 0.0f)
+		{
+			std::fputs("Arm swing kept walking after the arms stopped.\n", stderr);
+			return false;
+		}
+		// Real hands slow to a stop at the top and bottom of every swing. A slow, steady swing (0.8 seconds per half-swing)
+		// must still walk at a steady speed instead of stepping and stopping.
+		openxr_ui::arm_swing_tracker steady;
+		constexpr float frame = 1.0f / 90.0f;
+		constexpr float half_swing_seconds = 0.8f;
+		constexpr float pi = 3.14159265f;
+		float lowest = 1.0f;
+		float highest = 0.0f;
+		for (float time = 0.0f; time < 6.0f; time += frame)
+		{
+			const float height = -0.6f + 0.15f * std::sin(pi * time / half_swing_seconds);
+			const float forward = steady.update(height, -1.2f - height, frame, 100);
+			if (time >= 3.0f)
+			{
+				lowest = (std::min)(lowest, forward);
+				highest = (std::max)(highest, forward);
+			}
+		}
+		if (highest <= 0.0f || lowest < highest * 0.9f)
+		{
+			std::fprintf(stderr, "A slow, steady arm swing walked unevenly: forward went from %.3f to %.3f.\n", lowest, highest);
+			return false;
+		}
+		if (openxr_ui::clamp_arm_swing_strength(0) != openxr_ui::arm_swing_strength_min ||
+			openxr_ui::clamp_arm_swing_strength(1000) != openxr_ui::arm_swing_strength_max)
+		{
+			std::fputs("Arm swing strength was not kept within its range.\n", stderr);
+			return false;
+		}
+		return true;
+	}
+
+	// Counts the presses the game sees while the swing level follows `levels`, one entry per frame of `seconds`.
+	uint32_t run_presses(openxr_ui::arm_swing_run_button &button, std::initializer_list<float> levels, uint32_t mode, float seconds,
+		bool &pressed)
+	{
+		uint32_t presses = 0;
+		for (const float level : levels)
+		{
+			const bool now = button.update(level, mode, openxr_ui::arm_swing_run_at_default, seconds);
+			presses += now && !pressed ? 1 : 0;
+			pressed = now;
+		}
+		return presses;
+	}
+
+	bool arm_swing_run_logic_works()
+	{
+		openxr_ui::arm_swing_tracker weak;
+		openxr_ui::arm_swing_tracker strong;
+		swing(weak, 3.0f, 2.0f, openxr_ui::arm_swing_strength_min);
+		swing(strong, 3.0f, 2.0f, openxr_ui::arm_swing_strength_max);
+		if (weak.level() < 1.5f || weak.level() != strong.level())
+		{
+			std::fprintf(stderr, "Fast swings gave run levels %.3f and %.3f; they must reach 1.5 and ignore the strength.\n",
+				weak.level(), strong.level());
+			return false;
+		}
+
+		constexpr float frame = 1.0f / 90.0f;
+		bool pressed = false;
+		openxr_ui::arm_swing_run_button off;
+		if (run_presses(off, { 3.0f, 3.0f, 3.0f }, openxr_ui::arm_swing_run_off, frame, pressed) != 0)
+		{
+			std::fputs("Running with Run set to Off pressed the stick button.\n", stderr);
+			return false;
+		}
+		// Hold: pressed from 150% on, still pressed just above 80% of that, released below.
+		openxr_ui::arm_swing_run_button hold;
+		pressed = false;
+		if (run_presses(hold, { 1.0f, 1.5f }, openxr_ui::arm_swing_run_hold_a, frame, pressed) != 1 || !pressed ||
+			run_presses(hold, { 1.25f }, openxr_ui::arm_swing_run_hold_a, frame, pressed) != 0 || !pressed ||
+			run_presses(hold, { 1.1f }, openxr_ui::arm_swing_run_hold_a, frame, pressed) != 0 || pressed)
+		{
+			std::fputs("Hold running did not hold the button from 150% and let go below 120%.\n", stderr);
+			return false;
+		}
+		// Each choice presses its own button: the left stick for Click, A and B on the right controller, X and Y on the left.
+		using button_id = openxr_ui::arm_swing_run_button_id;
+		if (openxr_ui::arm_swing_run_button_for(openxr_ui::arm_swing_run_click) != button_id::left_stick ||
+			openxr_ui::arm_swing_run_button_for(openxr_ui::arm_swing_run_hold_a) != button_id::a ||
+			openxr_ui::arm_swing_run_button_for(openxr_ui::arm_swing_run_hold_b) != button_id::b ||
+			openxr_ui::arm_swing_run_button_for(openxr_ui::arm_swing_run_hold_x) != button_id::x ||
+			openxr_ui::arm_swing_run_button_for(openxr_ui::arm_swing_run_hold_y) != button_id::y ||
+			!openxr_ui::arm_swing_run_button_on_right_hand(button_id::a) || !openxr_ui::arm_swing_run_button_on_right_hand(button_id::b) ||
+			openxr_ui::arm_swing_run_button_on_right_hand(button_id::x) || openxr_ui::arm_swing_run_button_on_right_hand(button_id::y) ||
+			openxr_ui::arm_swing_run_button_on_right_hand(button_id::left_stick))
+		{
+			std::fputs("A Run choice pressed the wrong button or hand.\n", stderr);
+			return false;
+		}
+		// Click: one click to start, none while running, one when slowing to a walk.
+		openxr_ui::arm_swing_run_button click;
+		pressed = false;
+		uint32_t presses = run_presses(click, { 2.0f }, openxr_ui::arm_swing_run_click, frame, pressed);
+		for (int index = 0; index < 90; ++index)
+			presses += run_presses(click, { 2.0f }, openxr_ui::arm_swing_run_click, frame, pressed);
+		if (presses != 1 || pressed || !click.running())
+		{
+			std::fprintf(stderr, "Click running pressed %u times in its first second instead of once.\n", presses);
+			return false;
+		}
+		presses = 0;
+		for (int index = 0; index < 90; ++index)
+			presses += run_presses(click, { 0.5f }, openxr_ui::arm_swing_run_click, frame, pressed);
+		if (presses != 1 || pressed || click.running())
+		{
+			std::fprintf(stderr, "Click running pressed %u times when slowing down instead of once.\n", presses);
+			return false;
+		}
+		// At 5 frames a second, starting and stopping on back-to-back frames still gives two separate clicks.
+		openxr_ui::arm_swing_run_button slow_frames;
+		pressed = false;
+		if (run_presses(slow_frames, { 2.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f }, openxr_ui::arm_swing_run_click, 0.2f, pressed) != 2 || pressed)
+		{
+			std::fputs("Click running merged its start and stop clicks at a low frame rate.\n", stderr);
+			return false;
+		}
+
+		if (openxr_ui::block_stick_forward(0.8f) != 0.0f || openxr_ui::block_stick_forward(-0.5f) != -0.5f)
+		{
+			std::fputs("The left stick block did not remove only forward.\n", stderr);
+			return false;
+		}
+		if (openxr_ui::clamp_arm_swing_run_at(0) != openxr_ui::arm_swing_run_at_min ||
+			openxr_ui::clamp_arm_swing_run_at(1000) != openxr_ui::arm_swing_run_at_max)
+		{
+			std::fputs("Run at was not kept within its range.\n", stderr);
+			return false;
+		}
+		return true;
+	}
 }
 
 int main()
 {
-	if (!preset_gesture_logic_works() || !gamepad_logic_works())
+	if (!preset_gesture_logic_works() || !gamepad_logic_works() || !arm_swing_logic_works() || !arm_swing_run_logic_works())
 		return 1;
 	ComPtr<ID3D11Device> device;
 	ComPtr<ID3D11DeviceContext> context;
@@ -833,7 +1010,9 @@ int main()
 		std::fputs("Keyboard menu drop-down allowed Off while the controller shortcut is also Off.\n", stderr);
 		return 1;
 	}
-	// The "Next preset" list is the last row of the Gestures card.
+	// The gestures have their own tab.
+	if (!click(renderer, render_target.Get(), snapshot, "tab/2/segment"))
+		return 1;
 	openxr_ui::render_result gesture_opened;
 	if (!click(renderer, render_target.Get(), snapshot, "preset_gesture", gesture_opened))
 		return 1;
@@ -875,6 +1054,75 @@ int main()
 		std::fputs("Next preset drop-down did not pick L3+R3 while the menu uses another shortcut.\n", stderr);
 		return 1;
 	}
+	openxr_ui::render_result arm_swing_result;
+	if (!click(renderer, render_target.Get(), snapshot, "arm_swing_walk", arm_swing_result))
+		return 1;
+	if (arm_swing_result.action != openxr_ui::render_result::command::set_arm_swing_walk || !arm_swing_result.state)
+	{
+		std::fputs("Walk by swinging arms switch did not turn the setting on.\n", stderr);
+		return 1;
+	}
+	{
+		openxr_ui::panel_renderer::control_rect strength_rect;
+		render_layout(renderer, render_target.Get(), snapshot, {});
+		if (!find_rect(renderer, "arm_swing_strength", strength_rect))
+			return 1;
+		// The right end of the track (inset 8 px like the drawn track) is the largest strength.
+		const openxr_ui::render_result strength_result = click_at(renderer, render_target.Get(), snapshot,
+			strength_rect.max_x - 8.0f, (strength_rect.min_y + strength_rect.max_y) * 0.5f);
+		if (strength_result.action != openxr_ui::render_result::command::set_arm_swing_strength ||
+			strength_result.value != static_cast<double>(openxr_ui::arm_swing_strength_max))
+		{
+			std::fprintf(stderr, "Swing strength slider did not pick %u%% at its right end (action %u, value %.1f).\n",
+				openxr_ui::arm_swing_strength_max, static_cast<unsigned>(strength_result.action), strength_result.value);
+			return 1;
+		}
+		openxr_ui::render_input strength_release;
+		strength_release.select_released = true;
+		for (int frame = 0; frame < 4; ++frame)
+			renderer.render(render_target.Get(), snapshot, strength_release);
+	}
+	if (!click(renderer, render_target.Get(), snapshot, "arm_swing_run"))
+		return 1;
+	openxr_ui::render_result run_result;
+	if (!click(renderer, render_target.Get(), snapshot, dropdown_item("arm_swing_run", openxr_ui::arm_swing_run_hold_y), run_result))
+		return 1;
+	if (run_result.action != openxr_ui::render_result::command::set_arm_swing_run ||
+		run_result.value != static_cast<double>(openxr_ui::arm_swing_run_hold_y))
+	{
+		std::fputs("Run drop-down did not pick Hold Y, the last choice in its list.\n", stderr);
+		return 1;
+	}
+	{
+		openxr_ui::panel_renderer::control_rect run_at_rect;
+		render_layout(renderer, render_target.Get(), snapshot, {});
+		if (!find_rect(renderer, "arm_swing_run_at", run_at_rect))
+			return 1;
+		// The left end of the track is the lowest value.
+		const openxr_ui::render_result run_at_result = click_at(renderer, render_target.Get(), snapshot,
+			run_at_rect.min_x + 8.0f, (run_at_rect.min_y + run_at_rect.max_y) * 0.5f);
+		if (run_at_result.action != openxr_ui::render_result::command::set_arm_swing_run_at ||
+			run_at_result.value != static_cast<double>(openxr_ui::arm_swing_run_at_min))
+		{
+			std::fprintf(stderr, "Run at slider did not pick %u%% at its left end (action %u, value %.1f).\n",
+				openxr_ui::arm_swing_run_at_min, static_cast<unsigned>(run_at_result.action), run_at_result.value);
+			return 1;
+		}
+		openxr_ui::render_input run_at_release;
+		run_at_release.select_released = true;
+		for (int frame = 0; frame < 4; ++frame)
+			renderer.render(render_target.Get(), snapshot, run_at_release);
+	}
+	openxr_ui::render_result block_result;
+	if (!click(renderer, render_target.Get(), snapshot, "arm_swing_block_stick", block_result))
+		return 1;
+	if (block_result.action != openxr_ui::render_result::command::set_arm_swing_block_stick || !block_result.state)
+	{
+		std::fputs("Block left stick forward switch did not turn the setting on.\n", stderr);
+		return 1;
+	}
+	if (!click(renderer, render_target.Get(), snapshot, "tab/1/segment"))
+		return 1;
 	openxr_ui::render_input starts_open_input;
 	starts_open_input.ui_starts_open = true;
 	openxr_ui::render_result starts_open_result;
