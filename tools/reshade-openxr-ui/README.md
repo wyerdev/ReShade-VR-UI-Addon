@@ -77,7 +77,7 @@ Run the packaged installer as administrator from the repository root after closi
 - Windows x64
 - 64-bit and 32-bit OpenXR applications (32-bit tested with D3D11 in BioShock Remastered VR; see `BIOSHOCK_32BIT.md`), 64-bit OpenVR applications
 - Direct3D 11, Direct3D 12 or OpenGL renderer (OpenGL for OpenXR games)
-- UEVR in OpenXR mode (the add-on creates its own effect runtime; no depth effects)
+- UEVR in OpenXR mode (the add-on creates its own effect runtime; no depth effects). With SteamVR's OpenXR runtime only D3D11 games work; D3D12 games crash or freeze while the ReShade layer is on (see `UEVR_RESHADE_RESEARCH.md`)
 - Oculus Touch-compatible controllers
 - Khronos simple-controller profile as a limited fallback
 

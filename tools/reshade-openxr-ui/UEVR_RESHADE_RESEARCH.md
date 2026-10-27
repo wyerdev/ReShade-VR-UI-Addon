@@ -131,8 +131,25 @@ Still open:
   no effects ever loaded.
 - **Side-by-side processing:** effects on a double-width image treat both eyes
   as one picture. Official ReShade VR behaves the same way.
-- **Timing:** works on the Simulator and Pimax. SteamVR and Virtual Desktop
-  untested.
+- **Timing:** works on the Simulator and Pimax. Virtual Desktop untested.
+- **SteamVR OpenXR crash (2026-10-27, Gothic 1 Remake, D3D12):** the game
+  dies with Unreal's fatal "PresentInternal failed with error 80004004"
+  (E_ABORT) a moment after UEVR's first VR frame. It happens with ReShade's
+  OpenXR layer on, with or without our add-on, and stops with that layer off.
+  Pimax OpenXR works. At SteamVR's first `xrEndFrame` ("enable advanced image
+  processing of scene textures" in `xrclient_<game>.txt`) the runtime calls
+  `D3D11On12CreateDevice`. ReShade logs "Skipping D3D11on12 device" and passes
+  the call on, but without setting `g_in_dxgi_runtime`, so D3D11On12's
+  internal `CreateDXGIFactory2(0x80000000)` gets a ReShade factory proxy. In
+  its normal path ReShade sets that flag to avoid exactly this. Lead, not
+  proven: changing ReShade is ruled out, and the add-on has no part in that
+  call. Jedi Survivor (D3D12, works on Pimax) freezes at the same point on
+  SteamVR (2026-10-27): its ReShade log also ends with that wrapped factory,
+  and it runs with the add-on and the ReShade layer off. Jedi Fallen Order
+  (D3D11) works on SteamVR with the add-on (2026-10-27): 89 techniques load,
+  and controller input works once SteamVR returns focus. D3D11 never needs
+  `D3D11On12CreateDevice`, which fits the lead. So on SteamVR: D3D11 works,
+  D3D12 fails.
 - **No depth:** a created runtime has no depth buffer detection. Depth effects
   need extra work (see option 2).
 - **Desktop and VR preset sync:** ReShade's built-in "Effect Runtime Sync"

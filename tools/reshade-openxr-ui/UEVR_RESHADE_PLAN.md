@@ -11,6 +11,9 @@ Pimax headset in UEVR games (D3D11 and D3D12). Native OpenXR (Hubris) still
 works, and the FPS counter with graph works on the headset.
 Open: depth effects. ReShade in the game folder (setup A) is not supported;
 users must uninstall it there or rename its `dxgi.dll` (see `INSTALL.md`).
+SteamVR (2026-10-27): D3D11 UEVR games work; D3D12 UEVR games crash or freeze
+while the ReShade layer is on, even without the add-on. Open, cause not proven
+(see the research note).
 
 ## Goal
 

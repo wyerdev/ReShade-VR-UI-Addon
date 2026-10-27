@@ -74,12 +74,17 @@
 - ReShade's own VR menu does not show. Use the add-on's menu instead.
 - A new game starts with all effects off.
 - "Waiting for ReShade..." shows until the game draws its first 3D view.
+- **SteamVR: DirectX 12 games crash or freeze** when UEVR starts while
+  ReShade's **OpenXR** layer is on, even without the add-on (tested: Gothic 1
+  Remake, Star Wars Jedi: Survivor). They run with the layer off
+  (**SteamVR Settings** > **OpenXR** > **Manage OpenXR API Layers**), but
+  without ReShade. DirectX 11 games work with SteamVR (tested: Star Wars Jedi:
+  Fallen Order). Both work with Pimax's own OpenXR, without SteamVR.
 
 Not tested yet (may or may not work):
 
 - UEVR's 2D-screen mode and extreme compatibility mode.
-- Headset software other than the OpenXR Simulator and Pimax, such as SteamVR
-  or Virtual Desktop.
+- Virtual Desktop.
 
 Not caused by the add-on:
 

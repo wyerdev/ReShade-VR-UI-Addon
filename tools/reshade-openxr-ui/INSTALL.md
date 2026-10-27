@@ -24,6 +24,8 @@ UEVR uses the same buttons for its own menu. To use other buttons, change **Cont
 
 **UEVR games: effects that need depth (MXAO, depth of field, depth fog) do not work.**
 
+**UEVR with SteamVR: DirectX 12 games crash or freeze. DirectX 11 games work.**
+
 </details>
 
 ## Features
