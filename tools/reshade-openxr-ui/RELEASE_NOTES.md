@@ -8,6 +8,8 @@
 
 Not sure which type your game is? Try OpenXR first. If the menu doesn't show up in the headset, it's probably a SteamVR game. UEVR is OpenXR.
 
+Problem with a specific game (UEVR, Deus Ex: Human Revolution VR, Half-Life 2 VR)? See [Fixes for specific games](https://github.com/{{REPOSITORY}}/blob/{{TAG}}/tools/reshade-openxr-ui/GAME-FIXES.md).
+
 ## Features (OpenXR Games)
 
 - **Head gesture to switch presets:** raise a hand to the side of your head and press a button to switch to the next preset, for example from a preset for dark scenes to one for bright scenes. If you only have one preset, the gesture turns effects on and off.

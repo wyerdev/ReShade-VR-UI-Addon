@@ -16,6 +16,8 @@ Adds a menu inside your VR headset for ReShade effects. Turn effects on and off,
 
 Not sure? See [Which type is my game?](#which-type-is-my-game)
 
+Problem with a specific game? See [Fixes for specific games](tools/reshade-openxr-ui/GAME-FIXES.md).
+
 ## Features
 
 - **Headset menu (OpenXR games, including UEVR):** turn effects on and off, change their settings, and save or switch presets.
@@ -62,7 +64,7 @@ While you play, it saves its own settings in `%LOCALAPPDATA%\ReShade VR UI Add-o
 
 ## Something Not Working?
 
-The end of each install guide has **Help** (unzipping, finding the game folder) and **Troubleshooting**.
+The end of each install guide has **Help** (unzipping, finding the game folder) and **Troubleshooting**. Fixes for specific games: [Fixes for specific games](tools/reshade-openxr-ui/GAME-FIXES.md).
 
 **A 32-bit VR game or VR mod shows only on the monitor** (for example BioShock Remastered VR): ReShade's entry in the 32-bit list can stop it when ReShade isn't installed for that game. Fix it one of these ways:
 

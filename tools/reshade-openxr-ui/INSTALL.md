@@ -82,6 +82,7 @@ For more FPS: on **Settings**, switch off **Enable depth-based effects** and res
 
 ## Troubleshooting
 
+- Specific games (UEVR, Deus Ex: Human Revolution VR): see [Fixes for specific games](GAME-FIXES.md).
 - `No administrator rights`: nothing was changed. Run the file again and click **Yes** when Windows asks for permission (see [Help](#help)).
 - `Waiting for ReShade...`: wait a moment. In OpenGL games this message stays until the game shows its normal 3D view.
 - No menu or no effects: check that you installed ReShade **with full add-on support** and **ticked** the **OpenXR** layer. For UEVR, check that UEVR is set to **OpenXR**.
