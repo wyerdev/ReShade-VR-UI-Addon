@@ -1,6 +1,6 @@
 ---
 description: "Use when writing or changing player-facing text: README, install guides, release page, limitations. Covers keeping it short, sourced claims only, plain wording, guide layout and formatting."
-applyTo: "README.md,tools/reshade-openxr-ui/INSTALL*.md,tools/reshade-openxr-ui/LIMITATIONS.md,tools/reshade-openxr-ui/OPENXR-LAYERS.md,tools/reshade-openxr-ui/RELEASE_NOTES.md"
+applyTo: "README.md,docs/INSTALL*.md,docs/LIMITATIONS.md,docs/OPENXR-LAYERS.md,docs/RELEASE_NOTES.md"
 ---
 
 # Player Docs

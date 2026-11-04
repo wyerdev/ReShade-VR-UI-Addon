@@ -50,6 +50,282 @@ namespace
 		}
 	}
 
+	// Typeless twin of a swapchain format, so ReShade can create both linear and sRGB views of the back buffer.
+	DXGI_FORMAT typeless_format(DXGI_FORMAT format)
+	{
+		switch (format)
+		{
+		case DXGI_FORMAT_B8G8R8A8_UNORM:
+			return DXGI_FORMAT_B8G8R8A8_TYPELESS;
+		case DXGI_FORMAT_R8G8B8A8_UNORM:
+			return DXGI_FORMAT_R8G8B8A8_TYPELESS;
+		case DXGI_FORMAT_R16G16B16A16_FLOAT:
+			return DXGI_FORMAT_R16G16B16A16_TYPELESS;
+		case DXGI_FORMAT_R10G10B10A2_UNORM:
+			return DXGI_FORMAT_R10G10B10A2_TYPELESS;
+		default:
+			return format;
+		}
+	}
+
+	// ReShade's effect runtime needs a swapchain object, but only reads its device, description and back buffer.
+	// A real DXGI swapchain, even one never presented, is seen by every layer that hooks swapchain creation on the
+	// application's queue (for example frame generation), and a second swapchain there can stop the game's frames.
+	// This stand-in is a plain texture on the application device that no other software ever sees.
+	class offscreen_swapchain final : public IDXGISwapChain3
+	{
+	public:
+		offscreen_swapchain(IUnknown *device, IUnknown *back_buffer, UINT width, UINT height, DXGI_FORMAT format) :
+			_device(device), _back_buffer(back_buffer), _width(width), _height(height), _format(format)
+		{
+		}
+
+		HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override
+		{
+			if (object == nullptr)
+				return E_POINTER;
+			if (riid == __uuidof(IUnknown) || riid == __uuidof(IDXGIObject) || riid == __uuidof(IDXGIDeviceSubObject) ||
+				riid == __uuidof(IDXGISwapChain) || riid == __uuidof(IDXGISwapChain1) || riid == __uuidof(IDXGISwapChain2) || riid == __uuidof(IDXGISwapChain3))
+			{
+				AddRef();
+				*object = static_cast<IDXGISwapChain3 *>(this);
+				return S_OK;
+			}
+			*object = nullptr;
+			return E_NOINTERFACE;
+		}
+		ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&_references); }
+		ULONG STDMETHODCALLTYPE Release() override
+		{
+			const ULONG references = InterlockedDecrement(&_references);
+			if (references == 0)
+				delete this;
+			return references;
+		}
+
+		HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID name, UINT size, const void *data) override
+		{
+			private_entry *const entry = find_private(name, true);
+			entry->object.Reset();
+			entry->bytes.assign(static_cast<const BYTE *>(data), static_cast<const BYTE *>(data) + (data != nullptr ? size : 0));
+			return S_OK;
+		}
+		HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID name, const IUnknown *object) override
+		{
+			private_entry *const entry = find_private(name, true);
+			entry->bytes.clear();
+			entry->object = const_cast<IUnknown *>(object);
+			return S_OK;
+		}
+		HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID name, UINT *size, void *data) override
+		{
+			if (size == nullptr)
+				return E_INVALIDARG;
+			const private_entry *const entry = find_private(name, false);
+			if (entry == nullptr || (entry->object == nullptr && entry->bytes.empty()))
+			{
+				*size = 0;
+				return DXGI_ERROR_NOT_FOUND;
+			}
+			const UINT stored_size = entry->object != nullptr ? static_cast<UINT>(sizeof(IUnknown *)) : static_cast<UINT>(entry->bytes.size());
+			if (data == nullptr)
+			{
+				*size = stored_size;
+				return S_OK;
+			}
+			if (*size < stored_size)
+			{
+				*size = stored_size;
+				return DXGI_ERROR_MORE_DATA;
+			}
+			*size = stored_size;
+			if (entry->object != nullptr)
+			{
+				entry->object->AddRef();
+				*static_cast<IUnknown **>(data) = entry->object.Get();
+			}
+			else
+			{
+				std::copy(entry->bytes.begin(), entry->bytes.end(), static_cast<BYTE *>(data));
+			}
+			return S_OK;
+		}
+		HRESULT STDMETHODCALLTYPE GetParent(REFIID, void **parent) override { return not_available(parent); }
+		HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void **device) override { return _device->QueryInterface(riid, device); }
+
+		HRESULT STDMETHODCALLTYPE Present(UINT, UINT) override { return S_OK; }
+		HRESULT STDMETHODCALLTYPE GetBuffer(UINT index, REFIID riid, void **surface) override
+		{
+			return index == 0 ? _back_buffer->QueryInterface(riid, surface) : not_available(surface, DXGI_ERROR_INVALID_CALL);
+		}
+		HRESULT STDMETHODCALLTYPE SetFullscreenState(BOOL, IDXGIOutput *) override { return DXGI_ERROR_INVALID_CALL; }
+		HRESULT STDMETHODCALLTYPE GetFullscreenState(BOOL *fullscreen, IDXGIOutput **target) override
+		{
+			if (fullscreen != nullptr)
+				*fullscreen = FALSE;
+			if (target != nullptr)
+				*target = nullptr;
+			return S_OK;
+		}
+		HRESULT STDMETHODCALLTYPE GetDesc(DXGI_SWAP_CHAIN_DESC *desc) override
+		{
+			if (desc == nullptr)
+				return E_INVALIDARG;
+			*desc = {};
+			desc->BufferDesc.Width = _width;
+			desc->BufferDesc.Height = _height;
+			desc->BufferDesc.Format = _format;
+			desc->SampleDesc.Count = 1;
+			desc->BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+			desc->BufferCount = 1;
+			desc->Windowed = TRUE;
+			desc->SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+			return S_OK;
+		}
+		HRESULT STDMETHODCALLTYPE ResizeBuffers(UINT, UINT, UINT, DXGI_FORMAT, UINT) override { return DXGI_ERROR_INVALID_CALL; }
+		HRESULT STDMETHODCALLTYPE ResizeTarget(const DXGI_MODE_DESC *) override { return DXGI_ERROR_INVALID_CALL; }
+		HRESULT STDMETHODCALLTYPE GetContainingOutput(IDXGIOutput **output) override { return not_available(output, DXGI_ERROR_UNSUPPORTED); }
+		HRESULT STDMETHODCALLTYPE GetFrameStatistics(DXGI_FRAME_STATISTICS *) override { return DXGI_ERROR_FRAME_STATISTICS_DISJOINT; }
+		HRESULT STDMETHODCALLTYPE GetLastPresentCount(UINT *count) override
+		{
+			if (count == nullptr)
+				return E_INVALIDARG;
+			*count = 0;
+			return S_OK;
+		}
+
+		HRESULT STDMETHODCALLTYPE GetDesc1(DXGI_SWAP_CHAIN_DESC1 *desc) override
+		{
+			if (desc == nullptr)
+				return E_INVALIDARG;
+			*desc = {};
+			desc->Width = _width;
+			desc->Height = _height;
+			desc->Format = _format;
+			desc->SampleDesc.Count = 1;
+			desc->BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+			desc->BufferCount = 1;
+			desc->SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+			return S_OK;
+		}
+		HRESULT STDMETHODCALLTYPE GetFullscreenDesc(DXGI_SWAP_CHAIN_FULLSCREEN_DESC *) override { return DXGI_ERROR_INVALID_CALL; }
+		HRESULT STDMETHODCALLTYPE GetHwnd(HWND *hwnd) override
+		{
+			if (hwnd != nullptr)
+				*hwnd = nullptr;
+			return DXGI_ERROR_INVALID_CALL;
+		}
+		HRESULT STDMETHODCALLTYPE GetCoreWindow(REFIID, void **window) override { return not_available(window, DXGI_ERROR_INVALID_CALL); }
+		HRESULT STDMETHODCALLTYPE Present1(UINT, UINT, const DXGI_PRESENT_PARAMETERS *) override { return S_OK; }
+		BOOL STDMETHODCALLTYPE IsTemporaryMonoSupported() override { return FALSE; }
+		HRESULT STDMETHODCALLTYPE GetRestrictToOutput(IDXGIOutput **output) override { return not_available(output, S_OK); }
+		HRESULT STDMETHODCALLTYPE SetBackgroundColor(const DXGI_RGBA *) override { return DXGI_ERROR_INVALID_CALL; }
+		HRESULT STDMETHODCALLTYPE GetBackgroundColor(DXGI_RGBA *) override { return DXGI_ERROR_INVALID_CALL; }
+		HRESULT STDMETHODCALLTYPE SetRotation(DXGI_MODE_ROTATION) override { return DXGI_ERROR_INVALID_CALL; }
+		HRESULT STDMETHODCALLTYPE GetRotation(DXGI_MODE_ROTATION *) override { return DXGI_ERROR_INVALID_CALL; }
+
+		HRESULT STDMETHODCALLTYPE SetSourceSize(UINT, UINT) override { return DXGI_ERROR_INVALID_CALL; }
+		HRESULT STDMETHODCALLTYPE GetSourceSize(UINT *width, UINT *height) override
+		{
+			if (width != nullptr)
+				*width = _width;
+			if (height != nullptr)
+				*height = _height;
+			return S_OK;
+		}
+		HRESULT STDMETHODCALLTYPE SetMaximumFrameLatency(UINT) override { return DXGI_ERROR_INVALID_CALL; }
+		HRESULT STDMETHODCALLTYPE GetMaximumFrameLatency(UINT *) override { return DXGI_ERROR_INVALID_CALL; }
+		HANDLE STDMETHODCALLTYPE GetFrameLatencyWaitableObject() override { return nullptr; }
+		HRESULT STDMETHODCALLTYPE SetMatrixTransform(const DXGI_MATRIX_3X2_F *) override { return DXGI_ERROR_INVALID_CALL; }
+		HRESULT STDMETHODCALLTYPE GetMatrixTransform(DXGI_MATRIX_3X2_F *) override { return DXGI_ERROR_INVALID_CALL; }
+
+		UINT STDMETHODCALLTYPE GetCurrentBackBufferIndex() override { return 0; }
+		HRESULT STDMETHODCALLTYPE CheckColorSpaceSupport(DXGI_COLOR_SPACE_TYPE color_space, UINT *support) override
+		{
+			if (support == nullptr)
+				return E_INVALIDARG;
+			const bool supported = color_space == DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709 ||
+				(color_space == DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709 && _format == DXGI_FORMAT_R16G16B16A16_FLOAT);
+			*support = supported ? DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT : 0;
+			return S_OK;
+		}
+		HRESULT STDMETHODCALLTYPE SetColorSpace1(DXGI_COLOR_SPACE_TYPE) override { return DXGI_ERROR_INVALID_CALL; }
+		HRESULT STDMETHODCALLTYPE ResizeBuffers1(UINT, UINT, UINT, DXGI_FORMAT, UINT, const UINT *, IUnknown *const *) override { return DXGI_ERROR_INVALID_CALL; }
+
+	private:
+		struct private_entry
+		{
+			GUID name;
+			std::vector<BYTE> bytes;
+			ComPtr<IUnknown> object;
+		};
+
+		~offscreen_swapchain() = default;
+
+		template <typename T>
+		static HRESULT not_available(T **object, HRESULT result = E_NOINTERFACE)
+		{
+			if (object != nullptr)
+				*object = nullptr;
+			return result;
+		}
+
+		private_entry *find_private(REFGUID name, bool create)
+		{
+			for (private_entry &entry : _private_data)
+				if (entry.name == name)
+					return &entry;
+			if (!create)
+				return nullptr;
+			_private_data.push_back({ name });
+			return &_private_data.back();
+		}
+
+		volatile ULONG _references = 1;
+		ComPtr<IUnknown> _device;
+		ComPtr<IUnknown> _back_buffer;
+		UINT _width;
+		UINT _height;
+		DXGI_FORMAT _format;
+		std::vector<private_entry> _private_data;
+	};
+
+	HRESULT create_back_buffer(bool d3d12, IUnknown *device, UINT width, UINT height, DXGI_FORMAT format, ComPtr<IUnknown> &back_buffer)
+	{
+		if (d3d12)
+		{
+			D3D12_HEAP_PROPERTIES heap = {};
+			heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+			D3D12_RESOURCE_DESC desc = {};
+			desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+			desc.Width = width;
+			desc.Height = height;
+			desc.DepthOrArraySize = 1;
+			desc.MipLevels = 1;
+			desc.Format = format;
+			desc.SampleDesc.Count = 1;
+			desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+			ComPtr<ID3D12Resource> texture;
+			// The common state equals the present state that the copy barriers start from.
+			const HRESULT result = static_cast<ID3D12Device *>(device)->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&texture));
+			back_buffer = texture;
+			return result;
+		}
+		D3D11_TEXTURE2D_DESC desc = {};
+		desc.Width = width;
+		desc.Height = height;
+		desc.MipLevels = 1;
+		desc.ArraySize = 1;
+		desc.Format = format;
+		desc.SampleDesc.Count = 1;
+		desc.Usage = D3D11_USAGE_DEFAULT;
+		desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		ComPtr<ID3D11Texture2D> texture;
+		const HRESULT result = static_cast<ID3D11Device *>(device)->CreateTexture2D(&desc, nullptr, &texture);
+		back_buffer = texture;
+		return result;
+	}
+
 	bool describe_texture(bool d3d12, void *texture, DXGI_FORMAT &format, UINT &samples)
 	{
 		if (d3d12)
@@ -107,46 +383,15 @@ bool openxr_ui::effect_fallback::prepare_runtime(uint32_t width, uint32_t height
 		return false;
 	}
 
-	ComPtr<IDXGIFactory2> factory;
-	HRESULT result = S_OK;
-	if (_d3d12)
-	{
-		result = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
-	}
-	else
-	{
-		ComPtr<IDXGIDevice> dxgi_device;
-		ComPtr<IDXGIAdapter> adapter;
-		result = _device.As(&dxgi_device);
-		if (SUCCEEDED(result))
-			result = dxgi_device->GetAdapter(&adapter);
-		if (SUCCEEDED(result))
-			result = adapter->GetParent(IID_PPV_ARGS(&factory));
-	}
+	// The back buffer is the size of the headset image; the eye views are copied into and out of it.
+	ComPtr<IUnknown> back_buffer_texture;
+	const HRESULT result = create_back_buffer(_d3d12, _device.Get(), width, height, typeless_format(target_format), back_buffer_texture);
 	if (FAILED(result))
 	{
-		log_failure("no DXGI factory for the application device", result);
+		log_failure("could not create the effect back buffer", result);
 		return false;
 	}
-
-	// This windowless swapchain is never presented. It only gives ReShade a back buffer the size of the headset image,
-	// which the eye views are copied into and out of.
-	DXGI_SWAP_CHAIN_DESC1 desc = {};
-	desc.Width = width;
-	desc.Height = height;
-	desc.Format = target_format;
-	desc.SampleDesc.Count = 1;
-	desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	desc.BufferCount = 2;
-	desc.Scaling = DXGI_SCALING_STRETCH;
-	desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-	desc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
-	result = factory->CreateSwapChainForComposition(_d3d12 ? _queue.Get() : _device.Get(), &desc, nullptr, &_swapchain);
-	if (FAILED(result))
-	{
-		log_failure("could not create the hidden swapchain", result);
-		return false;
-	}
+	_swapchain.Attach(new offscreen_swapchain(_device.Get(), back_buffer_texture.Get(), width, height, target_format));
 
 	if (!reshade::create_effect_runtime(_d3d12 ? device_api::d3d12 : device_api::d3d11, _device.Get(), _queue.Get(), _swapchain.Get(), config_path, &_runtime) ||
 		_runtime == nullptr)
@@ -167,7 +412,7 @@ bool openxr_ui::effect_fallback::prepare_runtime(uint32_t width, uint32_t height
 	{
 		graphics_device->destroy_resource_view(rtv);
 		destroy_runtime();
-		log_failure("could not create render target views for the hidden swapchain");
+		log_failure("could not create render target views for the effect back buffer");
 		return false;
 	}
 	_rtv = rtv.handle;

@@ -17,7 +17,7 @@ $resolvedReShadePath = if ([System.IO.Path]::IsPathRooted($ReShadePath)) {
 else {
     [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $ReShadePath))
 }
-$dependencyNotePath = Join-Path $repositoryRoot 'RESHADE-dependency.md'
+$dependencyNotePath = Join-Path $repositoryRoot 'docs\RESHADE-dependency.md'
 
 function Invoke-Git {
     param(

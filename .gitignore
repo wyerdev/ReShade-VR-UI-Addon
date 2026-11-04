@@ -20,7 +20,7 @@
 /.github/instructions/private.instructions.md
 
 # Local dependency snapshot is intentionally reviewable when updated
-# Keep RESHADE-dependency.md tracked; it records the source used for a build.
+# Keep docs/RESHADE-dependency.md tracked; it records the source used for a build.
 
 # Visual Studio and local editor state
 .vs/

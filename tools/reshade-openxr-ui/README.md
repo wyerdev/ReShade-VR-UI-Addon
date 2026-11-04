@@ -4,7 +4,7 @@ ReShade VR UI Add-on is a controller-driven, headset-native interface for managi
 
 Why two frontends: in SteamVR games ReShade already has its own dashboard menu and adds its SteamVR dashboard icon by itself (it creates `ReShadeVR.ini` on its own), so the SteamVR side only adds small extras. In OpenXR games ReShade has no headset menu at all, so the OpenXR side draws its own panel. An earlier version of these docs claimed the icon needs a `ReShadeVR.ini` next to the game; tests on 2026-10-25 with plain ReShade 6.8.0 (Propagation: Paradise Hotel and Hubris, no add-on, no ini) and ReShade's source show that is wrong. The packaged `ReShadeVR.ini` (now a plain release download) and the SteamVR add-on code are kept; the add-on is not released for now.
 
-This README is for developers. Players: see the [main README](../../README.md). The install guides are [INSTALL.md](INSTALL.md) (OpenXR games and UEVR), [INSTALL-SteamVR.md](INSTALL-SteamVR.md) (SteamVR games) and [INSTALL-Vulkan.md](INSTALL-Vulkan.md) (Vulkan games, ReShade alone).
+This README is for developers. Players: see the [main README](../../README.md). The install guides are [INSTALL.md](../../docs/INSTALL.md) (OpenXR games and UEVR), [INSTALL-SteamVR.md](../../docs/INSTALL-SteamVR.md) (SteamVR games) and [INSTALL-Vulkan.md](../../docs/INSTALL-Vulkan.md) (Vulkan games, ReShade alone).
 
 ## Install And Load Model
 
@@ -64,7 +64,7 @@ The DLL has two simultaneous roles:
 - **OpenXR API layer:** creates and submits the headset-visible UI.
 - **ReShade add-on:** reads and changes techniques, parameters, ordering, and presets through ReShade's public API.
 
-Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. Install the OpenXR package once as administrator for compatible OpenXR games. SteamVR users install ReShade alone; see [INSTALL-SteamVR.md](INSTALL-SteamVR.md).
+Official ReShade remains separate under `C:\ProgramData\ReShade`. Nothing is copied into Hubris or other game directories. Install the OpenXR package once as administrator for compatible OpenXR games. SteamVR users install ReShade alone; see [INSTALL-SteamVR.md](../../docs/INSTALL-SteamVR.md).
 
 Run the packaged installer as administrator from the repository root after closing running OpenXR applications:
 
@@ -233,9 +233,9 @@ Create the user-facing ZIPs after the complete validation workflow:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\reshade-openxr-ui\package.ps1
 ```
 
-The OpenXR ZIP and the plain `ReShadeVR.ini` go into one GitHub release. Its page text is [RELEASE_NOTES.md](RELEASE_NOTES.md) (download table with a link to each install guide, and the features), then the changelog and checksums (built by `tools\release\New-ReleaseNotes.ps1`). The ZIP holds only its own guide, renamed to `INSTALL.md`. Release ZIP names end in the release number and date, for example `ReShade-VR-UI-Addon-OpenXR-v12-2026-10-24.zip` (set through `RESHADE_VR_UI_RELEASE_SUFFIX`; local builds have no suffix). See [DEVELOPERS.md](../../DEVELOPERS.md).
+The OpenXR ZIP and the plain `ReShadeVR.ini` go into one GitHub release. Its page text is [RELEASE_NOTES.md](../../docs/RELEASE_NOTES.md) (download table with a link to each install guide, and the features), then the changelog and checksums (built by `tools\release\New-ReleaseNotes.ps1`). The ZIP holds only its own guide, renamed to `INSTALL.md`. Release ZIP names end in the release number and date, for example `ReShade-VR-UI-Addon-OpenXR-v12-2026-10-24.zip` (set through `RESHADE_VR_UI_RELEASE_SUFFIX`; local builds have no suffix). See [DEVELOPERS.md](../../docs/DEVELOPERS.md).
 
-`build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip` (OpenXR games and UEVR; guide: [INSTALL.md](INSTALL.md)):
+`build\reshade-openxr-ui-release\ReShade-VR-UI-Addon-OpenXR.zip` (OpenXR games and UEVR; guide: [INSTALL.md](../../docs/INSTALL.md)):
 
 ```text
 ReShade-OpenXR-UI.addon64
@@ -249,7 +249,7 @@ LICENSE
 THIRD-PARTY-NOTICES.txt
 ```
 
-`build\reshade-openxr-ui-release\ReShadeVR.ini` (SteamVR games; guide: [INSTALL-SteamVR.md](INSTALL-SteamVR.md)) is a plain, unzipped release download. It only sets `[STYLE]` `FontScale=1` and `FontSize=12` so ReShade's SteamVR menu is not zoomed in. It is not needed for the dashboard icon: ReShade adds the icon and creates its own `ReShadeVR.ini` without it. The SteamVR add-on is still built but not packaged or released for now.
+`build\reshade-openxr-ui-release\ReShadeVR.ini` (SteamVR games; guide: [INSTALL-SteamVR.md](../../docs/INSTALL-SteamVR.md)) is a plain, unzipped release download. It only sets `[STYLE]` `FontScale=1` and `FontSize=12` so ReShade's SteamVR menu is not zoomed in. It is not needed for the dashboard icon: ReShade adds the icon and creates its own `ReShadeVR.ini` without it. The SteamVR add-on is still built but not packaged or released for now.
 
 Rename the build output's `layers` directory to `openxr-layers` when assembling the ZIP. Keep the manifests exactly one directory below the DLLs because their relative `library_path` is `..\ReShade-OpenXR-UI.addon64` or `..\ReShade-OpenXR-UI.addon32`.
 

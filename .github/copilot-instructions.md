@@ -29,7 +29,7 @@
 - Fixes to another project live only in its own ignored checkout under `.deps`, together with any notes, scripts and helper files for it. Committed files must not describe, link to or install such fixes unless the user asks for that exact addition; never add one on your own initiative. Facts about how this add-on behaves with another project (for example that a mod crashed with a second ReShade effect runtime) stay in the repository with the project named; never generalize or remove them. This repository becomes public, and its Git history cannot be cleaned afterwards.
 - Never create Git links to other repositories (submodules or nested checkouts added with `git add`). `.deps` must contain no tracked entries; check with `git ls-files .deps`.
 - Git is read-only for the agent. Only the user stages, unstages, commits, pushes, or otherwise changes Git state (branches, stash, reset, restore, remotes, config). The agent may run only these Git commands: `status`, `diff`, `log`, `show`, `ls-files`, `ls-tree`, `rev-list` and `grep`. Do not try others, even read-only ones such as `branch`, `tag`, `remote`, `config` or `stash list`; the hook blocks them. Use `gh` for GitHub information.
-- `RESHADE-dependency.md` is an informational snapshot, not a pinned revision. Preserve user edits and regenerate it only through `setup-reshade.ps1` when the dependency checkout changes.
+- `docs/RESHADE-dependency.md` is an informational snapshot, not a pinned revision. Preserve user edits and regenerate it only through `setup-reshade.ps1` when the dependency checkout changes.
 - The workspace hook `.github/hooks/git-read-only.json` blocks Git change commands and edits inside `.git` folders. Never disable, edit or work around it; `.github/hooks/test-git-read-only.ps1` checks it.
 - `setup-reshade.ps1` changes the `.deps` Git checkouts, so run it only when the user asks.
 
@@ -58,7 +58,7 @@
 
 - The bullets below describe what the script does when the user runs it, and what the agent checks afterwards.
 
-- Current scope: get ReShade effects into VR with UEVR, per `tools/reshade-openxr-ui/UEVR_RESHADE_PLAN.md` (findings in `UEVR_RESHADE_RESEARCH.md`). Keep both files short and current.
+- Current scope: get ReShade effects into VR with UEVR, per `docs/investigations/UEVR_RESHADE_PLAN.md` (findings in `UEVR_RESHADE_RESEARCH.md`). Keep both files short and current.
 - Approved test game: Creatures of Ava (Steam app 2304440, `A:\SteamLibrary\steamapps\common\Ava`). No other game may be launched for UEVR tests.
 - The user launches it only through `tools/test_uevr_simulator.ps1 -Action Run`. It starts the game executable directly with `SteamAppId`/`SteamGameId` set, which stops Steam relaunching the game and showing the "custom arguments" prompt, and keeps the simulator setting in the game process.
 - UEVR runs from `A:\UEVR-build\uevr-reshade-testing` (latest nightly). `-Action Deploy` overwrites its UEVR backend with the `.deps\UEVR` build; nothing else may write there. The user's UEVR copy under `%APPDATA%\UnrealVRMod\UEVR-build` is read-only reference.
@@ -73,7 +73,7 @@
 
 - `Launch-SOMA-VR.ps1` also needs administrator approval. The bullets below describe what the script does when the user runs it, and what the agent checks afterwards.
 
-- Current scope: OpenGL support (ReShade effects and the headset menu) for OpenXR games, tested with the SOMA-VR mod. Record findings and the plan in `tools/reshade-openxr-ui/OPENGL_SUPPORT.md` and keep it short and current.
+- Current scope: OpenGL support (ReShade effects and the headset menu) for OpenXR games, tested with the SOMA-VR mod. Record findings and the plan in `docs/investigations/OPENGL_SUPPORT.md` and keep it short and current.
 - Approved test game: SOMA (`A:\SteamLibrary\steamapps\common\SOMA`) with the SOMA-VR mod already installed there. The mod source is in `.deps\SOMA-VR` (read-only reference).
 - The user launches it only through `tools/test_soma_vr.ps1 -Action Run`, which calls the mod's own launcher (`Launch-SOMA-VR.ps1` in the game folder) with per-process settings: the build's add-on layer instead of the installed one, a repo-owned ReShade base folder (`build\soma-vr\reshade-base`), and by default the OpenXR Simulator. The launcher injects the mod and writes its own compatibility report; that is expected. Close with `-Action Stop`, which uses `Launch-SOMA-VR.ps1 -StopOnly`.
 - `-UseActiveRuntime` runs on the user's headset runtime instead of the simulator.
@@ -83,7 +83,7 @@
 
 ## D2R-PCVR Tests (User Runs Them)
 
-- Current scope: games that bring their own ReShade, tested with the D2R-PCVR mod. Record findings in `tools/reshade-openxr-ui/MOD_OWN_RESHADE_CONFLICT.md` and keep it short and current.
+- Current scope: games that bring their own ReShade, tested with the D2R-PCVR mod. Record findings in `docs/investigations/MOD_OWN_RESHADE_CONFLICT.md` and keep it short and current.
 - Test game: Diablo II: Resurrected (Battle.net edition, `C:\Progs\Diablo II Resurrected`) with the D2R-PCVR mod already installed in `mods\D2R-PCVR`. The mod source is in `.deps\d2r-pcvr` (read-only reference).
 - Reaching the game world needs clicks in the game window (focus the window, press a key, click Play), and a run that stops at the start screen tests nothing that matters.
 - To request a test: run `build.bat`, then tell the user to double-click `test_d2r_pcvr.bat` in the repository root (`simulator`, `noaddon`, `stop` and `status` are its options), and list exactly what to check in the headset.
@@ -91,7 +91,7 @@
 
 ## BioShock VR Tests (User Runs Them)
 
-- Current scope: the OpenXR add-on in 32-bit OpenXR games, tested with the BioShock Remastered VR mod (Direct3D 11). Record findings in `tools/reshade-openxr-ui/BIOSHOCK_32BIT.md` and keep it short and current.
+- Current scope: the OpenXR add-on in 32-bit OpenXR games, tested with the BioShock Remastered VR mod (Direct3D 11). Record findings in `docs/investigations/BIOSHOCK_32BIT.md` and keep it short and current.
 - Test game: BioShock Remastered (Steam app 409710, `C:\Program Files (x86)\Steam\steamapps\common\BioShock Remastered\Build\Final`) with the mod already installed there. Its log is `%LOCALAPPDATA%\BioshockVR\bioshockvr.log`.
 - Run only on the OpenXR Simulator, selected per process. Its 32-bit build comes from the one simulator checkout (`bin-x86`); never create a second simulator copy.
 - The agent may start this game itself (the user approved it), but only through `tools/test_bioshock_vr.ps1` (`test_bioshock_vr.bat` in the repository root for the user; `capture`, `noreshade`, `headset`, `stop` and `status` are its options; only the user runs `headset`, which uses the real headset instead of the simulator), and must close it afterwards.
@@ -112,6 +112,7 @@
 - Write down every finding the user would otherwise have to remember (setup steps, settings that make something work, side effects such as settings an add-on leaves in a game folder) in the user-facing guide it belongs to (`INSTALL.md`, `INSTALL-SteamVR.md`, `LIMITATIONS.md`) in the same task, not only in developer notes.
 - Before answering a question about how something works, read the existing docs, and answer from what was already found. Do not reason it out again from scratch if not needed.
 - When the user asks to fix the instructions or docs, change the files in the same turn and say which lines changed.
+- All docs live in `docs` (only `README.md`, `LICENSE` and `THIRD-PARTY-NOTICES.txt` stay in the repository root): player guides, developer docs and general plans in `docs`, their pictures in `docs/images`, and notes about a specific game or mod in `docs/investigations` while the work is open. Once the problem is fixed and confirmed, or the work is dropped, move the note to `docs/investigations/historic` in the same task, mark its status, and update every link and instruction that points to it.
 - Instructions state general rules. Never write a rule or example around the specific case that prompted it (a particular commit, file, picture or bug), not even reworded; describe the general pattern so it applies to every similar case. When adding a rule, add no example unless the rule cannot be understood without one.
 - Never duplicate instructions. Each rule lives in exactly one instruction, agent or skill file, in the place where it belongs; every other file that needs it only links to that file and restates no part of it, not even in summary. Keep instruction files small and single-topic: a link must point to a whole small file about that topic, never to a section of a larger file, so the agent reads only what it needs. When a rule another file needs sits inside a larger file, move it into its own small file first.
 - Before adding or fixing a rule, extend the existing rule or move it to its correct place instead of adding a second copy.
@@ -128,6 +129,7 @@
 
 - Any failing build, test or validation is the agent's job to fix in the same task, whoever or whichever change caused it. Never report a failure as "pre-existing" or "not from this change" as a reason to leave it; find the cause, fix it, and rerun until everything passes. Never stop to ask whether to fix it. Only ask the user first when the fix needs a decision only they can make.
 - Never implement or suggest workarounds. Find the root cause of a problem and fix it there, so the situation cannot happen in the first place. Code that detects a bad situation and hides or tolerates it (for example, making a second copy switch itself off) is a workaround, not a fix.
+- When a problem involves code whose source is available (ReShade in `.deps\reshade`, mod and runtime sources under `.deps`), read that source to learn what it really needs and does before planning experiments. Check every assumed requirement there instead of building plans on it. Prefer one change that removes the whole suspected cause over a series of tests that each check one guess, because every game test costs the user a run.
 - Never state a cause as fact until a test proves it. If a change does not make the failing test pass, say plainly that the cause is still unknown.
 - Use `apply_patch` for edits to existing files.
 - After the first substantive edit, run the narrowest executable validation available before unrelated exploration or edits.

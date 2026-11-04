@@ -11,7 +11,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$guideRoot = Join-Path $PSScriptRoot '..\reshade-openxr-ui'
+$guideRoot = Join-Path $PSScriptRoot '..\..\docs'
 
 function Read-Text([string]$Path) {
 	return [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Path)).Replace("`r`n", "`n").Trim()

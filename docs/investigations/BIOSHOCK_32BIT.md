@@ -37,6 +37,13 @@ Goal: the OpenXR add-on works in 32-bit OpenXR games without changing the 64-bit
 - **Real headset: works.** ReShade32 and the add-on load, the effect fallback runs on the game's D3D11 device, the invert effect shows in both eyes, and it toggles on and off from the menu. The mod renders 1066x1066 per eye and hands OpenXR two 2048x2048 images (DLSS output) at 90 fps.
 - **Simulator only: effect in one eye.** In the simulator the mod takes a different path: it renders one eye per frame ("alternate-eye stereo") into two 1066x1066 swapchains, and some frames submit both eyes from the same swapchain. The add-on applies effects using the previous frame's eye layout, so when the layout changes between frames, only the right eye gets the effect. Not fixed; it matters only if a game changes its eye layout from frame to frame on a real headset. The fix would apply effects using each frame's own layout and never process one image twice as two eyes.
 
+## Intro Click Not Automatic Yet
+
+- Right after start, the game shows an intro screen that waits for a mouse click. A real click from the user continues it; the script's synthetic clicks have never worked (3 runs on 2026-11-03, the user had to click each time).
+- Likely cause, not proven: the game window is not in front, so Windows refuses to move it forward and the click lands on whatever window is on top.
+- Tried, not yet confirmed working: clicking from the very first wait step (not only after the add-on loads), clicking inside the game picture with screen-pixel (DPI-aware) positions, and a stronger move-to-front (sharing input with the front window's thread, `BringWindowToTop`).
+- Next: on each click attempt, log which window is in front, the game window's position and the cursor position, and save a desktop screenshot to `last-run`; then one unattended run shows why the click is lost. Also try sending the click straight to the game window as a window message, and never send a screen click while another program is in front (it would land in that program).
+
 ## Open Questions
 
 - Does our installed 32-bit layer alone prevent the -32 error in a 32-bit game without a `ReShade.ini` while `ReShade32_XR.json` is 0 (on)?

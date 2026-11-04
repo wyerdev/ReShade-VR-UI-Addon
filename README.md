@@ -10,13 +10,13 @@ Adds a menu inside your VR headset for ReShade effects. Turn effects on and off,
 
 | Your game | Install steps |
 | --- | --- |
-| OpenXR VR game or UEVR | [OpenXR and UEVR](tools/reshade-openxr-ui/INSTALL.md) |
-| SteamVR game | [SteamVR](tools/reshade-openxr-ui/INSTALL-SteamVR.md) |
-| Vulkan VR game | [Vulkan](tools/reshade-openxr-ui/INSTALL-Vulkan.md) |
+| OpenXR VR game or UEVR | [OpenXR and UEVR](docs/INSTALL.md) |
+| SteamVR game | [SteamVR](docs/INSTALL-SteamVR.md) |
+| Vulkan VR game | [Vulkan](docs/INSTALL-Vulkan.md) |
 
 Not sure? See [Which type is my game?](#which-type-is-my-game)
 
-Problem with a specific game? See [Fixes for specific games](tools/reshade-openxr-ui/GAME-FIXES.md).
+Problem with a specific game? See [Fixes for specific games](docs/GAME-FIXES.md).
 
 ## Features
 
@@ -26,13 +26,13 @@ Problem with a specific game? See [Fixes for specific games](tools/reshade-openx
 - **Pin the menu (OpenXR games):** keep it to one side, out of your way.
 - **Pin the FPS counter (OpenXR games):** always see your FPS, even with the menu closed.
 
-**SteamVR games** don't get this menu. You use ReShade's own menu from the ReShade icon in the SteamVR dashboard. See the [SteamVR steps](tools/reshade-openxr-ui/INSTALL-SteamVR.md).
+**SteamVR games** don't get this menu. You use ReShade's own menu from the ReShade icon in the SteamVR dashboard. See the [SteamVR steps](docs/INSTALL-SteamVR.md).
 
-![Gestures page of the headset menu, with Next preset and Walk by swinging arms ringed](tools/reshade-openxr-ui/images/menu-gestures.png)
+![Gestures page of the headset menu, with Next preset and Walk by swinging arms ringed](docs/images/menu-gestures.png)
 
-![Settings page of the headset menu, with Show when menu is closed and the pin button ringed](tools/reshade-openxr-ui/images/menu-settings.png)
+![Settings page of the headset menu, with Show when menu is closed and the pin button ringed](docs/images/menu-settings.png)
 
-![Effects page of the headset menu](tools/reshade-openxr-ui/images/menu-effects.png)
+![Effects page of the headset menu](docs/images/menu-effects.png)
 
 ## Which Type Is My Game?
 
@@ -48,8 +48,8 @@ To check for Vulkan, look the game up on [PCGamingWiki](https://www.pcgamingwiki
 
 **Option 2: Just try OpenXR**
 
-1. Follow the [OpenXR steps](tools/reshade-openxr-ui/INSTALL.md).
-2. If the menu doesn't show up in the headset, it's probably a SteamVR game. Uninstall ReShade for that game in ReShade Setup, then follow the [SteamVR steps](tools/reshade-openxr-ui/INSTALL-SteamVR.md).
+1. Follow the [OpenXR steps](docs/INSTALL.md).
+2. If the menu doesn't show up in the headset, it's probably a SteamVR game. Uninstall ReShade for that game in ReShade Setup, then follow the [SteamVR steps](docs/INSTALL-SteamVR.md).
 
 You can leave the OpenXR add-on installed. It does nothing in other games.
 
@@ -60,21 +60,21 @@ OpenXR games find add-ons like this one through two lists in the Windows registr
 - copies four files to `C:\Program Files\ReShade VR UI Add-on`,
 - adds its entry to both lists, set to `0` (on), so your OpenXR games load it. If you had set an entry to `1` (off), it stays off.
 
-While you play, it saves its own settings in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Uninstalling deletes both entries and the four files, and keeps your settings. Nothing else changes: not your game folders, not ReShade. Full details, and how to switch entries on and off: [What the OpenXR add-on changes on your PC](tools/reshade-openxr-ui/OPENXR-LAYERS.md).
+While you play, it saves its own settings in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Uninstalling deletes both entries and the four files, and keeps your settings. Nothing else changes: not your game folders, not ReShade. Full details, and how to switch entries on and off: [What the OpenXR add-on changes on your PC](docs/OPENXR-LAYERS.md).
 
 ## Something Not Working?
 
-The end of each install guide has **Help** (unzipping, finding the game folder) and **Troubleshooting**. Fixes for specific games: [Fixes for specific games](tools/reshade-openxr-ui/GAME-FIXES.md).
+The end of each install guide has **Help** (unzipping, finding the game folder) and **Troubleshooting**. Fixes for specific games: [Fixes for specific games](docs/GAME-FIXES.md).
 
 **A 32-bit VR game or VR mod shows only on the monitor** (for example BioShock Remastered VR): ReShade's entry in the 32-bit list can stop it when ReShade isn't installed for that game. Fix it one of these ways:
 
-- Install ReShade for the game, as in the [OpenXR steps](tools/reshade-openxr-ui/INSTALL.md).
+- Install ReShade for the game, as in the [OpenXR steps](docs/INSTALL.md).
 - Install the OpenXR add-on, or keep it installed (not yet tested).
-- To play without ReShade: set ReShade's 32-bit entry to `1` (off): [steps](tools/reshade-openxr-ui/OPENXR-LAYERS.md#vr-game-shows-only-on-the-monitor).
+- To play without ReShade: set ReShade's 32-bit entry to `1` (off): [steps](docs/OPENXR-LAYERS.md#vr-game-shows-only-on-the-monitor).
 
 ## For Developers
 
-Building, testing and releases: [DEVELOPERS.md](DEVELOPERS.md).
+Building, testing and releases: [DEVELOPERS.md](docs/DEVELOPERS.md).
 
 ## Credits
 

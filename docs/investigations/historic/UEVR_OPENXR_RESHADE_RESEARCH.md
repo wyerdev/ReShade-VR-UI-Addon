@@ -2,8 +2,8 @@
 
 Date recorded: 2026-09-06
 
-Status: Research only. No UEVR compatibility implementation has been approved
-or added to this repository.
+Status: Archived. Research only; replaced by `../UEVR_RESHADE_RESEARCH.md` and
+`../UEVR_RESHADE_PLAN.md`.
 
 > Superseded 2026-09-24: its "the add-on cannot fix this" conclusion is replaced
 > by `UEVR_RESHADE_RESEARCH.md` and `UEVR_RESHADE_PLAN.md`.

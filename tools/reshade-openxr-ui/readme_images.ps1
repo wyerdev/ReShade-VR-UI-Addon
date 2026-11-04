@@ -3,13 +3,13 @@ param(
 )
 
 # Renders the menu with preview_ui.ps1 and writes the menu pictures shown in the README and on the release page to
-# images\. The settings and gestures pictures get a ring around each control their tips mention; positions come from
+# docs\images\. The settings and gestures pictures get a ring around each control their tips mention; positions come from
 # controls.json, never by hand.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 
 $preview = Join-Path ([System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))) 'build\reshade-openxr-ui\preview'
-$images = Join-Path $PSScriptRoot 'images'
+$images = Join-Path ([System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))) 'docs\images'
 & (Join-Path $PSScriptRoot 'preview_ui.ps1') -ReShadePath $ReShadePath -OutputDirectory $preview
 
 function Save-RingedPicture([string]$Source, [string]$Destination, [object[]]$Rings)

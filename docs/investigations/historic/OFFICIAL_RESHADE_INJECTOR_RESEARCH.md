@@ -2,8 +2,9 @@
 
 Date recorded: 2026-09-06
 
-Status: Research only. The injector design described here was not approved and
-has not been implemented in this repository.
+Status: Archived. Research only; this design was not approved or built. SteamVR
+games are covered by the separate System-Wide SteamVR Listener instead
+(`tools/steamvr-listener`).
 
 ## Purpose
 

@@ -105,7 +105,7 @@ This is a workaround for testing, not the fix.
 - Effects in subfolders (for example `SweetFX\FakeHDR.fx`) did not show up,
   because the mod's `ReShade.ini` lists `.\reshade-shaders\Shaders` without
   `\**`. The panel now offers `Load subfolders` for this (see "Effects in
-  subfolders" in [DEVELOPMENT.md](DEVELOPMENT.md)). Tested in the simulator: the
+  subfolders" in [DEVELOPMENT.md](../DEVELOPMENT.md)). Tested in the simulator: the
   setting is saved and the effect loads without a restart.
 - First D2R try: the button was greyed out and Save was always amber. The mod
   writes `D2R_DepthFog.fx` values (fog start, end and colour, plus a timer)

@@ -93,6 +93,11 @@ function Wait-Until {
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadline) {
         if ($Game.HasExited) { throw "BioShock exited (code $($Game.ExitCode)) while waiting for: $Description" }
+        # The intro screen waits for a click as soon as the game starts, before VR or the add-on load.
+        if ($script:clickUntilMenu) {
+            if (Find-ModLogLine -Pattern 'view state: menu') { $script:clickUntilMenu = $false }
+            else { Set-GameForeground -Game $Game -Click }
+        }
         if (& $Condition) { return }
         Start-Sleep -Milliseconds 250
     }
@@ -139,6 +144,14 @@ public static class BioShockTestWindow {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out RECT rect);
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+    [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr window, out RECT rect);
+    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr window, ref POINT point);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId")] public static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint thread, uint targetThread, bool attach);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr window);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, int x, int y, uint data, UIntPtr extra);
     [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
@@ -170,6 +183,8 @@ public static class BioShockTestWindow {
     }
 }
 '@
+        # Window and cursor positions must both be in real screen pixels, or clicks miss on scaled displays.
+        [void][BioShockTestWindow]::SetProcessDPIAware()
     }
     $window = [BioShockTestWindow]::FindGameWindow([uint32]$Game.Id)
     if ($window -eq [IntPtr]::Zero) { return }
@@ -178,13 +193,23 @@ public static class BioShockTestWindow {
         [BioShockTestWindow]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
         [BioShockTestWindow]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
         [void][BioShockTestWindow]::ShowWindow($window, 5)
+        # Sharing input with the current front window's thread lets Windows accept the focus change.
+        $frontThread = [BioShockTestWindow]::GetWindowThreadProcessId([BioShockTestWindow]::GetForegroundWindow(), [IntPtr]::Zero)
+        $ownThread = [BioShockTestWindow]::GetCurrentThreadId()
+        $attached = $frontThread -ne 0 -and $frontThread -ne $ownThread -and [BioShockTestWindow]::AttachThreadInput($ownThread, $frontThread, $true)
         [void][BioShockTestWindow]::SetForegroundWindow($window)
+        [void][BioShockTestWindow]::BringWindowToTop($window)
+        if ($attached) { [void][BioShockTestWindow]::AttachThreadInput($ownThread, $frontThread, $false) }
     }
     if ($Click) {
-        # Top-left corner, away from the main menu's buttons.
+        # Inside the game picture (not the title bar), near its top-left corner, away from the main menu's buttons.
         $rect = New-Object BioShockTestWindow+RECT
-        [void][BioShockTestWindow]::GetWindowRect($window, [ref]$rect)
-        [void][BioShockTestWindow]::SetCursorPos($rect.Left + 40, $rect.Top + 60)
+        [void][BioShockTestWindow]::GetClientRect($window, [ref]$rect)
+        $point = New-Object BioShockTestWindow+POINT
+        $point.X = [int]($rect.Right * 0.05)
+        $point.Y = [int]($rect.Bottom * 0.05)
+        [void][BioShockTestWindow]::ClientToScreen($window, [ref]$point)
+        [void][BioShockTestWindow]::SetCursorPos($point.X, $point.Y)
         [BioShockTestWindow]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
         [BioShockTestWindow]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
     }
@@ -399,6 +424,7 @@ function Invoke-Run {
     }
 
     $script:modLogStartLength = (Read-SharedText -Path $modLogPath).Length
+    $script:clickUntilMenu = [bool]$EnterGame
     $startedAt = [DateTime]::UtcNow
     $game = $null
     $succeeded = $false

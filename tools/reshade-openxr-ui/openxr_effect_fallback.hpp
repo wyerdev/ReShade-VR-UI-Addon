@@ -9,7 +9,6 @@ struct ID3D11Device;
 struct ID3D11DeviceContext;
 struct ID3D12Device;
 struct ID3D12CommandQueue;
-struct IDXGISwapChain1;
 
 namespace reshade::api
 {
@@ -51,7 +50,8 @@ namespace openxr_ui
 		bool _d3d12 = false;
 		Microsoft::WRL::ComPtr<IUnknown> _device;
 		Microsoft::WRL::ComPtr<IUnknown> _queue;
-		Microsoft::WRL::ComPtr<IDXGISwapChain1> _swapchain;
+		// Stand-in swapchain the effect runtime is created on; it is never presented and no other software sees it.
+		Microsoft::WRL::ComPtr<IUnknown> _swapchain;
 		reshade::api::effect_runtime *_runtime = nullptr;
 		uint64_t _rtv = 0;
 		uint64_t _rtv_srgb = 0;

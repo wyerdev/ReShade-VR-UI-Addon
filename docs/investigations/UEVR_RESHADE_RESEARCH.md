@@ -4,7 +4,7 @@ Date started: 2026-09-24. Status (2026-09-26): option 1 is built and shows
 effects in both eyes on the OpenXR Simulator (Creatures of Ava, D3D12) and on
 a Pimax headset (Jedi Survivor D3D12, Jedi Fallen Order D3D11).
 
-This note replaces the conclusion of `UEVR_OPENXR_RESHADE_RESEARCH.md`. That
+This note replaces the conclusion of `historic/UEVR_OPENXR_RESHADE_RESEARCH.md`. That
 note is correct about why the official ReShade VR path skips UEVR, but it
 missed a supported ReShade feature that works around the problem.
 
@@ -67,7 +67,9 @@ headset images itself.
 ## Option 1 Design (Built: `openxr_effect_fallback.cpp`)
 
 As built: the fallback starts 10 frames after the session begins if no
-official VR runtime exists. The hidden swapchain is the size of all eye views
+official VR runtime exists. Its effect runtime runs on a stand-in swapchain (no
+real DXGI swapchain, so frame generation and other hooks never see a second
+swapchain) whose back buffer is the size of all eye views
 side by side. At release, the eye views are copied into its back buffer,
 `render_effects` runs on that back buffer, the result is copied back, then
 `update_and_present_effect_runtime` submits the work. Rendering on the eye

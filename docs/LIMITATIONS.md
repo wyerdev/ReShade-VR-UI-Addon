@@ -15,7 +15,7 @@
   Diablo II: Resurrected): the add-on detects this by itself. Its menu then
   controls the game's ReShade, and it adds no headset effects of its own. Tested
   in D2R-PCVR. See
-  [MOD_OWN_RESHADE_CONFLICT.md](MOD_OWN_RESHADE_CONFLICT.md).
+  [MOD_OWN_RESHADE_CONFLICT.md](investigations/MOD_OWN_RESHADE_CONFLICT.md).
 - Controllers: Oculus Touch style controllers work best. Other controllers get
   fewer controls.
 - The head gesture for switching presets (**Next preset** on **Gestures**)

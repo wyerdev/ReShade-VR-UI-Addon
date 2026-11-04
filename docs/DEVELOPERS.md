@@ -1,6 +1,6 @@
 # Developer Guide
 
-How to build, test and release the ReShade VR UI Add-on. Players do not need this; see [README.md](README.md).
+How to build, test and release the ReShade VR UI Add-on. Players do not need this; see [README.md](../README.md).
 
 ## Repository Boundary
 
@@ -64,13 +64,13 @@ renderer interaction test. To build ReShade itself,
 use the build instructions and scripts inside the separate `.deps\reshade`
 checkout first.
 
-See [tools/reshade-openxr-ui/README.md](tools/reshade-openxr-ui/README.md) for
+See [tools/reshade-openxr-ui/README.md](../tools/reshade-openxr-ui/README.md) for
 plugin architecture, release packaging, and simulator validation details.
 
 The optional System-Wide SteamVR Listener is a separate program under
 `tools/steamvr-listener` with its own package and installer. `install.bat` and
 the add-on package do not include it; see
-[tools/steamvr-listener/INSTALL.md](tools/steamvr-listener/INSTALL.md).
+[tools/steamvr-listener/INSTALL.md](../tools/steamvr-listener/INSTALL.md).
 
 ## Testing
 
@@ -99,7 +99,7 @@ correct.
 
 The menu pictures in the README and on the release page come from
 `tools\reshade-openxr-ui\readme_images.ps1`. Run it after a menu design change
-and check the three pictures it writes to `tools\reshade-openxr-ui\images`.
+and check the three pictures it writes to `docs\images`.
 
 Most users do not need the following two scripts. They are optional integration
 tests for a full ReShade graphics proxy, not for testing this
@@ -149,8 +149,8 @@ One GitHub release holds one ZIP and one plain file:
 
 | File (in `build\reshade-openxr-ui-release`) | For | Install guide |
 | --- | --- | --- |
-| `ReShade-VR-UI-Addon-OpenXR<suffix>.zip` | OpenXR games and UEVR | `tools\reshade-openxr-ui\INSTALL.md` (inside the ZIP as `INSTALL.md`) |
-| `ReShadeVR.ini` | SteamVR games, optional smaller menu text | `tools\reshade-openxr-ui\INSTALL-SteamVR.md` |
+| `ReShade-VR-UI-Addon-OpenXR<suffix>.zip` | OpenXR games and UEVR | `docs\INSTALL.md` (inside the ZIP as `INSTALL.md`) |
+| `ReShadeVR.ini` | SteamVR games, optional smaller menu text | `docs\INSTALL-SteamVR.md` |
 
 The SteamVR add-on (`ReShade-SteamVR-UI.addon64`) is still built but not
 released for now; its code stays. `ReShadeVR.ini` is not zipped and has no
@@ -165,7 +165,7 @@ sets. Local builds leave it empty, so their ZIPs have no version. The unpacked
 folders next to the ZIPs never get the suffix, because `install.bat` uses them.
 
 The release page text is built by `tools\release\New-ReleaseNotes.ps1` from
-`tools\reshade-openxr-ui\RELEASE_NOTES.md`: a download table (its
+`docs\RELEASE_NOTES.md`: a download table (its
 `{{OPENXR_DOWNLOAD}}` and `{{VR_INI_DOWNLOAD}}`
 placeholders become direct links to this release's ZIP and `ReShadeVR.ini`) with a link to each install guide at this
 release's tag, then the features with menu pictures, the changelog and the
@@ -179,7 +179,7 @@ the file name never changes, and the versioned names change every release.
 ### Automatic releases
 
 Releases are made by GitHub Actions
-([build-release.yml](.github/workflows/build-release.yml)), not by hand:
+([build-release.yml](../.github/workflows/build-release.yml)), not by hand:
 
 - Every push to `main` (and every manual run on `main`) builds both ZIPs and
   publishes them as a GitHub Release. A push is skipped, build included, when
@@ -221,8 +221,8 @@ repository, because they are also read inside the ZIP.
 ## License
 
 Project-owned source in this repository is licensed under the MIT License in
-[LICENSE](LICENSE). The add-on is built against a separately obtained ReShade
+[LICENSE](../LICENSE). The add-on is built against a separately obtained ReShade
 checkout and compiles Dear ImGui's DirectX backends into the add-on binaries.
 ReShade, Dear ImGui, the OpenXR SDK, and OpenVR remain under their upstream
-licenses; see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) for the terms
+licenses; see [THIRD-PARTY-NOTICES.txt](../THIRD-PARTY-NOTICES.txt) for the terms
 included with the release package.

@@ -1,6 +1,6 @@
 # Handover: rebuild the VR menu from the sketch
 
-The approved layout is [index.html](./index.html). Open it in a browser; point at buttons to see their
+The approved layout is [index.html](index.html). Open it in a browser; point at buttons to see their
 hover help. This plan turns it into the real in-headset menu (Dear ImGui) without changing what any
 feature does.
 
