@@ -1722,17 +1722,22 @@ namespace
 		return seconds;
 	}
 
-	// Runs after update_interaction; a controller pointing at the panel wins over the gamepad pointer.
+	// Runs after update_interaction; active gamepad input can temporarily take over from a controller pointer.
 	void update_gamepad(session_state &state, const openxr_ui::gamepad_reading &reading, float seconds)
 	{
 		const uint32_t panel_height = state.panel_expanded ? openxr_ui::expanded_panel_height : openxr_ui::compact_panel_height;
 		// The press that shows the menu does not also wake the gamepad pointer.
 		const openxr_ui::gamepad_frame frame = state.gamepad.update(reading, seconds, state.panel_visible && !state.menu_toggled,
 			static_cast<float>(openxr_ui::panel_width), static_cast<float>(panel_height));
-		if (!frame.pointer_active || state.pointer_visible)
+		if (!frame.pointer_active)
 		{
 			if (state.gamepad_pointer_shown && !state.pointer_visible)
 				state.select_down = false;
+			state.gamepad_pointer_shown = false;
+			return;
+		}
+		if (state.pointer_visible && !frame.input_active)
+		{
 			state.gamepad_pointer_shown = false;
 			return;
 		}

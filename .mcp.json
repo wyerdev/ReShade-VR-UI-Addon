@@ -1,0 +1,14 @@
+{
+	"mcpServers": {
+		"openxr-simulator": {
+			"type": "stdio",
+			"command": "python",
+			"args": [
+				"A:/ws/OpenXR-Simulator/mcp-server/openxr_simulator_mcp.py"
+			],
+			"tools": [
+				"*"
+			]
+		}
+	}
+}

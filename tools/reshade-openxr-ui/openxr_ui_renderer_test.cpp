@@ -256,16 +256,17 @@ namespace
 			std::fputs("Hold B+Y did not wait 1.5 seconds before toggling the menu once.\n", stderr);
 			return false;
 		}
-
 		pad.buttons = 0;
-		if (pointer.update(pad, frame, true, width, height).pointer_active)
+		openxr_ui::gamepad_frame result = pointer.update(pad, frame, true, width, height);
+		if (result.pointer_active || result.input_active)
 		{
-			std::fputs("Gamepad pointer appeared without a stick push or A press.\n", stderr);
+			std::fputs("Gamepad pointer or input appeared without a stick push or button press.\n", stderr);
 			return false;
 		}
 		pad.buttons = openxr_ui::gamepad_a;
-		openxr_ui::gamepad_frame result = pointer.update(pad, frame, true, width, height);
-		if (!result.pointer_active || result.select_clicked || result.pointer_x != width * 0.5f || result.pointer_y != height * 0.5f)
+		result = pointer.update(pad, frame, true, width, height);
+		if (!result.pointer_active || !result.input_active || result.select_clicked ||
+			result.pointer_x != width * 0.5f || result.pointer_y != height * 0.5f)
 		{
 			std::fputs("Gamepad A press that showed the pointer also clicked, or the pointer did not start centred.\n", stderr);
 			return false;
@@ -274,9 +275,9 @@ namespace
 		pad.left_x = 1.0f;
 		pad.left_y = 1.0f;
 		result = pointer.update(pad, 0.1f, true, width, height);
-		if (result.pointer_x <= width * 0.5f || result.pointer_y >= height * 0.5f)
+		if (!result.input_active || result.pointer_x <= width * 0.5f || result.pointer_y >= height * 0.5f)
 		{
-			std::fputs("Gamepad left stick did not move the pointer right and up.\n", stderr);
+			std::fputs("Gamepad left stick did not claim input or move the pointer right and up.\n", stderr);
 			return false;
 		}
 		pad.left_x = 0.0f;
@@ -284,10 +285,10 @@ namespace
 		pad.buttons = openxr_ui::gamepad_a;
 		const bool clicked = pointer.update(pad, frame, true, width, height).select_clicked;
 		pad.buttons = 0;
-		const bool released = pointer.update(pad, frame, true, width, height).select_released;
-		if (!clicked || !released)
+		result = pointer.update(pad, frame, true, width, height);
+		if (!clicked || !result.select_released || result.input_active)
 		{
-			std::fputs("Gamepad A did not click and release.\n", stderr);
+			std::fputs("Gamepad A did not click and release, or idle input remained active.\n", stderr);
 			return false;
 		}
 		if (pointer.update(pad, frame, false, width, height).pointer_active)

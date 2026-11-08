@@ -74,6 +74,7 @@ namespace openxr_ui
 	{
 		// The gamepad drives the panel pointer this frame.
 		bool pointer_active = false;
+		bool input_active = false;
 		float pointer_x = 0.0f;
 		float pointer_y = 0.0f;
 		bool select_down = false;
@@ -106,6 +107,8 @@ namespace openxr_ui
 				return frame;
 			}
 
+			frame.input_active = reading.left_x != 0.0f || reading.left_y != 0.0f ||
+				reading.right_y != 0.0f || a_pressed;
 			if (!_active)
 			{
 				if (reading.left_x == 0.0f && reading.left_y == 0.0f && !(a_pressed && !a_was_pressed))
