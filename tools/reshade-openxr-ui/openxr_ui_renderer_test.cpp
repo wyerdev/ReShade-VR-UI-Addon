@@ -206,6 +206,22 @@ namespace
 			return false;
 		}
 
+		openxr_ui::gamepad_reading idle_pad;
+		idle_pad.connected = true;
+		openxr_ui::gamepad_reading used_pad;
+		used_pad.connected = true;
+		used_pad.buttons = openxr_ui::gamepad_a;
+		used_pad.left_x = -0.5f;
+		openxr_ui::gamepad_reading combined;
+		openxr_ui::merge_gamepad_reading(combined, idle_pad);
+		openxr_ui::merge_gamepad_reading(combined, used_pad);
+		openxr_ui::merge_gamepad_reading(combined, openxr_ui::gamepad_reading{});
+		if (!combined.connected || combined.buttons != openxr_ui::gamepad_a || combined.left_x != -0.5f)
+		{
+			std::fputs("An idle gamepad hid the input of the gamepad in use.\n", stderr);
+			return false;
+		}
+
 		constexpr float width = 1000.0f;
 		constexpr float height = 600.0f;
 		constexpr float frame = 0.01f;

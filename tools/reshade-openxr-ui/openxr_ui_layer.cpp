@@ -1613,7 +1613,8 @@ namespace
 	ComPtr<game_input::IGamepadStatics> &s_gamepad_statics = *new ComPtr<game_input::IGamepadStatics>(); // Worker only.
 	bool s_gamepad_statics_attempted = false; // Worker only.
 	std::mutex s_gamepad_mutex;
-	ComPtr<game_input::IGamepad> &s_gamepad = *new ComPtr<game_input::IGamepad>(); // Guarded by s_gamepad_mutex.
+	// Every listed gamepad, because idle virtual pads (DS4Windows, Steam Input) can come before the one in use.
+	std::vector<ComPtr<game_input::IGamepad>> &s_gamepads = *new std::vector<ComPtr<game_input::IGamepad>>(); // Guarded by s_gamepad_mutex.
 	std::atomic<bool> s_gamepad_search_running = false;
 	std::chrono::steady_clock::time_point s_next_gamepad_search{};
 
@@ -1633,20 +1634,36 @@ namespace
 				openxr_ui_log_message("gamepad support unavailable: Windows.Gaming.Input could not be started.", true);
 			}
 		}
-		ComPtr<game_input::IGamepad> found;
+		std::vector<ComPtr<game_input::IGamepad>> found;
 		ComPtr<gamepad_list> gamepads;
 		unsigned int count = 0;
 		if (s_gamepad_statics != nullptr && SUCCEEDED(s_gamepad_statics->get_Gamepads(&gamepads)) &&
-			SUCCEEDED(gamepads->get_Size(&count)) && count != 0)
-			gamepads->GetAt(0, &found);
+			SUCCEEDED(gamepads->get_Size(&count)))
+		{
+			for (unsigned int i = 0; i < count; ++i)
+			{
+				ComPtr<game_input::IGamepad> gamepad;
+				if (SUCCEEDED(gamepads->GetAt(i, &gamepad)) && gamepad != nullptr)
+					found.push_back(std::move(gamepad));
+			}
+		}
+		size_t previous_count = 0;
 		bool changed = false;
 		{
 			const std::lock_guard<std::mutex> lock(s_gamepad_mutex);
-			changed = found != s_gamepad;
-			s_gamepad = found;
+			previous_count = s_gamepads.size();
+			changed = found != s_gamepads;
+			if (changed)
+				s_gamepads = std::move(found);
+			count = static_cast<unsigned int>(s_gamepads.size());
 		}
 		if (changed)
-			openxr_ui_log_message(found != nullptr ? "gamepad found; it can control the headset menu." : "gamepad disconnected.");
+		{
+			if (count == 0)
+				openxr_ui_log_message("gamepad disconnected.");
+			else if (count != previous_count)
+				openxr_ui_log_message(("gamepads found: " + std::to_string(count) + "; any of them can control the headset menu.").c_str());
+		}
 		s_gamepad_search_running.store(false, std::memory_order_release);
 		// Keeps this DLL loaded until the worker has returned.
 		FreeLibraryWhenCallbackReturns(instance, static_cast<HMODULE>(module));
@@ -1696,19 +1713,24 @@ namespace
 	{
 		openxr_ui::gamepad_reading reading;
 		start_gamepad_search();
-		ComPtr<game_input::IGamepad> gamepad;
+		std::vector<ComPtr<game_input::IGamepad>> gamepads;
 		{
 			const std::lock_guard<std::mutex> lock(s_gamepad_mutex);
-			gamepad = s_gamepad;
+			gamepads = s_gamepads;
 		}
-		game_input::GamepadReading pad = {};
-		if (gamepad == nullptr || FAILED(gamepad->GetCurrentReading(&pad)))
-			return reading;
-		reading.connected = true;
-		reading.buttons = gamepad_buttons(pad.Buttons);
-		reading.left_x = openxr_ui::gamepad_stick(gamepad_raw_axis(pad.LeftThumbstickX), openxr_ui::gamepad_left_stick_dead_zone);
-		reading.left_y = openxr_ui::gamepad_stick(gamepad_raw_axis(pad.LeftThumbstickY), openxr_ui::gamepad_left_stick_dead_zone);
-		reading.right_y = openxr_ui::gamepad_stick(gamepad_raw_axis(pad.RightThumbstickY), openxr_ui::gamepad_right_stick_dead_zone);
+		for (const auto &gamepad : gamepads)
+		{
+			game_input::GamepadReading pad = {};
+			if (FAILED(gamepad->GetCurrentReading(&pad)))
+				continue;
+			openxr_ui::gamepad_reading one;
+			one.connected = true;
+			one.buttons = gamepad_buttons(pad.Buttons);
+			one.left_x = openxr_ui::gamepad_stick(gamepad_raw_axis(pad.LeftThumbstickX), openxr_ui::gamepad_left_stick_dead_zone);
+			one.left_y = openxr_ui::gamepad_stick(gamepad_raw_axis(pad.LeftThumbstickY), openxr_ui::gamepad_left_stick_dead_zone);
+			one.right_y = openxr_ui::gamepad_stick(gamepad_raw_axis(pad.RightThumbstickY), openxr_ui::gamepad_right_stick_dead_zone);
+			openxr_ui::merge_gamepad_reading(reading, one);
+		}
 		return reading;
 	}
 

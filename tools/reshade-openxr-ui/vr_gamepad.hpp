@@ -46,6 +46,21 @@ namespace openxr_ui
 		return value < 0.0f ? -scaled : scaled;
 	}
 
+	// Combines all connected gamepads into one, so the pad in the player's hands works even when Windows also lists
+	// idle virtual pads (for example from DS4Windows or Steam Input). Buttons add up; each stick axis takes the
+	// furthest push.
+	inline void merge_gamepad_reading(gamepad_reading &combined, const gamepad_reading &pad)
+	{
+		if (!pad.connected)
+			return;
+		const auto furthest = [](float a, float b) { return std::abs(b) > std::abs(a) ? b : a; };
+		combined.connected = true;
+		combined.buttons |= pad.buttons;
+		combined.left_x = furthest(combined.left_x, pad.left_x);
+		combined.left_y = furthest(combined.left_y, pad.left_y);
+		combined.right_y = furthest(combined.right_y, pad.right_y);
+	}
+
 	// The gamepad buttons that match the controller menu shortcut; zero for Off.
 	inline constexpr uint16_t gamepad_menu_buttons(uint32_t menu_button)
 	{
