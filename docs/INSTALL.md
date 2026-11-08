@@ -20,6 +20,8 @@ For OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for UEVR. 32-bit Ope
 6. Start the game. For UEVR, set UEVR to **OpenXR** before you inject.
 7. Press both thumbsticks in (`L3 + R3`) or the `Insert` key to open the menu in the headset. Turn effects on there.
 
+Use the menu with a VR controller, a gamepad or the mouse (move, left click, wheel to scroll).
+
 UEVR uses the same buttons for its own menu. To use other buttons, change **Controller buttons** and **Keyboard key** on the menu's **Settings** page.
 
 **UEVR games: effects that need depth (MXAO, depth of field, depth fog) do not work.**

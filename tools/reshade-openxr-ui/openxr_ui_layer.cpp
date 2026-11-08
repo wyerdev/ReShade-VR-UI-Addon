@@ -22,6 +22,7 @@
 #include "openxr_ui_model.hpp"
 #include "openxr_ui_renderer.hpp"
 #include "vr_gamepad.hpp"
+#include "vr_mouse.hpp"
 #include "vr_ui_state.hpp"
 
 #include <algorithm>
@@ -288,8 +289,10 @@ namespace
 		bool select_released = false;
 		float scroll_y = 0.0f;
 		openxr_ui::gamepad_pointer gamepad;
+		openxr_ui::mouse_pointer mouse;
 		std::chrono::steady_clock::time_point input_updated{};
 		bool gamepad_pointer_shown = false;
+		bool mouse_pointer_shown = false;
 		bool quad_ready = false;
 		bool quad_logged = false;
 		std::unique_ptr<openxr_ui::effect_fallback> effects;
@@ -1734,6 +1737,139 @@ namespace
 		return reading;
 	}
 
+	// While the menu is shown and the game is in front, a low-level mouse hook takes every mouse event before the game
+	// sees it: the game neither turns nor shoots, and its cursor locking does not matter. ReShade cannot do this in
+	// UEVR games, because it loads after the game window exists and never sees it. The hook runs on its own thread
+	// only while the menu is shown, because Windows sends every mouse event of the whole desktop through it.
+	constexpr auto mouse_capture_timeout = std::chrono::milliseconds(250);
+	// Last headset frame that showed the menu, as steady_clock ticks.
+	std::atomic<int64_t> s_mouse_wanted_ticks{ 0 };
+	std::atomic<bool> s_mouse_thread_running = false;
+	std::mutex s_mouse_mutex;
+	struct mouse_events
+	{
+		bool captured = false;
+		long dx = 0;
+		long dy = 0;
+		bool left_down = false;
+		int wheel = 0; // WHEEL_DELTA units.
+	};
+	mouse_events s_mouse_events; // Guarded by s_mouse_mutex.
+
+	bool mouse_capture_wanted()
+	{
+		const auto wanted = std::chrono::steady_clock::time_point(
+			std::chrono::steady_clock::duration(s_mouse_wanted_ticks.load(std::memory_order_relaxed)));
+		return std::chrono::steady_clock::now() - wanted < mouse_capture_timeout;
+	}
+
+	bool game_window_in_front()
+	{
+		DWORD foreground_process = 0;
+		GetWindowThreadProcessId(GetForegroundWindow(), &foreground_process);
+		return foreground_process == GetCurrentProcessId();
+	}
+
+	LRESULT CALLBACK mouse_hook(int code, WPARAM message, LPARAM data)
+	{
+		if (code != HC_ACTION || !mouse_capture_wanted() || !game_window_in_front())
+			return CallNextHookEx(nullptr, code, message, data);
+		const MSLLHOOKSTRUCT &event = *reinterpret_cast<const MSLLHOOKSTRUCT *>(data);
+		// The cursor has not moved yet, so its position is where this movement starts.
+		POINT cursor = {};
+		const bool cursor_known = message == WM_MOUSEMOVE && GetCursorPos(&cursor);
+		{
+			const std::lock_guard<std::mutex> lock(s_mouse_mutex);
+			switch (message)
+			{
+			case WM_MOUSEMOVE:
+				if (cursor_known)
+				{
+					s_mouse_events.dx += event.pt.x - cursor.x;
+					s_mouse_events.dy += event.pt.y - cursor.y;
+				}
+				break;
+			case WM_LBUTTONDOWN:
+				s_mouse_events.left_down = true;
+				break;
+			case WM_LBUTTONUP:
+				s_mouse_events.left_down = false;
+				break;
+			case WM_MOUSEWHEEL:
+				s_mouse_events.wheel += static_cast<short>(HIWORD(event.mouseData));
+				break;
+			}
+		}
+		// Every mouse event, including other buttons, is kept from the game while the menu has the mouse.
+		return 1;
+	}
+
+	DWORD WINAPI mouse_hook_thread(void *module)
+	{
+		const HHOOK hook = SetWindowsHookExW(WH_MOUSE_LL, mouse_hook, static_cast<HMODULE>(module), 0);
+		if (hook == nullptr)
+			openxr_ui_log_message("mouse support unavailable: the mouse hook could not be installed.", true);
+		else
+		{
+			{
+				const std::lock_guard<std::mutex> lock(s_mouse_mutex);
+				s_mouse_events = {};
+				s_mouse_events.captured = true;
+			}
+			// The hook is called only while this thread waits for or handles messages.
+			while (mouse_capture_wanted())
+			{
+				MsgWaitForMultipleObjects(0, nullptr, FALSE, 100, QS_ALLINPUT);
+				MSG message;
+				while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+					DispatchMessageW(&message);
+			}
+			UnhookWindowsHookEx(hook);
+			const std::lock_guard<std::mutex> lock(s_mouse_mutex);
+			s_mouse_events = {};
+		}
+		s_mouse_thread_running.store(false, std::memory_order_release);
+		// Keeps this DLL loaded until the thread has returned.
+		FreeLibraryAndExitThread(static_cast<HMODULE>(module), 0);
+	}
+
+	// Called from the frame thread only, every frame that shows the menu.
+	void capture_mouse()
+	{
+		s_mouse_wanted_ticks.store(std::chrono::steady_clock::now().time_since_epoch().count(), std::memory_order_relaxed);
+		if (s_mouse_thread_running.exchange(true, std::memory_order_acq_rel))
+			return;
+		HMODULE module = nullptr;
+		HANDLE thread = nullptr;
+		if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(&mouse_hook_thread), &module))
+			thread = CreateThread(nullptr, 0, mouse_hook_thread, module, 0, nullptr);
+		if (thread != nullptr)
+			CloseHandle(thread);
+		else
+		{
+			if (module != nullptr)
+				FreeLibrary(module);
+			s_mouse_thread_running.store(false, std::memory_order_release);
+		}
+	}
+
+	openxr_ui::mouse_reading read_mouse()
+	{
+		openxr_ui::mouse_reading reading;
+		const bool in_front = game_window_in_front();
+		const std::lock_guard<std::mutex> lock(s_mouse_mutex);
+		reading.connected = s_mouse_events.captured && in_front;
+		reading.dx = static_cast<float>(s_mouse_events.dx);
+		reading.dy = static_cast<float>(s_mouse_events.dy);
+		reading.left_down = s_mouse_events.left_down;
+		// Whole notches only; a smooth wheel's remainder waits for the next reading.
+		reading.wheel = s_mouse_events.wheel / WHEEL_DELTA;
+		s_mouse_events.wheel -= reading.wheel * WHEEL_DELTA;
+		s_mouse_events.dx = 0;
+		s_mouse_events.dy = 0;
+		return reading;
+	}
+
 	// Seconds since the previous frame's input update, capped so a long stall does not complete a menu hold at once.
 	float input_frame_seconds(session_state &state)
 	{
@@ -1745,7 +1881,8 @@ namespace
 	}
 
 	// Runs after update_interaction; active gamepad input can temporarily take over from a controller pointer.
-	void update_gamepad(session_state &state, const openxr_ui::gamepad_reading &reading, float seconds)
+	// Returns true when the gamepad was used this frame.
+	bool update_gamepad(session_state &state, const openxr_ui::gamepad_reading &reading, float seconds)
 	{
 		const uint32_t panel_height = state.panel_expanded ? openxr_ui::expanded_panel_height : openxr_ui::compact_panel_height;
 		// The press that shows the menu does not also wake the gamepad pointer.
@@ -1756,14 +1893,42 @@ namespace
 			if (state.gamepad_pointer_shown && !state.pointer_visible)
 				state.select_down = false;
 			state.gamepad_pointer_shown = false;
-			return;
+			return false;
 		}
 		if (state.pointer_visible && !frame.input_active)
 		{
 			state.gamepad_pointer_shown = false;
-			return;
+			return false;
 		}
 		state.gamepad_pointer_shown = true;
+		state.pointer_visible = true;
+		state.pointer_x = static_cast<LONG>(std::lround(frame.pointer_x));
+		state.pointer_y = static_cast<LONG>(std::lround(frame.pointer_y));
+		state.select_clicked = frame.select_clicked;
+		state.select_down = frame.select_down;
+		state.select_released = frame.select_released;
+		if (frame.scroll_y != 0.0f)
+			state.scroll_y = frame.scroll_y;
+		return frame.input_active;
+	}
+
+	// Runs last. The mouse keeps the pointer after it was used until a VR controller points at the panel or the
+	// gamepad is used.
+	void update_mouse(session_state &state, const openxr_ui::mouse_reading &reading, bool other_input)
+	{
+		if (state.panel_visible)
+			capture_mouse();
+		const uint32_t panel_height = state.panel_expanded ? openxr_ui::expanded_panel_height : openxr_ui::compact_panel_height;
+		const openxr_ui::mouse_frame frame = state.mouse.update(reading, state.panel_visible && !state.menu_toggled,
+			static_cast<float>(openxr_ui::panel_width), static_cast<float>(panel_height));
+		if (!frame.pointer_active || (!frame.input_active && (other_input || !state.mouse_pointer_shown)))
+		{
+			if (state.mouse_pointer_shown && !state.pointer_visible)
+				state.select_down = false;
+			state.mouse_pointer_shown = false;
+			return;
+		}
+		state.mouse_pointer_shown = true;
 		state.pointer_visible = true;
 		state.pointer_x = static_cast<LONG>(std::lround(frame.pointer_x));
 		state.pointer_y = static_cast<LONG>(std::lround(frame.pointer_y));
@@ -2293,7 +2458,9 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 	const openxr_ui::gamepad_reading gamepad = read_gamepad();
 	const float input_seconds = input_frame_seconds(*state);
 	update_interaction(*state, frame_end_info->displayTime, gamepad, input_seconds);
-	update_gamepad(*state, gamepad, input_seconds);
+	const bool controller_pointing = state->pointer_visible;
+	const bool gamepad_used = update_gamepad(*state, gamepad, input_seconds);
+	update_mouse(*state, read_mouse(), controller_pointing || gamepad_used);
 	if (state->arm_swing_strength_unsaved && !state->select_down)
 	{
 		openxr_ui_set_arm_swing_strength(state->arm_swing_strength);

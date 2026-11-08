@@ -1,5 +1,6 @@
 #include "openxr_ui_renderer.hpp"
 #include "vr_gamepad.hpp"
+#include "vr_mouse.hpp"
 
 #include <d3d11.h>
 #include <wrl/client.h>
@@ -191,6 +192,71 @@ namespace
 			openxr_ui::preset_gesture_uses_left_hand(openxr_ui::preset_gesture_right_trigger))
 		{
 			std::fputs("Preset gesture choice mapped to the wrong hand or button.\n", stderr);
+			return false;
+		}
+		return true;
+	}
+
+	bool mouse_logic_works()
+	{
+		constexpr float width = 1000.0f;
+		constexpr float height = 600.0f;
+		openxr_ui::mouse_pointer pointer;
+		openxr_ui::mouse_reading mouse;
+		mouse.connected = true;
+		if (pointer.update(mouse, true, width, height).pointer_active)
+		{
+			std::fputs("The mouse pointer appeared before the mouse was used.\n", stderr);
+			return false;
+		}
+		mouse.dx = -100.0f;
+		mouse.dy = 20.0f;
+		openxr_ui::mouse_frame frame = pointer.update(mouse, true, width, height);
+		mouse.dx = -5000.0f;
+		mouse.dy = 0.0f;
+		const openxr_ui::mouse_frame clamped = pointer.update(mouse, true, width, height);
+		mouse.dx = 0.0f;
+		if (!frame.pointer_active || !frame.input_active || frame.pointer_x != 400.0f || frame.pointer_y != 320.0f ||
+			clamped.pointer_x != 0.0f || clamped.pointer_y != 320.0f)
+		{
+			std::fputs("Moving the mouse did not move the pointer from the menu centre, or let it leave the menu.\n", stderr);
+			return false;
+		}
+		mouse.left_down = true;
+		frame = pointer.update(mouse, true, width, height);
+		const bool clicked = frame.select_clicked && frame.select_down;
+		mouse.left_down = false;
+		frame = pointer.update(mouse, true, width, height);
+		if (!clicked || !frame.select_released)
+		{
+			std::fputs("The left mouse button did not click exactly once.\n", stderr);
+			return false;
+		}
+		mouse.wheel = 2;
+		const float first = pointer.update(mouse, true, width, height).scroll_y;
+		mouse.wheel = 0;
+		const float gap = pointer.update(mouse, true, width, height).scroll_y;
+		const float second = pointer.update(mouse, true, width, height).scroll_y;
+		const float after = pointer.update(mouse, true, width, height).scroll_y;
+		if (first != 1.0f || gap != 0.0f || second != 1.0f || after != 0.0f)
+		{
+			std::fputs("Each mouse wheel notch did not scroll exactly one row.\n", stderr);
+			return false;
+		}
+		if (pointer.update(mouse, false, width, height).pointer_active || pointer.update(mouse, true, width, height).pointer_active)
+		{
+			std::fputs("The mouse pointer stayed after the menu was hidden.\n", stderr);
+			return false;
+		}
+		mouse.left_down = true;
+		frame = pointer.update(mouse, true, width, height);
+		const bool woke_without_click = frame.pointer_active && !frame.select_clicked && frame.pointer_x == 500.0f;
+		mouse.left_down = false;
+		pointer.update(mouse, true, width, height);
+		mouse.left_down = true;
+		if (!woke_without_click || !pointer.update(mouse, true, width, height).select_clicked)
+		{
+			std::fputs("The click that shows the mouse pointer also clicked, or the next click did not.\n", stderr);
 			return false;
 		}
 		return true;
@@ -495,7 +561,7 @@ namespace
 
 int main()
 {
-	if (!preset_gesture_logic_works() || !gamepad_logic_works() || !arm_swing_logic_works() || !arm_swing_run_logic_works())
+	if (!preset_gesture_logic_works() || !gamepad_logic_works() || !mouse_logic_works() || !arm_swing_logic_works() || !arm_swing_run_logic_works())
 		return 1;
 	ComPtr<ID3D11Device> device;
 	ComPtr<ID3D11DeviceContext> context;

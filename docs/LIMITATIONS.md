@@ -18,6 +18,8 @@
   [MOD_OWN_RESHADE_CONFLICT.md](investigations/MOD_OWN_RESHADE_CONFLICT.md).
 - Controllers: Oculus Touch style controllers work best. Other controllers get
   fewer controls.
+- Gamepad and mouse in the menu: OpenXR games only. While the menu is open and
+  the game window is in front, the game gets no mouse input.
 - The head gesture for switching presets (**Next preset** on **Gestures**)
   works only in OpenXR games, not yet in SteamVR (OpenVR) games, and needs
   Oculus Touch style controllers. The game also receives the button press.
