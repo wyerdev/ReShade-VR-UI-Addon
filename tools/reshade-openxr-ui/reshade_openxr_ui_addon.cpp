@@ -649,11 +649,12 @@ namespace
 #endif
 
 	// ReShade returns list values as entries separated by '\0'.
+	// Like ReShade, a value missing from the runtime's own settings file (ReShadeVR.ini for a headset runtime) is taken from ReShade.ini.
 	std::vector<std::string> read_config_list(effect_runtime *runtime, const char *section, const char *key)
 	{
 		size_t size = 0;
 		if (!reshade::get_config_value(runtime, section, key, nullptr, &size) || size == 0)
-			return {};
+			return runtime != nullptr ? read_config_list(nullptr, section, key) : std::vector<std::string>();
 		std::string buffer(size, '\0');
 		if (!reshade::get_config_value(runtime, section, key, buffer.data(), &size))
 			return {};
@@ -1624,7 +1625,8 @@ namespace
 		});
 		const bool runtime_changed = s_effect_runtime != runtime;
 		s_effect_runtime = runtime;
-		reshade::get_config_value(runtime, "GENERAL", "PerformanceMode", s_performance_mode);
+		if (!reshade::get_config_value(runtime, "GENERAL", "PerformanceMode", s_performance_mode))
+			reshade::get_config_value(nullptr, "GENERAL", "PerformanceMode", s_performance_mode);
 		// ReShade reads PerformanceMode only when it creates the effect runtime.
 		if (runtime_changed)
 			s_performance_mode_at_start = s_performance_mode;
