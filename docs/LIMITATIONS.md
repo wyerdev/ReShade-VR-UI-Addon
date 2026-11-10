@@ -29,6 +29,8 @@
   thumbstick, not in SteamVR (OpenVR) games. **Run** works only in games that
   sprint with a left thumbstick click (`L3`) or a held A, B, X or Y button.
 - **Open when the game starts** takes effect the next time you start the game.
+- **Safe start** remembers games by their `.exe` name. Games with the same
+  `.exe` name are switched off together.
 - The FPS counter counts the frames the game sends to the headset.
   It does not count frames the headset software makes up by itself
   (reprojection, motion smoothing).

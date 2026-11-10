@@ -28,12 +28,13 @@ $manifest = Join-Path $buildDirectory 'layers\ReShade-OpenXR-UI-Layer.json'
 $manifest32 = Join-Path $buildDirectory 'layers\ReShade-OpenXR-UI-Layer32.json'
 $openxrInstallScript = Join-Path $PSScriptRoot 'Install-OpenXR.cmd'
 $openxrUninstallScript = Join-Path $PSScriptRoot 'Uninstall-OpenXR.cmd'
+$openxrReenableScript = Join-Path $PSScriptRoot 'Re-enable-Games.cmd'
 $openxrInstallGuide = Join-Path $repo 'docs\INSTALL.md'
 $steamvrManualIni = Join-Path $PSScriptRoot 'ReShadeVR.ini'
 $projectLicense = Join-Path $repo 'LICENSE'
 $thirdPartyNotices = Join-Path $repo 'THIRD-PARTY-NOTICES.txt'
 
-foreach ($requiredPath in @($addon, $addon32, $manifest, $manifest32, $openxrInstallScript, $openxrUninstallScript, $openxrInstallGuide, $steamvrManualIni, $projectLicense, $thirdPartyNotices)) {
+foreach ($requiredPath in @($addon, $addon32, $manifest, $manifest32, $openxrInstallScript, $openxrUninstallScript, $openxrReenableScript, $openxrInstallGuide, $steamvrManualIni, $projectLicense, $thirdPartyNotices)) {
 	if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
 		throw "Required release file does not exist: $requiredPath"
 	}
@@ -67,7 +68,7 @@ New-ReleaseArchive 'ReShade-VR-UI-Addon-OpenXR' {
 	param($packageDirectory)
 	$packageLayerDirectory = Join-Path $packageDirectory 'openxr-layers'
 	New-Item -ItemType Directory -Path $packageLayerDirectory -Force | Out-Null
-	Copy-Item -LiteralPath $addon, $addon32, $openxrInstallScript, $openxrUninstallScript -Destination $packageDirectory
+	Copy-Item -LiteralPath $addon, $addon32, $openxrInstallScript, $openxrUninstallScript, $openxrReenableScript -Destination $packageDirectory
 	Copy-Item -LiteralPath $manifest, $manifest32 -Destination $packageLayerDirectory
 	Copy-Item -LiteralPath $openxrInstallGuide -Destination (Join-Path $packageDirectory 'INSTALL.md')
 }

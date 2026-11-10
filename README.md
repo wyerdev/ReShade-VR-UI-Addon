@@ -26,6 +26,7 @@ Problem with a specific game? See [Fixes for specific games](docs/GAME-FIXES.md)
 - **Pin the menu (OpenXR games):** keep it to one side, out of your way.
 - **Pin the FPS counter (OpenXR games):** always see your FPS, even with the menu closed.
 - **Settings for all games (OpenXR games):** set menu buttons, gestures and pin once. Switch off **Use shared settings** where one game needs different ones.
+- **Safe start (OpenXR games):** if a game crashes while starting, the add-on switches itself off for that game. `Re-enable-Games.cmd` turns it back on.
 
 **SteamVR games** don't get this menu. You use ReShade's own menu from the ReShade icon in the SteamVR dashboard. See the [SteamVR steps](docs/INSTALL-SteamVR.md).
 

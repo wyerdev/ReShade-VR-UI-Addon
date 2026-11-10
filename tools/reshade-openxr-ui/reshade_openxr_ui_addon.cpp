@@ -1,6 +1,7 @@
 #include <reshade.hpp>
 
 #include "openxr_ui_preset.hpp"
+#include "startup_crash_guard.hpp"
 #include "vr_ui_state.hpp"
 #include "vr_ui_themes.hpp"
 
@@ -1244,6 +1245,7 @@ namespace
 
 	void on_reshade_present(effect_runtime *runtime)
 	{
+		startup_crash_guard::note_activity();
 		const std::string preset_path = current_preset_path(runtime);
 		bool synchronize_model = s_runtime_state_dirty.exchange(false, std::memory_order_acq_rel);
 		s_present_frame.fetch_add(1, std::memory_order_relaxed);
@@ -1331,6 +1333,24 @@ namespace
 #endif
 	}
 
+	// ReShade writes messages from unregistered modules too; it may load after this add-on, so retry until it is there.
+	void log_switched_off_once()
+	{
+		static bool logged = false;
+		if (logged)
+			return;
+		const HMODULE reshade_module = reshade::internal::get_reshade_module_handle();
+		if (reshade_module == nullptr)
+			return;
+		const auto log_message = reinterpret_cast<void(*)(void *, int, const char *)>(GetProcAddress(reshade_module, "ReShadeLogMessage"));
+		if (log_message == nullptr)
+			return;
+		logged = true;
+		log_message(nullptr, static_cast<int>(reshade::log::level::warning),
+			"ReShade VR UI Add-on is switched off for this game because the game crashed while starting with it. "
+			"Run Re-enable-Games.cmd from the add-on download to turn it on again.");
+	}
+
 	bool try_register_addon()
 	{
 		const std::lock_guard<std::mutex> lock(s_mutex);
@@ -1338,6 +1358,11 @@ namespace
 			return true;
 		if (s_module == nullptr)
 			return false;
+		if (!startup_crash_guard::begin(s_module, configuration_directory()))
+		{
+			log_switched_off_once();
+			return false;
+		}
 #ifdef RESHADE_OPENVR_FRONTEND
 		if (!openvr_ui_register_addon(s_module))
 #else
@@ -2530,6 +2555,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
 		try_register_addon();
 		break;
 	case DLL_PROCESS_DETACH:
+		startup_crash_guard::end();
 		if (s_addon_registered)
 		{
 			reshade::unregister_event<reshade::addon_event::init_effect_runtime>(on_init_effect_runtime);

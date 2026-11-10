@@ -94,6 +94,7 @@ For more FPS: on **Settings**, switch off **Enable depth-based effects** and res
 - No menu or no effects: check that you installed ReShade **with full add-on support** and **ticked** the **OpenXR** layer. For UEVR, check that UEVR is set to **OpenXR**.
 - Still no menu: the game may be a SteamVR game. Open ReShade Setup, pick the game, choose **Uninstall**, then follow the SteamVR install steps. You can leave the OpenXR add-on installed.
 - Still no effects: an old ReShade copy in the game folder can block them. Open ReShade Setup, pick the game, choose **Uninstall**, then install again (steps 2 and 3).
+- A game crashes while it starts: the add-on switches itself off for that game, so the next start works with plain ReShade (no VR menu). Crashes later in a session do not switch it off. To turn it on again, run `Re-enable-Games.cmd` from the add-on ZIP.
 - Anything else: close the game and delete `ReShade.log` next to the game's `.exe`. Start the game until the problem shows, close it, then give the new `ReShade.log` to an AI assistant (for example ChatGPT or Copilot) and ask what is wrong.
 
 ## Where It Installs

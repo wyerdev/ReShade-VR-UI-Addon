@@ -17,6 +17,7 @@ Problem with a specific game (UEVR, Deus Ex: Human Revolution VR, Half-Life 2 VR
 - **Pin the menu:** keep it to one side, out of your way.
 - **Pin the FPS counter:** always see your FPS, even with the menu closed.
 - **Settings for all games:** set menu buttons, gestures and pin once. Switch off **Use shared settings** where one game needs different ones.
+- **Safe start:** if a game crashes while starting, the add-on switches itself off for that game. `Re-enable-Games.cmd` turns it back on.
 
 ![The headset menu: Gestures page, with Next preset and Walk by swinging arms ringed](https://github.com/{{REPOSITORY}}/raw/{{TAG}}/docs/images/menu-gestures.png)
 

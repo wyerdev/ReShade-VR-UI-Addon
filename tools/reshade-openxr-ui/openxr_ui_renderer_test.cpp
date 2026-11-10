@@ -1,4 +1,5 @@
 #include "openxr_ui_renderer.hpp"
+#include "startup_crash_guard.hpp"
 #include "vr_gamepad.hpp"
 #include "vr_mouse.hpp"
 
@@ -9,8 +10,10 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace
@@ -557,10 +560,150 @@ namespace
 		}
 		return true;
 	}
+
+	// lstrlenA catches the access error itself, so this is a recovered error raised in Windows code below this program.
+	void raise_recovered_error()
+	{
+		static_cast<void>(lstrlenA(reinterpret_cast<LPCSTR>(static_cast<UINT_PTR>(16))));
+	}
+
+	void note_activity_on_other_thread(ULONGLONG now)
+	{
+		std::thread([now] { startup_crash_guard::note_activity(now); }).join();
+	}
+
+	bool startup_crash_guard_works()
+	{
+		wchar_t temp_directory[MAX_PATH] = {};
+		if (GetTempPathW(MAX_PATH, temp_directory) == 0)
+		{
+			std::fputs("Could not find the temporary folder for the crash guard test.\n", stderr);
+			return false;
+		}
+		const std::filesystem::path settings = std::filesystem::path(temp_directory) / L"ReShade-VR-UI-crash-guard-test";
+		std::error_code error;
+		std::filesystem::remove_all(settings, error);
+		const std::filesystem::path marker = settings / L"disabled-games" / startup_crash_guard::detail::game_file_name();
+		const auto finish = [&](const char *failure) {
+			startup_crash_guard::end();
+			std::filesystem::remove_all(settings, error);
+			if (failure != nullptr)
+				std::fputs(failure, stderr);
+			return failure == nullptr;
+		};
+
+		if (!startup_crash_guard::begin(GetModuleHandleW(nullptr), settings) || startup_crash_guard::switched_off())
+			return finish("The crash guard switched the add-on off without a recorded crash.\n");
+		if (startup_crash_guard::detail::marker_switches_off(marker))
+			return finish("The crash guard's prepared file already switches the add-on off.\n");
+
+		raise_recovered_error();
+		if (!startup_crash_guard::detail::marker_switches_off(marker))
+			return finish("An access error below the add-on's code did not mark a startup crash.\n");
+		note_activity_on_other_thread(GetTickCount64());
+		if (!startup_crash_guard::detail::marker_switches_off(marker))
+			return finish("A frame right after the error cleared the startup crash too early.\n");
+		note_activity_on_other_thread(GetTickCount64() + startup_crash_guard::survival_delay_ms);
+		if (startup_crash_guard::detail::marker_switches_off(marker))
+			return finish("Frames that kept coming after the error did not clear the startup crash.\n");
+
+		raise_recovered_error();
+		startup_crash_guard::note_activity();
+		if (startup_crash_guard::detail::marker_switches_off(marker))
+			return finish("The failing thread continued, but the startup crash was not cleared.\n");
+
+		raise_recovered_error();
+		startup_crash_guard::end();
+		if (!startup_crash_guard::detail::marker_switches_off(marker))
+			return finish("A game that closed right after a startup crash did not keep the add-on switched off.\n");
+		return finish(nullptr);
+	}
+
+	constexpr DWORD second_start_refused_exit_code = 7;
+
+	__declspec(noinline) void crash_for_real()
+	{
+		volatile int *volatile nothing = nullptr;
+		*nothing = 1;
+	}
+
+	// Runs in a copy of this program started by start_crash_guard_child; it is the "game" that really crashes.
+	int run_crash_guard_child(const std::string_view mode)
+	{
+		SetErrorMode(SEM_NOGPFAULTERRORBOX | SEM_FAILCRITICALERRORS);
+		wchar_t settings[MAX_PATH] = {};
+		if (GetEnvironmentVariableW(L"RESHADE_VR_UI_CRASH_TEST_SETTINGS", settings, MAX_PATH) == 0)
+			return 1;
+		// "foreign" guards a module that is not on the crashing stack, so the crash must not count.
+		const HMODULE guarded = mode == "foreign" ? GetModuleHandleW(L"d3d11.dll") : GetModuleHandleW(nullptr);
+		if (!startup_crash_guard::begin(guarded, settings))
+			return static_cast<int>(second_start_refused_exit_code);
+		if (mode == "start")
+			return 0;
+		crash_for_real();
+		return 0;
+	}
+
+	DWORD start_crash_guard_child(const std::filesystem::path &settings, const wchar_t *mode)
+	{
+		wchar_t executable[MAX_PATH] = {};
+		GetModuleFileNameW(nullptr, executable, MAX_PATH);
+		SetEnvironmentVariableW(L"RESHADE_VR_UI_CRASH_TEST_SETTINGS", settings.c_str());
+		std::wstring command = L"\"" + std::wstring(executable) + L"\" --crash-guard-child " + mode;
+		STARTUPINFOW startup = { sizeof(startup) };
+		PROCESS_INFORMATION process = {};
+		if (!CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process))
+			return MAXDWORD;
+		DWORD exit_code = MAXDWORD;
+		if (WaitForSingleObject(process.hProcess, 30000) == WAIT_OBJECT_0)
+			GetExitCodeProcess(process.hProcess, &exit_code);
+		else
+			TerminateProcess(process.hProcess, 1);
+		CloseHandle(process.hThread);
+		CloseHandle(process.hProcess);
+		return exit_code;
+	}
+
+	// A real crash that ends the process, as in a game: it must leave the add-on switched off for the next start,
+	// and a crash that the add-on's code is not part of, or a normal start, must not.
+	bool startup_crash_guard_survives_real_crash()
+	{
+		wchar_t temp_directory[MAX_PATH] = {};
+		GetTempPathW(MAX_PATH, temp_directory);
+		const std::filesystem::path settings = std::filesystem::path(temp_directory) / L"ReShade-VR-UI-crash-guard-process-test";
+		std::error_code error;
+		std::filesystem::remove_all(settings, error);
+		const std::filesystem::path marker = settings / L"disabled-games" / startup_crash_guard::detail::game_file_name();
+		const auto finish = [&](const char *failure) {
+			std::filesystem::remove_all(settings, error);
+			if (failure != nullptr)
+				std::fputs(failure, stderr);
+			return failure == nullptr;
+		};
+
+		if (start_crash_guard_child(settings, L"start") != 0 || std::filesystem::exists(marker, error))
+			return finish("A start without a crash left the add-on switched off.\n");
+		if (start_crash_guard_child(settings, L"foreign") != EXCEPTION_ACCESS_VIOLATION || std::filesystem::exists(marker, error))
+			return finish("A crash without the add-on's code on the stack switched the add-on off.\n");
+		if (start_crash_guard_child(settings, L"own") != EXCEPTION_ACCESS_VIOLATION)
+			return finish("The test game did not crash for real.\n");
+		if (!startup_crash_guard::detail::marker_switches_off(marker))
+			return finish("A real startup crash did not switch the add-on off.\n");
+		if (start_crash_guard_child(settings, L"start") != second_start_refused_exit_code)
+			return finish("The start after a real crash did not stay switched off.\n");
+		std::filesystem::remove(marker, error);
+		if (start_crash_guard_child(settings, L"start") != 0)
+			return finish("Deleting the switch-off file did not turn the add-on on again.\n");
+		return finish(nullptr);
+	}
 }
 
-int main()
+int main(int argc, char **argv)
 {
+	if (argc >= 3 && std::string_view(argv[1]) == "--crash-guard-child")
+		return run_crash_guard_child(argv[2]);
+	if (!startup_crash_guard_works() || !startup_crash_guard_survives_real_crash())
+		return 1;
 	if (!preset_gesture_logic_works() || !gamepad_logic_works() || !mouse_logic_works() || !arm_swing_logic_works() || !arm_swing_run_logic_works())
 		return 1;
 	ComPtr<ID3D11Device> device;

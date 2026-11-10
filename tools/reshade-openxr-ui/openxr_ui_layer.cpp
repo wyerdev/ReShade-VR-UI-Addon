@@ -21,6 +21,7 @@
 #include "openxr_effect_fallback.hpp"
 #include "openxr_ui_model.hpp"
 #include "openxr_ui_renderer.hpp"
+#include "startup_crash_guard.hpp"
 #include "vr_gamepad.hpp"
 #include "vr_mouse.hpp"
 #include "vr_ui_state.hpp"
@@ -384,6 +385,7 @@ namespace
 
 	std::shared_ptr<instance_dispatch> find_instance(XrInstance instance)
 	{
+		startup_crash_guard::note_activity();
 		const std::lock_guard<std::mutex> lock(s_layer_mutex);
 		const auto instance_it = s_instances.find(instance);
 		return instance_it != s_instances.end() ? instance_it->second : nullptr;
@@ -391,6 +393,7 @@ namespace
 
 	session_state *find_session(XrSession session)
 	{
+		startup_crash_guard::note_activity();
 		const std::lock_guard<std::mutex> lock(s_layer_mutex);
 		const auto session_it = s_sessions.find(session);
 		return session_it != s_sessions.end() ? session_it->second.get() : nullptr;
@@ -2141,20 +2144,24 @@ extern "C" XrResult XRAPI_CALL xrGetInstanceProcAddr(XrInstance instance, const 
 #define OPENXR_UI_HOOK(name_string, function_name) \
 	if (std::strcmp(name, name_string) == 0) { *function = reinterpret_cast<PFN_xrVoidFunction>(function_name); return XR_SUCCESS; }
 	OPENXR_UI_HOOK("xrDestroyInstance", xrDestroyInstance)
-	OPENXR_UI_HOOK("xrCreateSession", xrCreateSession)
-	OPENXR_UI_HOOK("xrDestroySession", xrDestroySession)
-	OPENXR_UI_HOOK("xrCreateSwapchain", xrCreateSwapchain)
-	OPENXR_UI_HOOK("xrDestroySwapchain", xrDestroySwapchain)
-	OPENXR_UI_HOOK("xrAcquireSwapchainImage", xrAcquireSwapchainImage)
-	OPENXR_UI_HOOK("xrReleaseSwapchainImage", xrReleaseSwapchainImage)
-	OPENXR_UI_HOOK("xrSuggestInteractionProfileBindings", xrSuggestInteractionProfileBindings)
-	OPENXR_UI_HOOK("xrAttachSessionActionSets", xrAttachSessionActionSets)
-	OPENXR_UI_HOOK("xrSyncActions", xrSyncActions)
-	OPENXR_UI_HOOK("xrGetActionStateBoolean", xrGetActionStateBoolean)
-	OPENXR_UI_HOOK("xrGetActionStateFloat", xrGetActionStateFloat)
-	OPENXR_UI_HOOK("xrGetActionStateVector2f", xrGetActionStateVector2f)
-	OPENXR_UI_HOOK("xrWaitFrame", xrWaitFrame)
-	OPENXR_UI_HOOK("xrEndFrame", xrEndFrame)
+	// Switched off after a startup crash: hand every other call straight to the next layer or the runtime.
+	if (!startup_crash_guard::switched_off())
+	{
+		OPENXR_UI_HOOK("xrCreateSession", xrCreateSession)
+		OPENXR_UI_HOOK("xrDestroySession", xrDestroySession)
+		OPENXR_UI_HOOK("xrCreateSwapchain", xrCreateSwapchain)
+		OPENXR_UI_HOOK("xrDestroySwapchain", xrDestroySwapchain)
+		OPENXR_UI_HOOK("xrAcquireSwapchainImage", xrAcquireSwapchainImage)
+		OPENXR_UI_HOOK("xrReleaseSwapchainImage", xrReleaseSwapchainImage)
+		OPENXR_UI_HOOK("xrSuggestInteractionProfileBindings", xrSuggestInteractionProfileBindings)
+		OPENXR_UI_HOOK("xrAttachSessionActionSets", xrAttachSessionActionSets)
+		OPENXR_UI_HOOK("xrSyncActions", xrSyncActions)
+		OPENXR_UI_HOOK("xrGetActionStateBoolean", xrGetActionStateBoolean)
+		OPENXR_UI_HOOK("xrGetActionStateFloat", xrGetActionStateFloat)
+		OPENXR_UI_HOOK("xrGetActionStateVector2f", xrGetActionStateVector2f)
+		OPENXR_UI_HOOK("xrWaitFrame", xrWaitFrame)
+		OPENXR_UI_HOOK("xrEndFrame", xrEndFrame)
+	}
 #undef OPENXR_UI_HOOK
 
 	if (instance == XR_NULL_HANDLE)
