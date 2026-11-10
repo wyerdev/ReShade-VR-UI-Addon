@@ -1012,6 +1012,7 @@ namespace
 				state.arm_swing_run_at,
 				state.arm_swing_block_stick,
 				state.game_own_settings,
+				openxr_ui_get_preset_names(),
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
@@ -1057,6 +1058,9 @@ namespace
 				break;
 			case openxr_ui::render_result::command::next_preset:
 				openxr_ui_switch_preset(false);
+				break;
+			case openxr_ui::render_result::command::select_preset:
+				openxr_ui_switch_to_preset(render_result.text);
 				break;
 			case openxr_ui::render_result::command::save_preset_as:
 				target.renderer->notify_save_as_started(openxr_ui_save_preset_as(render_result.text));

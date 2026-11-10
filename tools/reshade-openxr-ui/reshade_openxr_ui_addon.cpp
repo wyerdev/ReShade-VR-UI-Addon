@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cwchar>
@@ -2432,6 +2433,31 @@ bool openxr_ui_switch_preset(bool previous)
 	log_runtime_message(reshade::log::level::info, previous ?
 		"controller switched to the previous ReShade preset." :
 		"controller switched to the next ReShade preset.");
+	return true;
+}
+
+std::vector<std::string> openxr_ui_get_preset_names()
+{
+	using clock = std::chrono::steady_clock;
+	static std::vector<std::string> s_names;
+	static clock::time_point s_refreshed;
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	const clock::time_point now = clock::now();
+	if (s_names.empty() || now - s_refreshed >= std::chrono::seconds(1))
+	{
+		s_names = openxr_ui::list_preset_names(s_effect_runtime);
+		s_refreshed = now;
+	}
+	return s_names;
+}
+
+bool openxr_ui_switch_to_preset(const std::string &name)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	if (s_shaders_temporarily_disabled || s_inherited_preset_copy.is_pending() || s_pending_preset_delete.is_pending() ||
+		!openxr_ui::switch_to_named_preset(s_effect_runtime, name))
+		return false;
+	log_runtime_message(reshade::log::level::info, "controller picked a ReShade preset from the list.");
 	return true;
 }
 

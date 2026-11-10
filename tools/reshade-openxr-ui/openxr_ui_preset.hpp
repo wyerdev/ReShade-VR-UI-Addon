@@ -94,4 +94,6 @@ namespace openxr_ui
 		preset_dirty_state &dirty_state);
 	std::string current_preset_name(reshade::api::effect_runtime *runtime);
 	bool switch_to_sibling_preset(reshade::api::effect_runtime *runtime, bool previous);
+	std::vector<std::string> list_preset_names(reshade::api::effect_runtime *runtime);
+	bool switch_to_named_preset(reshade::api::effect_runtime *runtime, const std::string &name);
 }

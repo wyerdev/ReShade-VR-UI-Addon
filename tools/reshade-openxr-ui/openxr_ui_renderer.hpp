@@ -80,6 +80,8 @@ namespace openxr_ui
 		bool arm_swing_block_stick = false;
 		// This game keeps its own controls instead of the ones shared by all games.
 		bool game_own_settings = false;
+		// Names of the presets in the current preset's folder, for the preset drop-down.
+		std::vector<std::string> preset_names;
 	};
 
 	struct render_result
@@ -95,6 +97,8 @@ namespace openxr_ui
 			save_preset,
 			previous_preset,
 			next_preset,
+			// `text` is the preset name.
+			select_preset,
 			save_preset_as,
 			delete_preset,
 			toggle_technique,

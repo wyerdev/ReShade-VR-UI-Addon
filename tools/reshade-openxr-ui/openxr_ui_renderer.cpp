@@ -952,15 +952,17 @@ namespace
 	// A box showing `prefix` and the current choice with an arrow, so it reads as a list to pick from rather than a button.
 	// It is sized to its longest choice, so the text is never cut short.
 	dropdown_interaction draw_dropdown(dropdown_state &state, const char *id, const char *prefix, float height,
-		const char *const *options, size_t option_count, size_t selected, bool clicked, const bool *disabled_options = nullptr)
+		const char *const *options, size_t option_count, size_t selected, bool clicked, const bool *disabled_options = nullptr,
+		float fixed_width = 0.0f)
 	{
 		const ImGuiID item_id = ImGui::GetID(id);
-		const float box_width = dropdown_width(prefix, options, option_count, height);
+		const float box_width = fixed_width > 0.0f ? fixed_width : dropdown_width(prefix, options, option_count, height);
 		ImGui::PushFont(nullptr, vr_theme::font_control);
 		constexpr float text_left = 10.0f;
 		const float arrow_width = height;
 		const ImVec2 size = { box_width, height };
-		const std::string label = std::string(prefix) + (selected < option_count ? options[selected] : "");
+		const std::string label = fit_text((std::string(prefix) + (selected < option_count ? options[selected] : "")).c_str(),
+			box_width - text_left - arrow_width);
 
 		ImGui::InvisibleButton(id, size);
 		record_last_item(id);
@@ -1040,7 +1042,8 @@ namespace
 			if (index == state.selected)
 				draw_list->AddRectFilled({ row_min.x + 6.0f, row_min.y + 7.0f }, { row_min.x + 10.0f, row_max.y - 7.0f }, colors().accent, 2.0f);
 			draw_list->AddText({ row_min.x + 18.0f, std::floor(row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f) },
-				option_disabled ? colors().text_disabled : index == state.selected ? colors().text : colors().text_secondary, state.options[index].c_str());
+				option_disabled ? colors().text_disabled : index == state.selected ? colors().text : colors().text_secondary,
+				fit_text(state.options[index].c_str(), list_max.x - row_min.x - 26.0f).c_str());
 		}
 		draw_list->AddRect(list_min, list_max, colors().accent, vr_theme::radius_md, 0, vr_theme::stroke_thin);
 		ImGui::PopFont();
@@ -1696,13 +1699,24 @@ namespace openxr_ui
 				const float dirty_text_y = std::floor(preset_y + (control_height - ImGui::GetFontSize()) * 0.5f);
 				ImGui::PopFont();
 				const float reserved = control_height + space_sm + (input.preset_dirty ? space_md + dirty_width : 0.0f) + space_md;
-				ImGui::PushFont(bold_font(), vr_theme::font_body);
+				std::vector<std::string> choices = input.preset_names;
+				size_t selected_preset = std::find(choices.begin(), choices.end(), preset_name) - choices.begin();
+				if (selected_preset == choices.size())
+					choices.push_back(preset_name);
+				std::vector<const char *> choice_texts;
+				choice_texts.reserve(choices.size());
+				for (const std::string &choice : choices)
+					choice_texts.push_back(choice.c_str());
 				const float box_limit = (std::max)(96.0f, preset_group_x - reserved - name_x);
-				const float box_width = (std::min)((std::max)(220.0f, std::ceil(ImGui::CalcTextSize(preset_name).x) + space_md * 2.0f), box_limit);
-				const std::string preset_label = fit_text(preset_name, box_width - space_md * 2.0f);
-				header_draw_list->AddRectFilled({ name_x, preset_y }, { name_x + box_width, preset_y + control_height }, colors().inset, vr_theme::radius_sm);
-				header_draw_list->AddText({ name_x + space_md, std::floor(preset_y + (control_height - ImGui::GetFontSize()) * 0.5f) }, colors().text, preset_label.c_str());
-				ImGui::PopFont();
+				const float box_width = (std::min)((std::max)(220.0f, dropdown_width("", choice_texts.data(), choice_texts.size(), control_height)), box_limit);
+				ImGui::SetCursorScreenPos({ name_x, preset_y });
+				const dropdown_interaction preset_choice = draw_dropdown(_implementation->dropdown, "preset", "", control_height,
+					choice_texts.data(), choice_texts.size(), selected_preset, can_click && !input.shaders_temporarily_disabled, nullptr, box_width);
+				if (preset_choice.chosen && preset_choice.option != selected_preset && preset_choice.option < input.preset_names.size())
+				{
+					result.action = render_result::command::select_preset;
+					result.text = input.preset_names[preset_choice.option];
+				}
 				draw_hover_details({ name_x, preset_y }, { name_x + box_width, preset_y + control_height }, preset_name);
 				const float next_x = name_x + box_width + space_sm;
 				ImGui::SetCursorScreenPos({ next_x, preset_y });

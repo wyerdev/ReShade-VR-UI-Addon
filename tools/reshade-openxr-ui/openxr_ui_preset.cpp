@@ -282,6 +282,56 @@ std::string openxr_ui::current_preset_name(reshade::api::effect_runtime *runtime
 	return runtime != nullptr ? current_preset_path(runtime).stem().u8string() : std::string();
 }
 
+namespace
+{
+	std::vector<std::filesystem::path> sibling_preset_paths(const std::filesystem::path &current_path)
+	{
+		std::error_code error;
+		std::vector<std::filesystem::path> preset_paths;
+		for (const std::filesystem::directory_entry &entry : std::filesystem::directory_iterator(
+			current_path.parent_path(), std::filesystem::directory_options::skip_permission_denied, error))
+		{
+			const std::filesystem::path extension = entry.path().extension();
+			if (entry.is_regular_file(error) && (extension == L".ini" || extension == L".txt"))
+				preset_paths.push_back(entry.path());
+		}
+		return preset_paths;
+	}
+
+	bool activate_preset(reshade::api::effect_runtime *runtime, const std::filesystem::path &preset_path)
+	{
+		const std::string candidate = preset_path.u8string();
+		runtime->set_current_preset_path(candidate.c_str());
+		return paths_refer_to_same_file(current_preset_path(runtime), preset_path);
+	}
+}
+
+std::vector<std::string> openxr_ui::list_preset_names(reshade::api::effect_runtime *runtime)
+{
+	std::vector<std::string> names;
+	if (runtime == nullptr)
+		return names;
+	const std::filesystem::path current_path = current_preset_path(runtime);
+	if (current_path.empty())
+		return names;
+	for (const std::filesystem::path &path : sibling_preset_paths(current_path))
+		names.push_back(path.stem().u8string());
+	return names;
+}
+
+bool openxr_ui::switch_to_named_preset(reshade::api::effect_runtime *runtime, const std::string &name)
+{
+	if (runtime == nullptr)
+		return false;
+	const std::filesystem::path current_path = current_preset_path(runtime);
+	if (current_path.empty())
+		return false;
+	for (const std::filesystem::path &path : sibling_preset_paths(current_path))
+		if (path.stem().u8string() == name)
+			return !paths_refer_to_same_file(path, current_path) && activate_preset(runtime, path);
+	return false;
+}
+
 bool openxr_ui::switch_to_sibling_preset(reshade::api::effect_runtime *runtime, bool previous)
 {
 	if (runtime == nullptr)
@@ -290,15 +340,7 @@ bool openxr_ui::switch_to_sibling_preset(reshade::api::effect_runtime *runtime, 
 	if (current_path.empty())
 		return false;
 
-	std::error_code error;
-	std::vector<std::filesystem::path> preset_paths;
-	for (const std::filesystem::directory_entry &entry : std::filesystem::directory_iterator(
-		current_path.parent_path(), std::filesystem::directory_options::skip_permission_denied, error))
-	{
-		const std::filesystem::path extension = entry.path().extension();
-		if (entry.is_regular_file(error) && (extension == L".ini" || extension == L".txt"))
-			preset_paths.push_back(entry.path());
-	}
+	const std::vector<std::filesystem::path> preset_paths = sibling_preset_paths(current_path);
 	if (preset_paths.size() <= 1)
 		return false;
 
@@ -317,9 +359,7 @@ bool openxr_ui::switch_to_sibling_preset(reshade::api::effect_runtime *runtime, 
 			(previous ? (current_index + preset_paths.size() - offset) % preset_paths.size() : (current_index + offset) % preset_paths.size());
 		if (paths_refer_to_same_file(preset_paths[index], current_path))
 			continue;
-		const std::string candidate = preset_paths[index].u8string();
-		runtime->set_current_preset_path(candidate.c_str());
-		if (paths_refer_to_same_file(current_preset_path(runtime), preset_paths[index]))
+		if (activate_preset(runtime, preset_paths[index]))
 			return true;
 	}
 	return false;
