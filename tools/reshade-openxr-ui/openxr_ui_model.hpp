@@ -210,4 +210,176 @@ namespace openxr_ui
 			update_technique_default_states(snapshot);
 		return changed || parameter_changed;
 	}
+
+	// Presets and starred effects shared between games (see openxr_ui_global_library.hpp), as the menus show them.
+	enum class global_preset_state
+	{
+		not_in_game,
+		in_game,
+		// This game has a copy of an older version.
+		update_available,
+	};
+
+	struct global_preset_row
+	{
+		std::string name;
+		uint32_t version = 0;
+		uint32_t effect_count = 0;
+		// Effects of the preset that this game does not have.
+		uint32_t missing_effect_count = 0;
+		global_preset_state state = global_preset_state::not_in_game;
+		uint32_t imported_version = 0;
+		// This game's copy is the preset in use.
+		bool current = false;
+	};
+
+	// A starred effect that this game does not have but the shared library can add.
+	struct missing_starred_effect
+	{
+		std::string persistence_id;
+		std::string name;
+		std::string effect_name;
+	};
+
+	enum class global_import_kind
+	{
+		import_preset,
+		update_preset,
+		add_effect,
+	};
+
+	// What an import would do, for the confirmation box.
+	struct global_import_summary
+	{
+		global_import_kind kind = global_import_kind::import_preset;
+		std::string name;
+		uint32_t version = 0;
+		std::vector<std::string> added_effect_files;
+		std::vector<std::string> added_textures;
+		uint32_t existing_file_count = 0;
+		std::vector<std::string> different_files;
+		std::vector<std::string> incomplete_effects;
+	};
+
+	enum class global_notice_level
+	{
+		none,
+		info,
+		warning,
+		error,
+	};
+
+	struct global_library_snapshot
+	{
+		// A save, import or update is running on the worker thread.
+		bool busy = false;
+		std::vector<global_preset_row> presets;
+		std::vector<missing_starred_effect> missing_starred;
+		// The global preset the current preset is a copy of; empty when it is not a copy.
+		std::string current_source;
+		uint32_t current_source_version = 0;
+		bool current_changed = false;
+		bool confirmation_pending = false;
+		global_import_summary confirmation;
+		global_notice_level notice_level = global_notice_level::none;
+		std::string notice;
+	};
+
+	inline std::string count_text(size_t count, const char *singular, const char *plural)
+	{
+		return std::to_string(count) + ' ' + (count == 1 ? singular : plural);
+	}
+
+	inline std::string global_preset_status_text(const global_preset_row &row)
+	{
+		switch (row.state)
+		{
+		case global_preset_state::in_game:
+			return row.current ? "In this game, loaded" : "In this game";
+		case global_preset_state::update_available:
+			return 'v' + std::to_string(row.version) + " is new (this game has v" + std::to_string(row.imported_version) + ')';
+		default:
+			return "Not in this game";
+		}
+	}
+
+	inline const char *global_preset_action_text(const global_preset_row &row)
+	{
+		return row.state == global_preset_state::in_game ? (row.current ? "Loaded" : "Load") :
+			row.state == global_preset_state::update_available ? "Update" : "Import";
+	}
+
+	inline std::string global_preset_effects_text(const global_preset_row &row)
+	{
+		return row.missing_effect_count == 0 ? std::to_string(row.effect_count) :
+			std::to_string(row.effect_count) + ", " + std::to_string(row.missing_effect_count) + " missing";
+	}
+
+	inline std::string global_current_text(const global_library_snapshot &library, const std::string &preset_name, bool unsaved_changes)
+	{
+		if (preset_name.empty())
+			return "No preset";
+		if (library.current_source.empty())
+			return preset_name + " (only in this game)";
+		return preset_name + " (copy of global \"" + library.current_source + "\" v" + std::to_string(library.current_source_version) +
+			(library.current_changed || unsaved_changes ? ", changed here)" : ")");
+	}
+
+	inline std::string global_import_title(const global_import_summary &summary)
+	{
+		switch (summary.kind)
+		{
+		case global_import_kind::update_preset:
+			return "Update \"" + summary.name + "\" in this game to v" + std::to_string(summary.version) + '?';
+		case global_import_kind::add_effect:
+			return "Add \"" + summary.name + "\" to this game?";
+		default:
+			return "Import \"" + summary.name + "\" into this game?";
+		}
+	}
+
+	inline const char *global_import_action_text(global_import_kind kind)
+	{
+		return kind == global_import_kind::update_preset ? "Update and load" : kind == global_import_kind::add_effect ? "Add effect" : "Import and load";
+	}
+
+	inline std::string global_import_adds_text(const global_import_summary &summary)
+	{
+		const std::string effects = count_text(summary.added_effect_files.size(), "effect file", "effect files");
+		const std::string textures = count_text(summary.added_textures.size(), "texture", "textures");
+		if (summary.added_effect_files.empty() && summary.added_textures.empty())
+			return "Adds no files: this game already has everything";
+		if (summary.added_textures.empty())
+			return "Adds " + effects;
+		if (summary.added_effect_files.empty())
+			return "Adds " + textures;
+		return "Adds " + effects + " and " + textures;
+	}
+
+	inline std::string global_import_existing_text(const global_import_summary &summary)
+	{
+		return "Uses " + count_text(summary.existing_file_count, "file", "files") + " this game already has";
+	}
+
+	inline std::string global_import_different_text(const global_import_summary &summary)
+	{
+		return std::to_string(summary.different_files.size()) + (summary.different_files.size() == 1 ? " of them is" : " of them are") +
+			" a different version in this game";
+	}
+
+	inline std::string global_import_incomplete_text(const global_import_summary &summary)
+	{
+		return count_text(summary.incomplete_effects.size(), "effect", "effects") + " may not work: some files were not found when saving";
+	}
+
+	// One name per line; a long list ends with "and N more".
+	inline std::string global_name_list(const std::vector<std::string> &names, size_t maximum = 12)
+	{
+		std::string text;
+		for (size_t index = 0; index < names.size() && index < maximum; ++index)
+			text += (index == 0 ? "" : "\n") + names[index];
+		if (names.size() > maximum)
+			text += "\nand " + std::to_string(names.size() - maximum) + " more";
+		return text;
+	}
 }

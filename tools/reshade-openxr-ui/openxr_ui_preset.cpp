@@ -1,5 +1,6 @@
 #include "openxr_ui_preset.hpp"
 
+#include "openxr_ui_global_library.hpp"
 #include "openxr_ui_model.hpp"
 #include "vr_preset_file.hpp"
 
@@ -7,7 +8,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 
@@ -31,15 +31,6 @@ namespace
 		if (std::filesystem::equivalent(left, right, error))
 			return true;
 		return CompareStringOrdinal(left.lexically_normal().c_str(), -1, right.lexically_normal().c_str(), -1, TRUE) == CSTR_EQUAL;
-	}
-
-	bool valid_preset_name(const std::string &name)
-	{
-		if (name.empty() || name.size() > 120 || name == "." || name == ".." || name.back() == ' ' || name.back() == '.')
-			return false;
-		return std::none_of(name.begin(), name.end(), [](unsigned char character) {
-			return character < 32 || std::strchr("<>:\"/\\|?*", character) != nullptr;
-		});
 	}
 }
 
@@ -126,7 +117,7 @@ bool openxr_ui::inherited_preset_copy::begin(
 	const std::string &preset_name,
 	bool wait_for_source_update)
 {
-	if (runtime == nullptr || _state != nullptr || !valid_preset_name(preset_name))
+	if (runtime == nullptr || _state != nullptr || !global_library::valid_name(preset_name))
 		return false;
 	const std::filesystem::path source_path = current_preset_path(runtime);
 	if (source_path.empty())
@@ -267,6 +258,78 @@ bool openxr_ui::pending_preset_delete::is_pending() const
 	return _state != nullptr;
 }
 
+struct openxr_ui::pending_preset_flush::state
+{
+	reshade::api::effect_runtime *runtime = nullptr;
+	std::filesystem::path source_path;
+	std::filesystem::file_time_type source_write_time;
+	bool wait_for_source_update = false;
+	std::chrono::steady_clock::time_point ready_after;
+	std::chrono::steady_clock::time_point fail_after;
+};
+
+openxr_ui::pending_preset_flush::pending_preset_flush() = default;
+openxr_ui::pending_preset_flush::~pending_preset_flush() = default;
+
+bool openxr_ui::pending_preset_flush::begin(reshade::api::effect_runtime *runtime, bool wait_for_source_update)
+{
+	if (runtime == nullptr || _state != nullptr)
+		return false;
+	const std::filesystem::path source_path = current_preset_path(runtime);
+	if (source_path.empty())
+		return false;
+	std::error_code error;
+	const std::filesystem::file_time_type source_write_time = std::filesystem::last_write_time(source_path, error);
+
+	runtime->save_current_preset();
+	_state = std::make_unique<state>();
+	_state->runtime = runtime;
+	_state->source_path = source_path;
+	_state->source_write_time = source_write_time;
+	_state->wait_for_source_update = wait_for_source_update && !error;
+	const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+	_state->ready_after = now + std::chrono::milliseconds(1250);
+	_state->fail_after = now + std::chrono::seconds(3);
+	return true;
+}
+
+openxr_ui::preset_flush_result openxr_ui::pending_preset_flush::update(reshade::api::effect_runtime *runtime)
+{
+	if (_state == nullptr || std::chrono::steady_clock::now() < _state->ready_after)
+		return {};
+	if (_state->runtime != runtime || !paths_refer_to_same_file(current_preset_path(runtime), _state->source_path))
+	{
+		_state.reset();
+		return { preset_flush_status::failed, {} };
+	}
+	if (_state->wait_for_source_update)
+	{
+		std::error_code error;
+		const std::filesystem::file_time_type source_write_time = std::filesystem::last_write_time(_state->source_path, error);
+		if (error || source_write_time == _state->source_write_time)
+		{
+			if (std::chrono::steady_clock::now() < _state->fail_after)
+				return {};
+			_state.reset();
+			return { preset_flush_status::failed, {} };
+		}
+	}
+	std::string path = _state->source_path.u8string();
+	_state.reset();
+	return { preset_flush_status::ready, std::move(path) };
+}
+
+void openxr_ui::pending_preset_flush::cancel(reshade::api::effect_runtime *runtime)
+{
+	if (_state != nullptr && _state->runtime == runtime)
+		_state.reset();
+}
+
+bool openxr_ui::pending_preset_flush::is_pending() const
+{
+	return _state != nullptr;
+}
+
 bool openxr_ui::save_current_preset(
 	reshade::api::effect_runtime *runtime,
 	technique_snapshot &snapshot,
@@ -339,6 +402,11 @@ bool openxr_ui::switch_to_named_preset(reshade::api::effect_runtime *runtime, co
 		if (path.stem().u8string() == name)
 			return !paths_refer_to_same_file(path, current_path) && activate_preset(runtime, path);
 	return false;
+}
+
+bool openxr_ui::switch_to_preset_file(reshade::api::effect_runtime *runtime, const std::string &path)
+{
+	return runtime != nullptr && !path.empty() && activate_preset(runtime, std::filesystem::u8path(path));
 }
 
 bool openxr_ui::switch_to_sibling_preset(reshade::api::effect_runtime *runtime, bool previous)

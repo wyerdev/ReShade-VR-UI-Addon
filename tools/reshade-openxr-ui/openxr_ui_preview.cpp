@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -74,6 +75,28 @@ namespace
 		};
 		openxr_ui::update_technique_default_states(snapshot);
 		return snapshot;
+	}
+
+	// Three global presets in the three states a game can have them in, and one starred effect the game lacks.
+	std::shared_ptr<const openxr_ui::global_library_snapshot> sample_library(bool confirmation)
+	{
+		using openxr_ui::global_preset_state;
+		auto library = std::make_shared<openxr_ui::global_library_snapshot>();
+		library->presets = {
+			{ "Bright Day", 3, 4, 1, global_preset_state::update_available, 2, false },
+			{ "Retro CRT", 1, 3, 3, global_preset_state::not_in_game, 0, false },
+			{ "Sharp and Vivid", 3, 5, 0, global_preset_state::in_game, 3, true },
+		};
+		library->missing_starred = { { "CRT.fx::CRT", "CRT", "CRT.fx" } };
+		library->current_source = "Sharp and Vivid";
+		library->current_source_version = 3;
+		if (confirmation)
+		{
+			library->confirmation_pending = true;
+			library->confirmation = { openxr_ui::global_import_kind::import_preset, "Retro CRT", 1,
+				{ "CRT.fx", "Scanlines.fx", "CRT_Mask.fxh" }, { "crt_mask.png", "crt_noise.png" }, 14, { "ReShade.fxh", "ReShadeUI.fxh" }, {} };
+		}
+		return library;
 	}
 
 	bool save_png(ID3D11Device *device, ID3D11DeviceContext *context, ID3D11Texture2D *texture, uint32_t height, const std::wstring &path)
@@ -180,6 +203,8 @@ int wmain(int argc, wchar_t **argv)
 		bool all_themes = true;
 		uint32_t preset_gesture = openxr_ui::preset_gesture_left_trigger;
 		bool always_show_statistics = false;
+		// The import confirmation box is open.
+		bool confirmation = false;
 	};
 	const shot shots[] = {
 		{ "effects", openxr_ui::panel_renderer::page::effects, false, true },
@@ -195,6 +220,12 @@ int wmain(int argc, wchar_t **argv)
 		// The README and release page picture: the settings their tips recommend.
 		{ "settings-readme", openxr_ui::panel_renderer::page::settings, false, false, false, openxr_ui::menu_button_hold_both_sticks, false,
 			openxr_ui::preset_gesture_left_trigger, true },
+		// Sharing presets and starred effects between games; only the default theme needs these.
+		{ "global", openxr_ui::panel_renderer::page::global_presets, false, true, false, openxr_ui::menu_button_hold_both_sticks, false },
+		{ "global-confirm", openxr_ui::panel_renderer::page::global_presets, false, false, false, openxr_ui::menu_button_hold_both_sticks, false,
+			openxr_ui::preset_gesture_left_trigger, false, true },
+		{ "global-save", openxr_ui::panel_renderer::page::save_global_as, false, false, false, openxr_ui::menu_button_hold_both_sticks, false },
+		{ "starred", openxr_ui::panel_renderer::page::starred_effects, false, false, false, openxr_ui::menu_button_hold_both_sticks, false },
 	};
 
 	int written = 0;
@@ -216,7 +247,9 @@ int wmain(int argc, wchar_t **argv)
 			// A high-resolution headset gives the longest header text, so clipped labels show up.
 			input.eye_width = 4320;
 			input.eye_height = 4320;
-			renderer.show_page(entry.page, 1, "Sharp and Vivid Copy");
+			input.global_library = sample_library(entry.confirmation);
+			// The global name keyboard shows a name that exists, which is the case that needs its warning line.
+			renderer.show_page(entry.page, 1, entry.page == openxr_ui::panel_renderer::page::save_global_as ? "Sharp and Vivid" : "Sharp and Vivid Copy");
 			// The first frame after a change only lays out; the second draws the settled result.
 			renderer.render(render_target.Get(), snapshot, input);
 			renderer.render(render_target.Get(), snapshot, input);
@@ -247,6 +280,7 @@ int wmain(int argc, wchar_t **argv)
 		input.preset_name = "Sharp and Vivid";
 		input.eye_width = 4320;
 		input.eye_height = 4320;
+		input.global_library = sample_library(false);
 		return input;
 	};
 	const auto settle = [&](openxr_ui::render_input input) {
@@ -263,6 +297,8 @@ int wmain(int argc, wchar_t **argv)
 	record_page("save-as", openxr_ui::panel_renderer::page::save_as);
 	record_page("settings", openxr_ui::panel_renderer::page::settings);
 	record_page("gestures", openxr_ui::panel_renderer::page::gestures);
+	record_page("global", openxr_ui::panel_renderer::page::global_presets);
+	record_page("starred", openxr_ui::panel_renderer::page::starred_effects);
 	// Each drop-down is opened by clicking its box, like a user, and its open list recorded.
 	const std::pair<const char *, openxr_ui::panel_renderer::page> dropdowns[] = {
 		{ "frame_rate_divisor", openxr_ui::panel_renderer::page::settings },

@@ -17,6 +17,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <type_traits>
 #include <vector>
@@ -661,6 +662,41 @@ namespace
 		ImGui::PopFont();
 	}
 
+	enum class status_symbol
+	{
+		check,
+		arrow_up,
+		ring,
+	};
+
+	// A 16 px drawn symbol in front of a status text, so the status never depends on color alone.
+	void draw_status_symbol(ImDrawList *draw_list, ImVec2 center, status_symbol symbol, ImU32 color)
+	{
+		constexpr float half = 7.0f;
+		constexpr float thickness = 2.5f;
+		switch (symbol)
+		{
+		case status_symbol::check:
+		{
+			const ImVec2 points[3] = { { center.x - half, center.y }, { center.x - half * 0.25f, center.y + half * 0.7f },
+				{ center.x + half, center.y - half * 0.7f } };
+			draw_list->AddPolyline(points, 3, color, ImDrawFlags_None, thickness);
+			break;
+		}
+		case status_symbol::arrow_up:
+		{
+			const ImVec2 points[3] = { { center.x - half * 0.7f, center.y - half * 0.2f }, { center.x, center.y - half },
+				{ center.x + half * 0.7f, center.y - half * 0.2f } };
+			draw_list->AddLine({ center.x, center.y + half }, { center.x, center.y - half }, color, thickness);
+			draw_list->AddPolyline(points, 3, color, ImDrawFlags_None, thickness);
+			break;
+		}
+		case status_symbol::ring:
+			draw_list->AddCircle(center, half * 0.8f, color, 0, thickness);
+			break;
+		}
+	}
+
 	std::string fit_text(const char *text, float maximum_width)
 	{
 		if (ImGui::CalcTextSize(text).x <= maximum_width)
@@ -1070,6 +1106,7 @@ namespace openxr_ui
 			parameter_scroll,
 			arm_swing_strength,
 			arm_swing_run_at,
+			global_scroll,
 		};
 
 		ImGuiContext *context = nullptr;
@@ -1085,12 +1122,14 @@ namespace openxr_ui
 		uint32_t height = 0;
 		size_t technique_scroll = 0;
 		size_t parameter_scroll = 0;
+		size_t global_scroll = 0;
 		uint64_t selected_technique = 0;
 		enum class tab
 		{
 			effects,
 			settings,
 			gestures,
+			global,
 		};
 		enum class list_filter
 		{
@@ -1118,6 +1157,10 @@ namespace openxr_ui
 		int save_as_feedback = 0;
 		uint32_t save_as_feedback_frame_count = 0;
 		bool save_as_dialog_open = false;
+		// The name keyboard saves to the shared library instead of making a copy in this game.
+		bool save_as_global = false;
+		// Replacing an existing global preset needs a second press.
+		bool replace_armed = false;
 		bool save_as_uppercase = true;
 		std::string save_as_name;
 		dropdown_state dropdown;
@@ -1340,19 +1383,27 @@ namespace openxr_ui
 	void panel_renderer::show_page(page target, uint64_t technique_id, const std::string &save_as_name)
 	{
 		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
-		_implementation->save_as_dialog_open = target == page::save_as;
+		_implementation->save_as_dialog_open = target == page::save_as || target == page::save_global_as;
+		_implementation->save_as_global = target == page::save_global_as;
+		_implementation->replace_armed = false;
 		_implementation->save_as_name = save_as_name;
 		_implementation->selected_technique = target == page::effect_detail ? technique_id : 0;
 		if (target == page::settings)
 			_implementation->current_tab = implementation::tab::settings;
 		else if (target == page::gestures)
 			_implementation->current_tab = implementation::tab::gestures;
-		else if (target == page::effects)
+		else if (target == page::global_presets)
+			_implementation->current_tab = implementation::tab::global;
+		else if (target == page::effects || target == page::starred_effects)
+		{
 			_implementation->current_tab = implementation::tab::effects;
+			_implementation->filter = target == page::starred_effects ? implementation::list_filter::starred : implementation::list_filter::all;
+		}
 		_implementation->reset_armed = false;
 		_implementation->reset_armed_frames = 0;
 		_implementation->technique_scroll = 0;
 		_implementation->parameter_scroll = 0;
+		_implementation->global_scroll = 0;
 	}
 
 	void panel_renderer::set_control_recording(bool enabled)
@@ -1418,6 +1469,8 @@ namespace openxr_ui
 	{
 		render_result result;
 		const recorder_scope recorder_reset;
+		static const global_library_snapshot empty_library;
+		const global_library_snapshot &library = input.global_library != nullptr ? *input.global_library : empty_library;
 		s_recorder = _implementation->control_recording ? &_implementation->recorder : nullptr;
 		if (s_recorder != nullptr)
 		{
@@ -1516,9 +1569,9 @@ namespace openxr_ui
 				draw_list->AddText({ outer_padding, std::floor(top + (switch_pill_height - ImGui::GetFontSize()) * 0.5f) }, colors().text, title);
 				const float tabs_x = outer_padding + std::ceil(ImGui::CalcTextSize(title).x) + space_md;
 				ImGui::PopFont();
-				const char *const tab_labels[] = { "Effects", "Settings", "Gestures" };
+				const char *const tab_labels[] = { "Effects", "Settings", "Gestures", "Global presets" };
 				ImGui::SetCursorScreenPos({ tabs_x, top });
-				hovered_tab = draw_segmented("tab", tab_labels, nullptr, 3, static_cast<size_t>(_implementation->current_tab), true);
+				hovered_tab = draw_segmented("tab", tab_labels, nullptr, 4, static_cast<size_t>(_implementation->current_tab), true);
 			}
 			else
 			{
@@ -1569,14 +1622,297 @@ namespace openxr_ui
 					_implementation->parameter_scroll = 0;
 				}
 				else if (hovered_tab >= 0)
-					_implementation->current_tab = static_cast<implementation::tab>(hovered_tab);
+				{
+					const implementation::tab chosen = static_cast<implementation::tab>(hovered_tab);
+					// The shared library is read when its page opens, never while it is merely shown.
+					if (chosen == implementation::tab::global && _implementation->current_tab != chosen)
+						result.action = render_result::command::refresh_global_library;
+					_implementation->current_tab = chosen;
+				}
 			}
 		};
 
-		if (_implementation->save_as_dialog_open)
-		{
+		// Progress and results of shared-library work, as a strip like the other notices. Returns the y below it.
+		const auto draw_global_notice = [&](float y) {
+			if (!library.busy && library.notice_level == global_notice_level::none)
+				return y;
+			const ImVec2 notice_min = { outer_padding, y };
+			const ImVec2 notice_max = { io.DisplaySize.x - outer_padding, y + 40.0f };
+			const ImU32 accent = library.busy ? colors().accent : library.notice_level == global_notice_level::error ? colors().danger :
+				library.notice_level == global_notice_level::warning ? colors().warning : colors().success;
+			const float button_x = notice_max.x - 5.0f - 80.0f;
+			draw_notice(notice_min, notice_max, (library.busy ? notice_max.x : button_x) - 10.0f, accent, library.busy,
+				library.busy ? "Working..." : library.notice.c_str(),
+				library.busy ? "Files are being read or copied in the background. The game keeps running." : nullptr);
+			if (!library.busy)
+			{
+				ImGui::SetCursorScreenPos({ button_x, notice_min.y + 5.0f });
+				const bool ok_hovered = draw_text_button("global_notice_ok", "OK", { 80.0f, 30.0f });
+				if (input.select_clicked && ok_hovered && _implementation->dragging == implementation::drag_target::none)
+					result.action = render_result::command::dismiss_global_notice;
+			}
+			return notice_max.y + space_sm;
+		};
+
+		// Asks before an import, update or starred-effect add changes the game's folders. The game may have hundreds of
+		// effects, so the box shows counts; names appear only on hover, and only for the short groups.
+		const auto draw_import_confirmation = [&](const global_import_summary &summary) {
+			ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+			const float right_edge = io.DisplaySize.x - outer_padding;
 			ImGui::PushFont(bold_font(), vr_theme::font_title);
-			ImGui::TextUnformatted("Save preset as");
+			const std::string title = global_import_title(summary);
+			draw_list->AddText({ outer_padding, std::floor(outer_padding + (switch_pill_height - ImGui::GetFontSize()) * 0.5f) }, colors().text,
+				fit_text(title.c_str(), right_edge - outer_padding).c_str());
+			ImGui::PopFont();
+			draw_hover_details({ outer_padding, outer_padding }, { right_edge, outer_padding + switch_pill_height }, title.c_str());
+
+			struct box_line
+			{
+				const char *id;
+				std::string text;
+				// Warning lines get a dot in the warning color before their words.
+				bool warning = false;
+				std::string names;
+			};
+			std::vector<box_line> lines;
+			std::vector<std::string> added = summary.added_effect_files;
+			added.insert(added.end(), summary.added_textures.begin(), summary.added_textures.end());
+			lines.push_back({ "import_adds", global_import_adds_text(summary), false, global_name_list(added) });
+			if (summary.existing_file_count != 0)
+				lines.push_back({ "import_existing", global_import_existing_text(summary), false, {} });
+			if (!summary.different_files.empty())
+				lines.push_back({ "import_different", global_import_different_text(summary), true, global_name_list(summary.different_files) +
+					"\n\nThis game keeps its own version of these files, so the result can look a little different here." });
+			if (!summary.incomplete_effects.empty())
+				lines.push_back({ "import_incomplete", global_import_incomplete_text(summary), true, global_name_list(summary.incomplete_effects) });
+			if (summary.kind == global_import_kind::update_preset)
+				lines.push_back({ "import_replaces", "Your changes to this preset in this game will be replaced.", true, {} });
+			lines.push_back({ "import_reload", added.empty() ? "ReShade does not need to load anything new." :
+				"Effects switch off for a few seconds while ReShade loads.", false, {} });
+
+			constexpr float line_height = 32.0f;
+			const ImVec2 card_min = { outer_padding, 80.0f };
+			const ImVec2 card_max = { right_edge, card_min.y + space_md + line_height * static_cast<float>(lines.size()) + space_sm + control_height + space_md };
+			draw_card(card_min, card_max);
+			const float text_x = card_min.x + space_md;
+			const float text_right = card_max.x - space_md;
+			ImGui::PushFont(nullptr, vr_theme::font_small);
+			const float small_height = ImGui::GetFontSize();
+			const char *const names_hint = "Point here for the names";
+			const float hint_width = std::ceil(ImGui::CalcTextSize(names_hint).x);
+			ImGui::PopFont();
+			float line_y = card_min.y + space_md;
+			for (size_t index = 0; index < lines.size(); ++index, line_y += line_height)
+			{
+				const box_line &line = lines[index];
+				record_control(line.id, { text_x, line_y }, { text_right, line_y + line_height });
+				if (line.warning)
+					draw_status_dot_text(draw_list, { text_x, std::floor(line_y + (line_height - small_height) * 0.5f) }, colors().warning, line.text.c_str());
+				else
+					draw_list->AddText({ text_x, std::floor(line_y + (line_height - ImGui::GetFontSize()) * 0.5f) },
+						index == 0 ? colors().text : colors().text_secondary, line.text.c_str());
+				if (line.names.empty())
+					continue;
+				ImGui::PushFont(nullptr, vr_theme::font_small);
+				draw_list->AddText({ text_right - hint_width, std::floor(line_y + (line_height - small_height) * 0.5f) }, colors().text_secondary, names_hint);
+				ImGui::PopFont();
+				draw_hover_details({ text_x, line_y }, { text_right, line_y + line_height }, line.text.c_str(), line.names.c_str());
+			}
+
+			const char *const action_label = global_import_action_text(summary.kind);
+			ImGui::PushFont(nullptr, vr_theme::font_control);
+			const float action_width = std::ceil(ImGui::CalcTextSize(action_label).x) + 32.0f;
+			ImGui::PopFont();
+			const float button_y = line_y + space_sm;
+			ImGui::SetCursorScreenPos({ text_x, button_y });
+			const bool confirm_hovered = draw_text_button("confirm_import", action_label, { action_width, control_height }, true,
+				summary.kind == global_import_kind::update_preset ? button_tone::destructive : button_tone::primary);
+			ImGui::SetCursorScreenPos({ text_right - 96.0f, button_y });
+			const bool cancel_hovered = draw_text_button("cancel_import", "Cancel", { 96.0f, control_height });
+			if (input.select_clicked && _implementation->dragging == implementation::drag_target::none)
+			{
+				if (confirm_hovered)
+					result.action = render_result::command::confirm_global_import;
+				else if (cancel_hovered)
+					result.action = render_result::command::cancel_global_import;
+			}
+		};
+
+		const auto draw_global_page = [&]() {
+			ImDrawList *const draw_list = ImGui::GetWindowDrawList();
+			const float right_edge = io.DisplaySize.x - outer_padding;
+			const bool can_click = input.select_clicked && _implementation->dragging == implementation::drag_target::none;
+			const bool can_act = !library.busy && input.effect_runtime_available && !input.shaders_temporarily_disabled;
+			const auto button_width = [](const char *label) {
+				ImGui::PushFont(nullptr, vr_theme::font_control);
+				const float width = std::ceil(ImGui::CalcTextSize(label).x) + 32.0f;
+				ImGui::PopFont();
+				return width;
+			};
+
+			// Current preset line, y 80..112.
+			float y = 80.0f;
+			{
+				const float text_y = std::floor(y + (control_height - ImGui::GetFontSize()) * 0.5f);
+				draw_list->AddText({ outer_padding, text_y }, colors().text_secondary, "Current preset");
+				const float value_x = outer_padding + std::ceil(ImGui::CalcTextSize("Current preset").x) + space_sm;
+				const std::string current = global_current_text(library, input.preset_name, input.preset_dirty);
+				draw_list->AddText({ value_x, text_y }, colors().text, fit_text(current.c_str(), right_edge - value_x).c_str());
+				draw_hover_details({ value_x, y }, { right_edge, y + control_height }, current.c_str());
+			}
+			y += header_row_step;
+
+			// Save buttons on the left and the number of global presets on the right, y 120..152.
+			const float save_width = button_width("Save current as global");
+			ImGui::SetCursorScreenPos({ outer_padding, y });
+			const bool save_hovered = draw_text_button("save_current_global", "Save current as global", { save_width, control_height },
+				can_act && !input.preset_name.empty());
+			draw_hover_help("Save current as global",
+				"Saves the current preset together with the effect files and textures it uses, so other games can import it.");
+			bool save_back_hovered = false;
+			if (!library.current_source.empty())
+			{
+				char save_back_label[64];
+				std::snprintf(save_back_label, sizeof(save_back_label), "Save back to global (v%u)", library.current_source_version + 1);
+				ImGui::SetCursorScreenPos({ outer_padding + save_width + space_sm, y });
+				save_back_hovered = draw_text_button("save_back_global", save_back_label, { button_width(save_back_label), control_height }, can_act);
+				draw_hover_help("Save back to global",
+					"Saves this game's copy as a new version of the global preset. Other games that use it are offered the update.");
+			}
+			{
+				const std::string count = count_text(library.presets.size(), "global preset", "global presets");
+				ImGui::PushFont(nullptr, vr_theme::font_small);
+				draw_list->AddText({ right_edge - std::ceil(ImGui::CalcTextSize(count.c_str()).x),
+					std::floor(y + (control_height - ImGui::GetFontSize()) * 0.5f) }, colors().text_secondary, count.c_str());
+				ImGui::PopFont();
+			}
+			y = draw_global_notice(y + control_height + space_md);
+
+			// Column titles, then one row per global preset; as many rows as fit above the bottom line.
+			const float list_top = y + note_height + space_sm;
+			const float list_height = display_height - outer_padding - note_height - space_sm - list_top;
+			const size_t visible_rows = std::max<size_t>(1, static_cast<size_t>((list_height + list_row_gap) / (list_row_height + list_row_gap)));
+			const size_t maximum_scroll = library.presets.size() > visible_rows ? library.presets.size() - visible_rows : 0;
+			_implementation->global_scroll = (std::min)(_implementation->global_scroll, maximum_scroll);
+			_implementation->update_joystick_scroll(input.scroll_y, _implementation->global_scroll, maximum_scroll);
+			const float row_width = right_edge - outer_padding - (maximum_scroll > 0 ? scrollbar_width + space_sm : 0.0f);
+			// Columns from the right: action 96, status 336, effects 136, version 48; the name takes the rest.
+			const float action_x = outer_padding + row_width - space_xs - 96.0f;
+			const float status_x = action_x - space_md - 336.0f;
+			const float effects_x = status_x - space_md - 136.0f;
+			const float version_x = effects_x - space_md - 48.0f;
+			const float name_x = outer_padding + space_md;
+			if (!library.presets.empty())
+			{
+				draw_group_title("Name", { name_x, y });
+				draw_group_title("Ver", { version_x, y });
+				draw_group_title("Effects", { effects_x, y });
+				draw_group_title("Status", { status_x, y });
+			}
+			else
+			{
+				const char *const empty_text = "No global presets yet. Save the current preset as global to use it in other games.";
+				const ImVec2 empty_size = ImGui::CalcTextSize(empty_text);
+				draw_list->AddText({ std::floor(outer_padding + (row_width - empty_size.x) * 0.5f), std::floor(list_top + (list_height - empty_size.y) * 0.5f) },
+					colors().text_secondary, empty_text);
+			}
+
+			const size_t first = _implementation->global_scroll;
+			const size_t last = (std::min)(first + visible_rows, library.presets.size());
+			for (size_t index = first; index < last; ++index)
+			{
+				const global_preset_row &row = library.presets[index];
+				ImGui::PushID(static_cast<int>(index));
+				set_control_row_prefix("global", index - first);
+				const ImVec2 row_min = { outer_padding, list_top + static_cast<float>(index - first) * (list_row_height + list_row_gap) };
+				const ImVec2 row_max = { row_min.x + row_width, row_min.y + list_row_height };
+				draw_list->AddRectFilled(row_min, row_max, colors().surface, vr_theme::radius_md);
+
+				ImGui::PushFont(row.current ? bold_font() : nullptr, vr_theme::font_body);
+				draw_list->AddText({ name_x, std::floor(row_min.y + (list_row_height - ImGui::GetFontSize()) * 0.5f) }, colors().text,
+					fit_text(row.name.c_str(), version_x - space_md - name_x).c_str());
+				draw_hover_details({ name_x, row_min.y }, { version_x - space_md, row_max.y }, row.name.c_str());
+				ImGui::PopFont();
+
+				ImGui::PushFont(nullptr, vr_theme::font_control);
+				const float text_y = std::floor(row_min.y + (list_row_height - ImGui::GetFontSize()) * 0.5f);
+				char version_text[16];
+				std::snprintf(version_text, sizeof(version_text), "v%u", row.version);
+				draw_list->AddText({ version_x, text_y }, colors().text_secondary, version_text);
+				draw_list->AddText({ effects_x, text_y }, row.missing_effect_count != 0 ? colors().text : colors().text_secondary,
+					global_preset_effects_text(row).c_str());
+				const bool in_game = row.state == global_preset_state::in_game;
+				const bool update_available = row.state == global_preset_state::update_available;
+				draw_status_symbol(draw_list, { status_x + 8.0f, row_min.y + list_row_height * 0.5f },
+					in_game ? status_symbol::check : update_available ? status_symbol::arrow_up : status_symbol::ring,
+					in_game ? colors().success : update_available ? colors().accent : colors().text_secondary);
+				const std::string status = global_preset_status_text(row);
+				draw_list->AddText({ status_x + 24.0f, text_y }, colors().text, fit_text(status.c_str(), action_x - space_md - status_x - 24.0f).c_str());
+				ImGui::PopFont();
+
+				ImGui::SetCursorScreenPos({ action_x, row_min.y + space_xs });
+				const bool action_hovered = draw_text_button("action", global_preset_action_text(row), { 96.0f, list_row_height - space_xs * 2.0f },
+					can_act && !(in_game && row.current));
+				draw_hover_help(global_preset_action_text(row), in_game ? "Switch to this game's copy of the preset." :
+					update_available ? "Replace this game's copy with the new version. Asks first." :
+					"Copy the preset and the effects this game lacks into this game. Asks first.");
+				if (can_click && action_hovered)
+				{
+					result.action = in_game ? render_result::command::load_global_preset :
+						update_available ? render_result::command::update_global_preset : render_result::command::import_global_preset;
+					result.text = row.name;
+				}
+				ImGui::PopID();
+				clear_control_prefix();
+			}
+
+			if (maximum_scroll > 0)
+			{
+				ImGui::SetCursorScreenPos({ outer_padding + row_width + space_sm, list_top });
+				const float scroll_fraction = static_cast<float>(_implementation->global_scroll) / static_cast<float>(maximum_scroll);
+				const slider_interaction scroll_slider = draw_vertical_slider("global_scroll", { scrollbar_width, list_height }, scroll_fraction, true);
+				if (can_click && scroll_slider.hovered)
+				{
+					_implementation->dragging = implementation::drag_target::global_scroll;
+					_implementation->release_frame_count = 0;
+					_implementation->drag_start_pointer = io.MousePos.y;
+					_implementation->drag_start_fraction = scroll_fraction;
+				}
+				if (_implementation->dragging == implementation::drag_target::global_scroll && (input.select_clicked || input.select_down))
+				{
+					const float drag_fraction = std::clamp(_implementation->drag_start_fraction +
+						(io.MousePos.y - _implementation->drag_start_pointer) / list_height * 0.9f, 0.0f, 1.0f);
+					_implementation->global_scroll = static_cast<size_t>(std::round(drag_fraction * static_cast<float>(maximum_scroll)));
+				}
+			}
+
+			if (can_click && save_hovered)
+			{
+				_implementation->save_as_dialog_open = true;
+				_implementation->save_as_global = true;
+				_implementation->replace_armed = false;
+				_implementation->save_as_name = input.preset_name;
+			}
+			else if (can_click && save_back_hovered)
+				result.action = render_result::command::save_back_global_preset;
+		};
+
+		if (library.confirmation_pending)
+		{
+			draw_import_confirmation(library.confirmation);
+		}
+		else if (_implementation->save_as_dialog_open)
+		{
+			const bool global_save = _implementation->save_as_global;
+			const global_preset_row *replaced_preset = nullptr;
+			if (global_save)
+				for (const global_preset_row &row : library.presets)
+					if (_stricmp(row.name.c_str(), _implementation->save_as_name.c_str()) == 0)
+						replaced_preset = &row;
+			if (replaced_preset == nullptr)
+				_implementation->replace_armed = false;
+			ImGui::PushFont(bold_font(), vr_theme::font_title);
+			ImGui::TextUnformatted(global_save ? "Save as global preset" : "Save preset as");
 			ImGui::PopFont();
 			ImGui::SameLine();
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.0f);
@@ -1584,8 +1920,17 @@ namespace openxr_ui
 			ImGui::SetCursorScreenPos({ io.DisplaySize.x - outer_padding - 34.0f, 18.0f });
 			const bool close_dialog_hovered = draw_icon_button("close_save_as", button_icon::close, { 34.0f, 30.0f });
 
+			const char *const name_label = global_save ? "Global preset name" : "Preset name";
 			ImGui::SetCursorScreenPos({ outer_padding, 58.0f });
-			ImGui::TextDisabled("Preset name");
+			ImGui::TextDisabled("%s", name_label);
+			if (replaced_preset != nullptr)
+			{
+				char replace_note[96];
+				std::snprintf(replace_note, sizeof(replace_note), "This name exists (v%u). Saving replaces it with v%u.",
+					replaced_preset->version, replaced_preset->version + 1);
+				draw_status_dot_text(ImGui::GetWindowDrawList(),
+					{ outer_padding + std::ceil(ImGui::CalcTextSize(name_label).x) + space_md, 60.0f }, colors().warning, replace_note);
+			}
 			const ImVec2 name_min = { outer_padding, 88.0f };
 			const ImVec2 name_max = { io.DisplaySize.x - outer_padding, 136.0f };
 			ImGui::GetWindowDrawList()->AddRectFilled(name_min, name_max, colors().surface, vr_theme::radius_md);
@@ -1632,9 +1977,16 @@ namespace openxr_ui
 			const bool cancel_hovered = draw_text_button("cancel", "Cancel", { 160.0f, 46.0f });
 			const bool valid_name = !_implementation->save_as_name.empty() &&
 				_implementation->save_as_name.back() != ' ' && _implementation->save_as_name.back() != '.';
-			const char *const create_label = _implementation->save_as_feedback < 0 ? "Failed" : "Create";
-			ImGui::SetCursorScreenPos({ io.DisplaySize.x - outer_padding - 160.0f, 430.0f });
-			const bool create_hovered = draw_text_button("create", create_label, { 160.0f, 46.0f }, valid_name,
+			const char *const create_label = global_save ? (replaced_preset == nullptr ? "Save" :
+				_implementation->replace_armed ? "Press again to replace" : "Replace") :
+				_implementation->save_as_feedback < 0 ? "Failed" : "Create";
+			// Wide enough for its longest label, so the button does not jump when pressed once.
+			ImGui::PushFont(nullptr, vr_theme::font_control);
+			const float create_width = replaced_preset != nullptr ? std::ceil(ImGui::CalcTextSize("Press again to replace").x) + 32.0f : 160.0f;
+			ImGui::PopFont();
+			ImGui::SetCursorScreenPos({ io.DisplaySize.x - outer_padding - create_width, 430.0f });
+			const bool create_hovered = draw_text_button("create", create_label, { create_width, 46.0f }, valid_name,
+				global_save ? (_implementation->replace_armed ? button_tone::danger : button_tone::primary) :
 				_implementation->save_as_feedback < 0 ? button_tone::danger : button_tone::primary);
 			clear_control_prefix();
 
@@ -1652,6 +2004,19 @@ namespace openxr_ui
 				_implementation->save_as_name.pop_back();
 			else if (input.select_clicked && clear_hovered)
 				_implementation->save_as_name.clear();
+			else if (input.select_clicked && create_hovered && global_save)
+			{
+				if (replaced_preset != nullptr && !_implementation->replace_armed)
+					_implementation->replace_armed = true;
+				else
+				{
+					result.action = render_result::command::save_global_preset;
+					result.text = _implementation->save_as_name;
+					_implementation->save_as_dialog_open = false;
+					_implementation->save_as_name.clear();
+					_implementation->replace_armed = false;
+				}
+			}
 			else if (input.select_clicked && create_hovered)
 			{
 				result.action = render_result::command::save_preset_as;
@@ -1676,6 +2041,16 @@ namespace openxr_ui
 				if (shown)
 					displayed_techniques.push_back(&entry);
 			}
+			// Starred effects this game lacks close the Starred list; a row turns normal once the game has the effect.
+			std::vector<const missing_starred_effect *> missing_starred;
+			for (const missing_starred_effect &missing : library.missing_starred)
+				if (std::none_of(snapshot.techniques.begin(), snapshot.techniques.end(), [&missing](const technique &entry) {
+					return entry.persistence_id == missing.persistence_id;
+				}))
+					missing_starred.push_back(&missing);
+			count_starred += missing_starred.size();
+			const size_t row_count = displayed_techniques.size() +
+				(_implementation->filter == implementation::list_filter::starred ? missing_starred.size() : 0);
 
 			const float right_edge = ImGui::GetWindowWidth() - outer_padding;
 			ImDrawList *const header_draw_list = ImGui::GetWindowDrawList();
@@ -1789,6 +2164,7 @@ namespace openxr_ui
 			else if (can_click && save_as_hovered)
 			{
 				_implementation->save_as_dialog_open = true;
+				_implementation->save_as_global = false;
 				_implementation->save_as_name = input.preset_name.empty() ? "New Preset" : input.preset_name + " Copy";
 				_implementation->save_as_feedback = 0;
 				_implementation->save_as_feedback_frame_count = 0;
@@ -1804,6 +2180,9 @@ namespace openxr_ui
 			{
 				_implementation->filter = static_cast<implementation::list_filter>(hovered_filter);
 				_implementation->technique_scroll = 0;
+				// Another game may have starred more effects since the library was last read.
+				if (_implementation->filter == implementation::list_filter::starred)
+					result.action = render_result::command::refresh_global_library;
 			}
 			}
 			else
@@ -1900,6 +2279,8 @@ namespace openxr_ui
 			}
 			if (effects_tab)
 			{
+			const ImVec2 notice_cursor = ImGui::GetCursorScreenPos();
+			ImGui::SetCursorScreenPos({ notice_cursor.x, draw_global_notice(notice_cursor.y) });
 			if (!input.effect_runtime_available)
 			{
 				char message[160];
@@ -1955,14 +2336,14 @@ namespace openxr_ui
 			const float list_height = display_height - outer_padding - note_height - space_sm - list_min.y;
 			const size_t visible_techniques = std::max<size_t>(1, static_cast<size_t>((list_height + list_row_gap) / (list_row_height + list_row_gap)));
 			const float row_height = list_row_height;
-			const size_t maximum_scroll = displayed_techniques.size() > visible_techniques ? displayed_techniques.size() - visible_techniques : 0;
+			const size_t maximum_scroll = row_count > visible_techniques ? row_count - visible_techniques : 0;
 			_implementation->technique_scroll = (std::min)(_implementation->technique_scroll, maximum_scroll);
 			_implementation->update_joystick_scroll(input.scroll_y, _implementation->technique_scroll, maximum_scroll);
 			// The scroll bar column is only taken when the rows do not all fit.
 			const float row_width = ImGui::GetContentRegionAvail().x - (maximum_scroll > 0 ? scrollbar_width + space_sm : 0.0f);
 			const size_t first = _implementation->technique_scroll;
-			const size_t last = (std::min)(first + visible_techniques, displayed_techniques.size());
-			if (displayed_techniques.empty() && !snapshot.techniques.empty())
+			const size_t last = (std::min)(first + visible_techniques, row_count);
+			if (row_count == 0 && !snapshot.techniques.empty())
 			{
 				const char *const empty_text = _implementation->filter == implementation::list_filter::starred ?
 					"No starred effects. Press the star on an effect to add it here." :
@@ -1991,7 +2372,41 @@ namespace openxr_ui
 				if (index < last)
 					draw_list->AddRectFilled(minimum, maximum, row_hovered ? colors().surface_raised : colors().surface, vr_theme::radius_md);
 
-				if (index < last)
+				if (index >= displayed_techniques.size())
+				{
+					// A starred effect this game lacks: no switch or order buttons, only where it is and Add.
+					const missing_starred_effect &missing = *missing_starred[index - displayed_techniques.size()];
+					const float add_x = maximum.x - space_xs - 96.0f;
+					const float name_x = minimum.x + space_md;
+					ImGui::PushFont(nullptr, vr_theme::font_control);
+					const char *const status = "Not in this game";
+					const float status_x = add_x - space_md - std::ceil(ImGui::CalcTextSize(status).x);
+					draw_status_symbol(draw_list, { status_x - space_sm - 8.0f, minimum.y + row_height * 0.5f }, status_symbol::ring, colors().text_secondary);
+					draw_list->AddText({ status_x, std::floor(minimum.y + (row_height - ImGui::GetFontSize()) * 0.5f) }, colors().text_secondary, status);
+					ImGui::PopFont();
+					const float text_limit = status_x - space_sm - 16.0f - space_md;
+					const std::string fitted_name = fit_text(missing.name.c_str(), text_limit - name_x);
+					draw_list->AddText({ name_x, std::floor(minimum.y + (row_height - ImGui::GetFontSize()) * 0.5f) }, colors().text_secondary, fitted_name.c_str());
+					const float effect_x = name_x + std::ceil(ImGui::CalcTextSize(fitted_name.c_str()).x) + space_sm;
+					if (effect_x + 40.0f < text_limit)
+					{
+						ImGui::PushFont(nullptr, vr_theme::font_small);
+						draw_list->AddText({ effect_x, std::floor(minimum.y + (row_height - ImGui::GetFontSize()) * 0.5f) },
+							colors().text_disabled, fit_text(missing.effect_name.c_str(), text_limit - effect_x).c_str());
+						ImGui::PopFont();
+					}
+					draw_hover_details({ name_x, minimum.y }, { text_limit, maximum.y }, (missing.name + "  [" + missing.effect_name + "]").c_str(),
+						"You starred this effect in another game. Add copies its files into this game.");
+					ImGui::SetCursorScreenPos({ add_x, minimum.y + space_xs });
+					const bool add_hovered = draw_text_button("add", "Add", { 96.0f, row_height - space_xs * 2.0f },
+						!library.busy && input.effect_runtime_available && !input.shaders_temporarily_disabled);
+					if (input.select_clicked && add_hovered && _implementation->dragging == implementation::drag_target::none)
+					{
+						result.action = render_result::command::add_starred_effect;
+						result.text = missing.persistence_id;
+					}
+				}
+				else
 				{
 					const technique &entry = *displayed_techniques[index];
 					ImGui::SetCursorScreenPos({ minimum.x + 4.0f, minimum.y + 2.0f });
@@ -2297,6 +2712,10 @@ namespace openxr_ui
 				result.action = render_result::command::set_game_own_settings;
 				result.state = !input.game_own_settings;
 			}
+			}
+			else if (_implementation->current_tab == implementation::tab::global)
+			{
+				draw_global_page();
 			}
 			else
 			{

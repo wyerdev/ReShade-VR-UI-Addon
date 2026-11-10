@@ -84,6 +84,8 @@ namespace openxr_ui
 		// Reads the preset folder for the preset drop-down. Called only on the click that opens the list, never
 		// per frame, so drawing the menu never touches the disk.
 		std::function<std::vector<std::string>()> list_preset_names;
+		// Presets and starred effects shared between games; null shows an empty library.
+		std::shared_ptr<const global_library_snapshot> global_library;
 	};
 
 	struct render_result
@@ -131,6 +133,19 @@ namespace openxr_ui
 			set_arm_swing_run_at,
 			set_arm_swing_block_stick,
 			set_game_own_settings,
+			// Sent when the Global presets page or the Starred list opens, so the shared library is read again.
+			refresh_global_library,
+			// `text` is the global preset name.
+			save_global_preset,
+			save_back_global_preset,
+			import_global_preset,
+			update_global_preset,
+			load_global_preset,
+			// `text` is the starred effect's saved identity.
+			add_starred_effect,
+			confirm_global_import,
+			cancel_global_import,
+			dismiss_global_notice,
 		};
 
 		command action = command::none;
@@ -177,6 +192,11 @@ namespace openxr_ui
 			save_as,
 			settings,
 			gestures,
+			global_presets,
+			// The effects page with the Starred filter chosen.
+			starred_effects,
+			// The name keyboard for "Save current as global".
+			save_global_as,
 		};
 		// Opens a page directly, for the preview tool and tests. `technique_id` selects the effect for effect_detail.
 		void show_page(page target, uint64_t technique_id = 0, const std::string &save_as_name = {});

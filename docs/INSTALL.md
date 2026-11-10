@@ -43,6 +43,20 @@ To use another button, change **Next preset** on **Gestures**.
 
 If you only have one preset, the gesture turns effects on and off. To use buttons only, set **Next preset** to **L3+R3** and **Controller buttons** to **Hold L3+R3**.
 
+### Share A Preset Between Games
+
+1. In the first game, open **Global presets** and click **Save current as global**.
+2. In the other game, open **Global presets**, click **Import** on that preset, then **Import and load**.
+
+- The effects switched on in the preset come along, with the files and textures they use. Only files the game lacks are copied; its own files are never replaced.
+- Each game has its own copy. **Save back to global** saves your changes as a new version. Other games then show **Update**, which replaces their copy.
+- Starred effects are shared too: under **Starred**, an effect this game lacks shows **Add**.
+- The shared files are in `%LOCALAPPDATA%\ReShade VR UI Add-on\Global`.
+
+![Global presets page of the headset menu, with Save current as global and Import ringed](images/menu-global-presets.png)
+
+![Starred list of the headset menu, with Add ringed on an effect this game does not have](images/menu-starred.png)
+
 ### Walk By Swinging Your Arms
 
 Swing your arms in turn, as when walking, to move forward. For games that walk with the left thumbstick.

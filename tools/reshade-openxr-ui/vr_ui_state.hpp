@@ -114,6 +114,25 @@ bool openxr_ui_save_preset_as(const std::string &preset_name);
 bool openxr_ui_delete_preset();
 int openxr_ui_update_preset_operations();
 
+// Presets and starred effects shared between games. All disk work runs on a worker thread; the result arrives in a
+// new snapshot. None of these read the disk on the calling thread.
+std::shared_ptr<const openxr_ui::global_library_snapshot> openxr_ui_get_global_library();
+// Reads the shared library again. Call when its page opens, never per frame.
+void openxr_ui_refresh_global_library();
+bool openxr_ui_save_global_preset(const std::string &name);
+// Saves the current preset as the next version of the global preset it was copied from.
+bool openxr_ui_save_back_global_preset();
+// Works out what importing (or updating this game's copy of) a global preset would change. The snapshot then asks
+// for confirmation; nothing is copied before openxr_ui_confirm_global_import.
+bool openxr_ui_plan_global_import(const std::string &name, bool update);
+// The same for one starred effect that this game does not have.
+bool openxr_ui_plan_starred_effect(const std::string &persistence_id);
+bool openxr_ui_confirm_global_import();
+void openxr_ui_cancel_global_import();
+// Switches to this game's copy of a global preset.
+bool openxr_ui_load_global_preset(const std::string &name);
+void openxr_ui_dismiss_global_notice();
+
 bool openvr_ui_register_addon(void *module);
 void openvr_ui_unregister_overlay();
 bool openvr_ui_show_dashboard();

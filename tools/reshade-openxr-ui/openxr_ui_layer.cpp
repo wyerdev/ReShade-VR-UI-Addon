@@ -1016,6 +1016,7 @@ namespace
 				state.arm_swing_block_stick,
 				state.game_own_settings,
 				openxr_ui_get_preset_names,
+				openxr_ui_get_global_library(),
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
@@ -1176,6 +1177,36 @@ namespace
 			case openxr_ui::render_result::command::set_game_own_settings:
 				if (openxr_ui_set_game_own_settings(render_result.state))
 					load_control_settings(state);
+				break;
+			case openxr_ui::render_result::command::refresh_global_library:
+				openxr_ui_refresh_global_library();
+				break;
+			case openxr_ui::render_result::command::save_global_preset:
+				openxr_ui_save_global_preset(render_result.text);
+				break;
+			case openxr_ui::render_result::command::save_back_global_preset:
+				openxr_ui_save_back_global_preset();
+				break;
+			case openxr_ui::render_result::command::import_global_preset:
+				openxr_ui_plan_global_import(render_result.text, false);
+				break;
+			case openxr_ui::render_result::command::update_global_preset:
+				openxr_ui_plan_global_import(render_result.text, true);
+				break;
+			case openxr_ui::render_result::command::load_global_preset:
+				openxr_ui_load_global_preset(render_result.text);
+				break;
+			case openxr_ui::render_result::command::add_starred_effect:
+				openxr_ui_plan_starred_effect(render_result.text);
+				break;
+			case openxr_ui::render_result::command::confirm_global_import:
+				openxr_ui_confirm_global_import();
+				break;
+			case openxr_ui::render_result::command::cancel_global_import:
+				openxr_ui_cancel_global_import();
+				break;
+			case openxr_ui::render_result::command::dismiss_global_notice:
+				openxr_ui_dismiss_global_notice();
 				break;
 			case openxr_ui::render_result::command::none:
 				break;

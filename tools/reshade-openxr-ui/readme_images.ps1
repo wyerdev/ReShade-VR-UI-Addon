@@ -3,7 +3,7 @@ param(
 )
 
 # Renders the menu with preview_ui.ps1 and writes the menu pictures shown in the README and on the release page to
-# docs\images\. The settings and gestures pictures get a ring around each control their tips mention; positions come from
+# docs\images\. Most pictures get a ring around each control their text mentions; positions come from
 # controls.json, never by hand.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -67,5 +67,11 @@ $rowLeft = $gestures.arm_swing_walk[0] - ($gestures.arm_swing_walk[2] - $gesture
 Save-RingedPicture 'violet-night-gestures.png' 'menu-gestures.png' @(
 	@($rowLeft, $gestures.preset_gesture[1], $gestures.preset_gesture[2], $gestures.preset_gesture[3]),
 	$gestures.arm_swing_walk)
+
+# Sharing between games: saving and importing a global preset, and adding a starred effect the game lacks.
+Save-RingedPicture 'violet-night-global.png' 'menu-global-presets.png' @(
+	$controls.global.save_current_global,
+	$controls.global.'global/1/action')
+Save-RingedPicture 'violet-night-starred.png' 'menu-starred.png' @(, $controls.starred.'effect/2/add')
 
 Write-Host "Menu pictures: $images"

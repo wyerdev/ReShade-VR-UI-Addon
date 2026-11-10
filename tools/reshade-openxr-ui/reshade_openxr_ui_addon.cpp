@@ -1,5 +1,6 @@
 #include <reshade.hpp>
 
+#include "openxr_ui_global_library.hpp"
 #include "openxr_ui_preset.hpp"
 #include "startup_crash_guard.hpp"
 #include "vr_ui_state.hpp"
@@ -22,6 +23,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #pragma comment(lib, "user32.lib")
@@ -101,6 +103,15 @@ namespace
 	uint32_t s_effect_subfolder_wait_frames = 0;
 	std::chrono::steady_clock::time_point s_effect_subfolder_requested_at;
 	std::atomic<bool> s_effect_subfolder_scan_pending = false;
+	// ReShade writes a saved or just-left preset about a second later; replacing that file sooner could be undone by it.
+	std::chrono::steady_clock::time_point s_preset_file_quiet_after;
+	bool s_global_refresh_wanted = false;
+
+	// Caller holds s_mutex.
+	void note_preset_file_write()
+	{
+		s_preset_file_quiet_after = std::chrono::steady_clock::now() + std::chrono::milliseconds(2500);
+	}
 
 	// Values written by something other than this panel (a mod, ReShade's own clock) are counted per frame.
 	// A value written in this many separate frames is treated as set by the game.
@@ -607,6 +618,7 @@ namespace
 			ordered_techniques.push_back({ entry.id });
 		s_effect_runtime->reorder_techniques(ordered_techniques.size(), ordered_techniques.data());
 		openxr_ui::save_current_preset(s_effect_runtime, *updated, s_preset_dirty_state);
+		note_preset_file_write();
 		s_techniques = std::move(updated);
 	}
 
@@ -835,6 +847,500 @@ namespace
 		}
 	}
 
+	// Presets and starred effects shared between games. The library module does all disk work; it runs here on a
+	// thread-pool worker, one job at a time, and the menus read the result from s_global_library.
+	namespace library = openxr_ui::global_library;
+
+	enum class global_job_kind
+	{
+		refresh,
+		save_preset,
+		plan_import,
+		apply_import,
+		store_starred,
+	};
+
+	struct global_job
+	{
+		global_job_kind kind = global_job_kind::refresh;
+		HMODULE module = nullptr;
+		// Only compared, never used by the worker.
+		effect_runtime *runtime = nullptr;
+		std::filesystem::path library_folder;
+		std::filesystem::path records_file;
+		library::game_folders folders;
+		std::filesystem::path current_preset;
+		// A global preset name, or the effect file of a starred effect.
+		std::string name;
+		openxr_ui::global_import_kind import_kind = openxr_ui::global_import_kind::import_preset;
+		std::vector<std::string> favourites;
+		std::vector<std::string> starred_effects;
+		// Filled when the import is planned, used when it is confirmed.
+		library::manifest files;
+		library::import_plan plan;
+		std::filesystem::path destination_preset;
+	};
+
+	struct global_activation
+	{
+		bool pending = false;
+		std::string preset_path;
+		bool reload_effects = false;
+	};
+
+	std::shared_ptr<const openxr_ui::global_library_snapshot> s_global_library = std::make_shared<openxr_ui::global_library_snapshot>();
+	bool s_global_job_running = false;
+	// The running job was started by the user, so the menus show "Working...".
+	bool s_global_user_job_running = false;
+	std::vector<std::string> s_global_star_queue;
+	openxr_ui::pending_preset_flush s_global_flush;
+	std::string s_global_save_name;
+	std::unique_ptr<global_job> s_global_save_wanted;
+	std::unique_ptr<global_job> s_global_plan_wanted;
+	// A planned import waiting for the user's answer.
+	std::unique_ptr<global_job> s_global_confirmation;
+	std::unique_ptr<global_job> s_global_apply_wanted;
+	global_activation s_global_activation;
+	// Global preset name to this game's copy of it, from the last refresh.
+	std::unordered_map<std::string, std::string> s_global_copies;
+
+	// The functions below ending in _locked need s_mutex held.
+	bool global_busy_locked()
+	{
+		return s_global_user_job_running || s_global_flush.is_pending() || s_global_save_wanted != nullptr ||
+			s_global_plan_wanted != nullptr || s_global_apply_wanted != nullptr;
+	}
+
+	template <typename change_function>
+	void update_global_library_locked(change_function &&change)
+	{
+		auto updated = std::make_shared<openxr_ui::global_library_snapshot>(*s_global_library);
+		change(*updated);
+		updated->busy = global_busy_locked();
+		s_global_library = std::move(updated);
+	}
+
+	void set_global_notice_locked(openxr_ui::global_notice_level level, const std::string &text)
+	{
+		if (level != openxr_ui::global_notice_level::none)
+			log_runtime_message(level == openxr_ui::global_notice_level::error ? reshade::log::level::error : reshade::log::level::info,
+				("shared library: " + text).c_str());
+		update_global_library_locked([&](openxr_ui::global_library_snapshot &view) {
+			view.notice_level = level;
+			view.notice = text;
+		});
+	}
+
+	std::vector<library::search_folder> read_search_folders(effect_runtime *runtime, const char *key, const std::filesystem::path &base_path)
+	{
+		std::vector<library::search_folder> folders;
+		for (const std::string &entry : read_config_list(runtime, "GENERAL", key))
+		{
+			// Folders that use ReShade's ${...} macros cannot be resolved here.
+			if (entry.find("${") != std::string::npos)
+				continue;
+			library::search_folder folder;
+			std::filesystem::path path = std::filesystem::u8path(entry);
+			folder.recursive = path.filename() == L"**";
+			if (folder.recursive)
+				path = path.parent_path();
+			if (path.is_relative())
+			{
+				if (base_path.empty())
+					continue;
+				path = base_path / path;
+			}
+			folder.path = path.lexically_normal();
+			folders.push_back(std::move(folder));
+		}
+		return folders;
+	}
+
+	// Reads the game's folders from ReShade's settings; the game's own ReShade is asked the same way.
+	std::unique_ptr<global_job> make_global_job_locked(global_job_kind kind)
+	{
+		auto job = std::make_unique<global_job>();
+		job->kind = kind;
+		job->runtime = s_effect_runtime;
+		const std::filesystem::path configuration = configuration_directory();
+		job->library_folder = configuration / L"Global";
+		job->records_file = configuration / L"global-preset-copies.txt";
+		const std::filesystem::path base_path = reshade_base_path();
+		job->folders.effects = read_search_folders(s_effect_runtime, "EffectSearchPaths", base_path);
+		job->folders.textures = read_search_folders(s_effect_runtime, "TextureSearchPaths", base_path);
+		job->current_preset = std::filesystem::u8path(current_preset_path(s_effect_runtime));
+		return job;
+	}
+
+	struct global_job_result
+	{
+		bool succeeded = false;
+		std::string error;
+		std::vector<std::string> problems;
+		uint32_t version = 0;
+		openxr_ui::global_library_snapshot view;
+		std::unordered_map<std::string, std::string> copies;
+	};
+
+	bool same_file(const std::filesystem::path &left, const std::filesystem::path &right)
+	{
+		std::error_code error;
+		return std::filesystem::equivalent(left, right, error);
+	}
+
+	void run_global_refresh(const global_job &job, global_job_result &result)
+	{
+		const std::vector<library::import_record> records = library::load_records(job.records_file);
+		const std::vector<std::wstring> effect_names = library::effect_folder_file_names(job.folders);
+		const std::filesystem::path preset_folder = job.current_preset.parent_path();
+		for (const library::preset_entry &preset : library::list_presets(job.library_folder))
+		{
+			openxr_ui::global_preset_row row;
+			row.name = preset.name;
+			row.version = preset.files.version;
+			for (const library::file_reference &file : preset.files.files)
+			{
+				if (file.kind != library::file_kind::effect)
+					continue;
+				++row.effect_count;
+				if (!library::contains_file_name(effect_names, file.file_name))
+					++row.missing_effect_count;
+			}
+			for (const library::import_record &record : records)
+			{
+				if (!library::same_name(record.name, preset.name) || !same_file(record.preset_file.parent_path(), preset_folder))
+					continue;
+				row.imported_version = record.version;
+				row.state = record.version < preset.files.version ? openxr_ui::global_preset_state::update_available : openxr_ui::global_preset_state::in_game;
+				row.current = same_file(record.preset_file, job.current_preset);
+				result.copies[preset.name] = record.preset_file.u8string();
+				if (row.current)
+					break;
+			}
+			result.view.presets.push_back(std::move(row));
+		}
+		for (const library::import_record &record : records)
+		{
+			if (!same_file(record.preset_file, job.current_preset))
+				continue;
+			result.view.current_source = record.name;
+			result.view.current_source_version = record.version;
+			result.view.current_changed = library::hash_file(job.current_preset) != record.hash;
+			break;
+		}
+		for (const std::string &identity : job.favourites)
+		{
+			const size_t separator = identity.find("::");
+			if (separator == std::string::npos)
+				continue;
+			const std::string effect_name = identity.substr(0, separator);
+			library::manifest files;
+			if (!library::contains_file_name(effect_names, effect_name) && library::load_effect_manifest(job.library_folder, effect_name, files))
+				result.view.missing_starred.push_back({ identity, identity.substr(separator + 2), effect_name });
+		}
+		result.succeeded = true;
+	}
+
+	void run_global_save(const global_job &job, global_job_result &result)
+	{
+		if (!library::save_preset(job.library_folder, job.name, job.current_preset, job.folders, result.version, result.problems, result.error))
+			return;
+		// This game's preset is now a copy of that version, so it can be saved back later.
+		result.succeeded = library::save_record(job.records_file, { job.current_preset, job.name, result.version, library::hash_file(job.current_preset) });
+		if (!result.succeeded)
+			result.error = "could not record which global preset this game's preset belongs to";
+	}
+
+	void run_global_plan(global_job &job, global_job_result &result)
+	{
+		const bool effect_only = job.import_kind == openxr_ui::global_import_kind::add_effect;
+		if (!(effect_only ? library::load_effect_manifest(job.library_folder, job.name, job.files) :
+			library::load_preset_manifest(job.library_folder, job.name, job.files)))
+		{
+			result.error = "it is no longer in the shared library";
+			return;
+		}
+		job.plan = library::plan_import(job.library_folder, job.files, job.folders);
+		if (!job.plan.error.empty())
+		{
+			result.error = job.plan.error;
+			return;
+		}
+		if (!effect_only)
+		{
+			const std::filesystem::path preset_folder = job.current_preset.parent_path();
+			if (preset_folder.empty())
+			{
+				result.error = "this game has no preset folder yet";
+				return;
+			}
+			if (job.import_kind == openxr_ui::global_import_kind::update_preset)
+			{
+				for (const library::import_record &record : library::load_records(job.records_file))
+					if (library::same_name(record.name, job.name) && same_file(record.preset_file.parent_path(), preset_folder))
+						job.destination_preset = record.preset_file;
+				if (job.destination_preset.empty())
+				{
+					result.error = "this game's copy of it was not found";
+					return;
+				}
+			}
+			else
+			{
+				// A preset the game already has under that name is never replaced by an import.
+				const std::wstring name = std::filesystem::u8path(job.name).native();
+				std::error_code error;
+				job.destination_preset = preset_folder / (name + L".ini");
+				for (uint32_t attempt = 1; std::filesystem::exists(job.destination_preset, error) && attempt < 100; ++attempt)
+					job.destination_preset = preset_folder / (name + (attempt == 1 ? L" (global)" : L" (global " + std::to_wstring(attempt) + L")") + L".ini");
+			}
+		}
+		openxr_ui::global_import_summary &summary = result.view.confirmation;
+		summary.kind = job.import_kind;
+		summary.name = job.name;
+		summary.version = job.files.version;
+		summary.added_effect_files = job.plan.added_effect_files;
+		summary.added_textures = job.plan.added_textures;
+		summary.existing_file_count = job.plan.existing_file_count;
+		summary.different_files = job.plan.different_files;
+		summary.incomplete_effects = job.files.incomplete_effects;
+		result.succeeded = true;
+	}
+
+	void run_global_apply(const global_job &job, global_job_result &result)
+	{
+		library::copy_result copied;
+		if (!library::copy_files(job.plan, copied, result.error))
+			return;
+		if (job.import_kind == openxr_ui::global_import_kind::add_effect)
+		{
+			result.succeeded = true;
+			return;
+		}
+		const bool update = job.import_kind == openxr_ui::global_import_kind::update_preset;
+		if (!library::copy_preset(job.library_folder, job.name, job.destination_preset, update, result.error))
+		{
+			library::undo_copy(copied);
+			return;
+		}
+		result.succeeded = library::save_record(job.records_file,
+			{ job.destination_preset, job.name, job.files.version, library::hash_file(job.destination_preset) });
+		if (!result.succeeded)
+		{
+			result.error = "could not record which global preset the imported preset belongs to";
+			library::undo_copy(copied);
+			if (!update)
+			{
+				std::error_code error;
+				std::filesystem::remove(job.destination_preset, error);
+			}
+		}
+	}
+
+	void run_global_star(const global_job &job, global_job_result &result)
+	{
+		for (const std::string &effect_name : job.starred_effects)
+		{
+			std::string error;
+			if (!library::save_starred_effect(job.library_folder, effect_name, job.folders, result.problems, error))
+				result.problems.push_back("starred effect not saved to the shared library: " + error);
+		}
+		result.succeeded = true;
+	}
+
+	// Called with s_mutex held, on the worker, when its job is done.
+	void publish_global_job_locked(std::unique_ptr<global_job> job, global_job_result &result)
+	{
+		using openxr_ui::global_notice_level;
+		for (const std::string &problem : result.problems)
+			log_runtime_message(reshade::log::level::warning, ("shared library: " + problem).c_str());
+		const std::string quoted_name = '"' + job->name + '"';
+		switch (job->kind)
+		{
+		case global_job_kind::refresh:
+			s_global_copies = std::move(result.copies);
+			update_global_library_locked([&result](openxr_ui::global_library_snapshot &view) {
+				view.presets = std::move(result.view.presets);
+				view.missing_starred = std::move(result.view.missing_starred);
+				view.current_source = std::move(result.view.current_source);
+				view.current_source_version = result.view.current_source_version;
+				view.current_changed = result.view.current_changed;
+			});
+			break;
+		case global_job_kind::save_preset:
+			s_global_refresh_wanted = true;
+			if (!result.succeeded)
+				set_global_notice_locked(global_notice_level::error, "Could not save global preset " + quoted_name + ": " + result.error + '.');
+			else if (!result.problems.empty())
+				set_global_notice_locked(global_notice_level::warning, "Saved global preset " + quoted_name + " (v" + std::to_string(result.version) +
+					"), but some effect files were not found. It may not work in other games.");
+			else
+				set_global_notice_locked(global_notice_level::info, "Saved global preset " + quoted_name + " (v" + std::to_string(result.version) + ").");
+			break;
+		case global_job_kind::plan_import:
+			if (!result.succeeded)
+			{
+				set_global_notice_locked(global_notice_level::error, "Could not prepare " + quoted_name + ": " + result.error + '.');
+				break;
+			}
+			s_global_confirmation = std::move(job);
+			update_global_library_locked([&result](openxr_ui::global_library_snapshot &view) {
+				view.confirmation = std::move(result.view.confirmation);
+				view.confirmation_pending = true;
+			});
+			break;
+		case global_job_kind::apply_import:
+			s_global_refresh_wanted = true;
+			if (!result.succeeded)
+			{
+				set_global_notice_locked(global_notice_level::error, "Nothing was changed in this game: " + result.error + '.');
+				break;
+			}
+			s_global_activation.pending = true;
+			s_global_activation.reload_effects = !job->plan.copies.empty();
+			s_global_activation.preset_path = job->import_kind == openxr_ui::global_import_kind::add_effect ? std::string() : job->destination_preset.u8string();
+			set_global_notice_locked(global_notice_level::info,
+				(job->import_kind == openxr_ui::global_import_kind::add_effect ? "Added " + job->name + '.' :
+				job->import_kind == openxr_ui::global_import_kind::update_preset ? "Updated " + quoted_name + " to v" + std::to_string(job->files.version) + '.' :
+				"Imported " + quoted_name + " (v" + std::to_string(job->files.version) + ").") +
+				(job->plan.copies.empty() ? "" : " ReShade is loading the new effects."));
+			break;
+		case global_job_kind::store_starred:
+			break;
+		}
+	}
+
+	void CALLBACK run_global_job(PTP_CALLBACK_INSTANCE instance, void *context)
+	{
+		std::unique_ptr<global_job> job(static_cast<global_job *>(context));
+		const HMODULE module = job->module;
+		global_job_result result;
+		switch (job->kind)
+		{
+		case global_job_kind::refresh:
+			run_global_refresh(*job, result);
+			break;
+		case global_job_kind::save_preset:
+			run_global_save(*job, result);
+			break;
+		case global_job_kind::plan_import:
+			run_global_plan(*job, result);
+			break;
+		case global_job_kind::apply_import:
+			run_global_apply(*job, result);
+			break;
+		case global_job_kind::store_starred:
+			run_global_star(*job, result);
+			break;
+		}
+		{
+			const std::lock_guard<std::mutex> lock(s_mutex);
+			s_global_job_running = false;
+			s_global_user_job_running = false;
+			// Results for a ReShade runtime that is gone are dropped; an apply has already been fully done or undone on disk.
+			if (job->runtime == s_effect_runtime)
+				publish_global_job_locked(std::move(job), result);
+			else
+				update_global_library_locked([](openxr_ui::global_library_snapshot &) {});
+		}
+		// Keeps this DLL loaded until the worker has returned.
+		FreeLibraryWhenCallbackReturns(instance, module);
+	}
+
+	bool start_global_job_locked(std::unique_ptr<global_job> job, bool user_job)
+	{
+		if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCWSTR>(&run_global_job), &job->module))
+			return false;
+		global_job *const submitted = job.release();
+		if (!TrySubmitThreadpoolCallback(run_global_job, submitted, nullptr))
+		{
+			FreeLibrary(submitted->module);
+			delete submitted;
+			return false;
+		}
+		s_global_job_running = true;
+		s_global_user_job_running = user_job;
+		return true;
+	}
+
+	// Runs once per frame with s_mutex already held; when nothing is wanted it only tests a few flags.
+	void update_global_operations_locked()
+	{
+		if (s_effect_runtime == nullptr)
+			return;
+		if (s_global_flush.is_pending())
+		{
+			const openxr_ui::preset_flush_result flush = s_global_flush.update(s_effect_runtime);
+			if (flush.status == openxr_ui::preset_flush_status::failed)
+				set_global_notice_locked(openxr_ui::global_notice_level::error, "ReShade did not save the current preset, so it was not saved as global.");
+			else if (flush.status == openxr_ui::preset_flush_status::ready)
+			{
+				s_global_save_wanted = make_global_job_locked(global_job_kind::save_preset);
+				s_global_save_wanted->current_preset = std::filesystem::u8path(flush.path);
+				s_global_save_wanted->name = s_global_save_name;
+			}
+		}
+		if (s_global_job_running)
+			return;
+
+		std::unique_ptr<global_job> job;
+		bool user_job = true;
+		if (s_global_save_wanted != nullptr)
+			job = std::move(s_global_save_wanted);
+		else if (s_global_plan_wanted != nullptr)
+			job = std::move(s_global_plan_wanted);
+		else if (s_global_apply_wanted != nullptr)
+		{
+			if (std::chrono::steady_clock::now() < s_preset_file_quiet_after)
+				return;
+			job = std::move(s_global_apply_wanted);
+		}
+		else if (s_global_refresh_wanted)
+		{
+			s_global_refresh_wanted = false;
+			load_favourite_techniques();
+			job = make_global_job_locked(global_job_kind::refresh);
+			job->favourites.assign(s_favourite_techniques.begin(), s_favourite_techniques.end());
+			user_job = false;
+		}
+		else if (!s_global_star_queue.empty())
+		{
+			job = make_global_job_locked(global_job_kind::store_starred);
+			job->starred_effects = std::move(s_global_star_queue);
+			s_global_star_queue.clear();
+			user_job = false;
+		}
+		else
+			return;
+
+		if (!start_global_job_locked(std::move(job), user_job) && user_job)
+			set_global_notice_locked(openxr_ui::global_notice_level::error, "Windows could not start the background work.");
+	}
+
+	void cancel_global_operations_locked(effect_runtime *runtime)
+	{
+		s_global_flush.cancel(runtime);
+		s_global_save_wanted.reset();
+		s_global_plan_wanted.reset();
+		s_global_confirmation.reset();
+		s_global_apply_wanted.reset();
+		s_global_activation = {};
+		s_global_copies.clear();
+		s_global_library = std::make_shared<openxr_ui::global_library_snapshot>();
+	}
+
+	// Runs on ReShade's thread: switches to the imported preset and lets ReShade load the copied effects once.
+	void apply_global_activation(effect_runtime *runtime, const global_activation &activation)
+	{
+		const bool switched = activation.preset_path.empty() || openxr_ui::switch_to_preset_file(runtime, activation.preset_path);
+		if (switched && activation.reload_effects)
+			runtime->reload_effect_next_frame(nullptr);
+		if (switched)
+			return;
+		const std::lock_guard<std::mutex> lock(s_mutex);
+		set_global_notice_locked(openxr_ui::global_notice_level::error, "The preset was imported, but ReShade did not switch to it.");
+	}
+
 	void on_init_effect_runtime(effect_runtime *runtime)
 	{
 		const bool own_reshade = openxr_ui_game_brought_own_reshade();
@@ -916,6 +1422,7 @@ namespace
 			s_default_values_pending = false;
 			s_inherited_preset_copy.cancel(runtime);
 			s_pending_preset_delete.cancel(runtime);
+			cancel_global_operations_locked(runtime);
 			s_techniques = std::make_shared<openxr_ui::technique_snapshot>();
 			s_effect_runtime = nullptr;
 			s_preset_dirty_state.clear();
@@ -1131,6 +1638,8 @@ namespace
 			s_technique_restore_states.clear();
 		if (preset_changed)
 		{
+			note_preset_file_write();
+			s_global_refresh_wanted = true;
 			s_temporary_technique_states.clear();
 			s_shaders_temporarily_disabled = false;
 			for (openxr_ui::technique &entry : inventory.snapshot->techniques)
@@ -1184,6 +1693,8 @@ namespace
 		if (preset_path != s_observed_preset_path)
 		{
 			s_observed_preset_path = preset_path;
+			note_preset_file_write();
+			s_global_refresh_wanted = true;
 			s_temporary_technique_states.clear();
 			s_technique_restore_states.clear();
 			s_shaders_temporarily_disabled = false;
@@ -1252,6 +1763,7 @@ namespace
 		bool retry_inventory = false;
 		bool scan_effect_subfolders_now = false;
 		bool apply_effect_subfolders_now = false;
+		global_activation activation;
 		// ReShade does not repeat init_effect_runtime for an add-on that registers late, and the
 		// game's own ReShade usually runs before the OpenXR loader loads this add-on.
 		const bool adopt_game_runtime = openxr_ui_game_brought_own_reshade() && runtime->get_hwnd() != nullptr;
@@ -1269,6 +1781,12 @@ namespace
 					retry_inventory = ++s_empty_inventory_retry_frame % 10 == 0;
 				scan_effect_subfolders_now = s_effect_subfolder_scan_pending.exchange(false, std::memory_order_acq_rel);
 				apply_effect_subfolders_now = s_effect_subfolder_state == openxr_ui::effect_subfolder_state::saving;
+#ifdef RESHADE_OPENVR_FRONTEND
+				// The OpenXR layer drives this from xrEndFrame; SteamVR games have no such call.
+				update_global_operations_locked();
+#endif
+				if (s_global_activation.pending)
+					activation = std::exchange(s_global_activation, {});
 				// A ReShade that ignores the reload request loads the new folders only at the next game start.
 				if (s_effect_subfolder_state == openxr_ui::effect_subfolder_state::loading && !s_effect_subfolder_reload_started &&
 					++s_effect_subfolder_wait_frames > 900)
@@ -1286,6 +1804,8 @@ namespace
 			refresh_effect_subfolder_scan(runtime);
 		if (apply_effect_subfolders_now)
 			apply_effect_subfolder_fix(runtime);
+		if (activation.pending)
+			apply_global_activation(runtime, activation);
 
 #ifdef RESHADE_OPENVR_FRONTEND
 		bool show_dashboard = false;
@@ -1699,6 +2219,9 @@ bool openxr_ui_set_technique_favourite(uint64_t technique_id, bool favourite)
 		log_runtime_message(reshade::log::level::error, "failed to save the global favourite-shader list.");
 		return false;
 	}
+	// The effect's files go to the shared library in the background, so other games can add it.
+	if (favourite)
+		s_global_star_queue.push_back(technique_it->effect_name);
 
 	auto updated = std::make_shared<openxr_ui::technique_snapshot>(*s_techniques);
 	updated->techniques[static_cast<size_t>(technique_it - s_techniques->techniques.begin())].favourite = favourite;
@@ -2438,6 +2961,7 @@ bool openxr_ui_save_preset()
 		return false;
 	auto updated = std::make_shared<openxr_ui::technique_snapshot>(*s_techniques);
 	openxr_ui::save_current_preset(s_effect_runtime, *updated, s_preset_dirty_state);
+	note_preset_file_write();
 	s_techniques = std::move(updated);
 	log_runtime_message(reshade::log::level::info, "controller saved all changes to the current preset.");
 	return true;
@@ -2500,6 +3024,7 @@ bool openxr_ui_delete_preset()
 int openxr_ui_update_preset_operations()
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);
+	update_global_operations_locked();
 	switch (s_pending_preset_delete.update(s_effect_runtime))
 	{
 	case openxr_ui::preset_delete_status::deleted:
@@ -2534,6 +3059,125 @@ int openxr_ui_update_preset_operations()
 		break;
 	}
 	return 0;
+}
+
+std::shared_ptr<const openxr_ui::global_library_snapshot> openxr_ui_get_global_library()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	return s_global_library;
+}
+
+void openxr_ui_refresh_global_library()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	s_global_refresh_wanted = true;
+}
+
+namespace
+{
+	// Caller holds s_mutex.
+	bool can_start_global_action_locked()
+	{
+		return s_effect_runtime != nullptr && !s_shaders_temporarily_disabled && !global_busy_locked() && s_global_confirmation == nullptr &&
+			!s_inherited_preset_copy.is_pending() && !s_pending_preset_delete.is_pending();
+	}
+
+	void clear_global_notice_locked()
+	{
+		set_global_notice_locked(openxr_ui::global_notice_level::none, {});
+	}
+
+	// Caller holds s_mutex. The copy to the library starts once ReShade has written the preset file.
+	bool begin_global_save_locked(const std::string &name)
+	{
+		if (!can_start_global_action_locked() || !library::valid_name(name) ||
+			!s_global_flush.begin(s_effect_runtime, s_preset_dirty_state.is_dirty()))
+			return false;
+		note_preset_file_write();
+		auto updated = std::make_shared<openxr_ui::technique_snapshot>(*s_techniques);
+		s_preset_dirty_state.mark_saved(*updated);
+		s_techniques = std::move(updated);
+		s_global_save_name = name;
+		clear_global_notice_locked();
+		log_runtime_message(reshade::log::level::info, "controller queued saving the current preset to the shared library.");
+		return true;
+	}
+
+	bool begin_global_plan_locked(const std::string &name, openxr_ui::global_import_kind kind)
+	{
+		if (!can_start_global_action_locked() || !library::valid_name(name))
+			return false;
+		s_global_plan_wanted = make_global_job_locked(global_job_kind::plan_import);
+		s_global_plan_wanted->name = name;
+		s_global_plan_wanted->import_kind = kind;
+		clear_global_notice_locked();
+		return true;
+	}
+}
+
+bool openxr_ui_save_global_preset(const std::string &name)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	return begin_global_save_locked(name);
+}
+
+bool openxr_ui_save_back_global_preset()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	const std::string name = s_global_library->current_source;
+	return !name.empty() && begin_global_save_locked(name);
+}
+
+bool openxr_ui_plan_global_import(const std::string &name, bool update)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	return begin_global_plan_locked(name, update ? openxr_ui::global_import_kind::update_preset : openxr_ui::global_import_kind::import_preset);
+}
+
+bool openxr_ui_plan_starred_effect(const std::string &persistence_id)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	return begin_global_plan_locked(persistence_id.substr(0, persistence_id.find("::")), openxr_ui::global_import_kind::add_effect);
+}
+
+bool openxr_ui_confirm_global_import()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	if (s_effect_runtime == nullptr || s_global_confirmation == nullptr)
+		return false;
+	s_global_confirmation->kind = global_job_kind::apply_import;
+	s_global_apply_wanted = std::move(s_global_confirmation);
+	update_global_library_locked([](openxr_ui::global_library_snapshot &view) {
+		view.confirmation_pending = false;
+	});
+	log_runtime_message(reshade::log::level::info, "controller confirmed adding files from the shared library to this game.");
+	return true;
+}
+
+void openxr_ui_cancel_global_import()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	s_global_confirmation.reset();
+	update_global_library_locked([](openxr_ui::global_library_snapshot &view) {
+		view.confirmation_pending = false;
+	});
+}
+
+bool openxr_ui_load_global_preset(const std::string &name)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	const auto copy = s_global_copies.find(name);
+	if (!can_start_global_action_locked() || copy == s_global_copies.end() ||
+		!openxr_ui::switch_to_preset_file(s_effect_runtime, copy->second))
+		return false;
+	log_runtime_message(reshade::log::level::info, "controller switched to this game's copy of a global preset.");
+	return true;
+}
+
+void openxr_ui_dismiss_global_notice()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	clear_global_notice_locked();
 }
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)

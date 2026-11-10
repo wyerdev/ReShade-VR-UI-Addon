@@ -1,3 +1,4 @@
+#include "openxr_ui_global_library.hpp"
 #include "openxr_ui_renderer.hpp"
 #include "startup_crash_guard.hpp"
 #include "vr_gamepad.hpp"
@@ -7,11 +8,14 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -156,6 +160,276 @@ namespace
 		openxr_ui::render_result::command expected_action, uint64_t expected_id)
 	{
 		return expect_result(click_at(renderer, render_target, snapshot, x, y), expected_action, expected_id);
+	}
+
+	bool write_test_file(const std::filesystem::path &path, const char *text)
+	{
+		std::error_code error;
+		std::filesystem::create_directories(path.parent_path(), error);
+		std::ofstream file(path, std::ios::binary | std::ios::trunc);
+		file << text;
+		return static_cast<bool>(file);
+	}
+
+	std::string read_test_file(const std::filesystem::path &path)
+	{
+		std::ifstream file(path, std::ios::binary);
+		return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+	}
+
+	bool has_name(const std::vector<std::string> &names, const char *name)
+	{
+		return std::find(names.begin(), names.end(), name) != names.end();
+	}
+
+	// The shared library on a temporary folder: game A saves a preset, games B and C import it.
+	bool global_library_checks(const std::filesystem::path &root)
+	{
+		namespace library = openxr_ui::global_library;
+		const auto fail = [](const char *message) {
+			std::fprintf(stderr, "Shared library: %s\n", message);
+			return false;
+		};
+		const std::filesystem::path game_a = root / "A", game_b = root / "B", game_c = root / "C", shared = root / "Library";
+		const library::game_folders folders_a = { { { game_a / "Shaders", true } }, { { game_a / "Textures", false } } };
+		const library::game_folders folders_b = { { { game_b / "Shaders", false } }, { { game_b / "Textures", false } } };
+		const library::game_folders folders_c = { { { game_c / "Shaders", false } }, { { game_c / "Textures", false } } };
+		const std::filesystem::path preset_a = game_a / "Presets" / "Dark.ini";
+		if (!write_test_file(game_a / "Shaders" / "Bloom.fx",
+				"#include \"ReShade.fxh\"\n// #include \"Commented.fxh\"\n/* texture Old < source = \"old.png\"; >; */\n"
+				"  #  include \"Sub/Helper.fxh\"\ntexture Lut < source = \"lut.png\"; >;\nuniform float Timer < source = \"timer\"; >;\n") ||
+			!write_test_file(game_a / "Shaders" / "ReShade.fxh", "// version of game A\n") ||
+			!write_test_file(game_a / "Shaders" / "Sub" / "Helper.fxh", "#include \"Deep.fxh\"\n") ||
+			!write_test_file(game_a / "Shaders" / "Sub" / "Deep.fxh", "// deep\n") ||
+			!write_test_file(game_a / "Shaders" / "Macro.fx", "#define NAME \"x.fxh\"\n#include NAME\ntexture T < source = TEXTURE_NAME; >;\n") ||
+			!write_test_file(game_a / "Textures" / "lut.png", "picture") ||
+			!write_test_file(preset_a, "Techniques=Bloom@Bloom.fx,Other@Macro.fx,Second@Bloom.fx\nTechniqueSorting=Bloom@Bloom.fx\n\n[Bloom.fx]\nStrength=1\n") ||
+			!write_test_file(game_b / "Shaders" / "ReShade.fxh", "// version of game B\n") ||
+			!write_test_file(game_b / "Textures" / "other.png", "picture") ||
+			!write_test_file(game_c / "Shaders" / "Other.fx", "// other\n") ||
+			!write_test_file(game_c / "Textures" / "other.png", "picture"))
+			return fail("could not write the test files.");
+
+		// Finding what an effect needs.
+		const library::effect_files bloom = library::find_effect_files(game_a / "Shaders" / "Bloom.fx", folders_a);
+		std::vector<std::string> bloom_names;
+		for (const library::found_file &file : bloom.files)
+			bloom_names.push_back(file.source.filename().u8string());
+		if (bloom.files.size() != 5 || !bloom.problems.empty() || !has_name(bloom_names, "ReShade.fxh") || !has_name(bloom_names, "Helper.fxh") ||
+			!has_name(bloom_names, "Deep.fxh") || !has_name(bloom_names, "lut.png") || bloom.files[4].kind != library::file_kind::include)
+			return fail("includes and textures of an effect were not found, or commented-out and built-in ones were collected.");
+		if (library::find_effect_files(game_a / "Shaders" / "Macro.fx", folders_a).problems.size() != 2)
+			return fail("file names built by the preprocessor were not reported.");
+		const std::vector<std::string> preset_effects = library::preset_effect_names(preset_a);
+		if (preset_effects.size() != 2 || preset_effects[0] != "Bloom.fx" || preset_effects[1] != "Macro.fx")
+			return fail("the effects a preset turns on were read wrongly.");
+
+		// Versions.
+		uint32_t version = 0;
+		std::vector<std::string> problems;
+		std::string error;
+		if (!library::save_preset(shared, "Dark", preset_a, folders_a, version, problems, error) || version != 1 || problems.size() != 2 ||
+			!library::save_preset(shared, "Dark", preset_a, folders_a, version, problems, error) || version != 2)
+			return fail("saving a global preset did not give versions 1 and 2.");
+		const std::vector<library::preset_entry> presets = library::list_presets(shared);
+		if (presets.size() != 1 || presets[0].name != "Dark" || presets[0].files.version != 2 || presets[0].files.files.size() != 6 ||
+			!has_name(presets[0].files.incomplete_effects, "Macro.fx"))
+			return fail("the saved global preset was not listed with its version, files and incomplete effect.");
+
+		// Importing into a game that has one of the files in another version.
+		library::manifest files;
+		if (!library::load_preset_manifest(shared, "Dark", files))
+			return fail("the file list of the global preset could not be read.");
+		const library::import_plan plan = library::plan_import(shared, files, folders_b);
+		if (!plan.error.empty() || plan.added_effect_files.size() != 4 || plan.added_textures.size() != 1 || plan.existing_file_count != 1 ||
+			plan.different_files.size() != 1 || plan.different_files[0] != "ReShade.fxh" || plan.copies.size() != 5)
+			return fail("the import plan counted added, existing or different-version files wrongly.");
+		library::copy_result copied;
+		if (!library::copy_files(plan, copied, error) || read_test_file(game_b / "Shaders" / "ReShade.fxh") != "// version of game B\n" ||
+			read_test_file(game_b / "Shaders" / "Sub" / "Deep.fxh") != "// deep\n" || read_test_file(game_b / "Textures" / "lut.png") != "picture" ||
+			!std::filesystem::exists(game_b / "Shaders" / "Bloom.fx"))
+			return fail("the import did not copy the missing files, or replaced a file the game already had.");
+		const library::import_plan second_plan = library::plan_import(shared, files, folders_b);
+		if (!second_plan.copies.empty() || second_plan.existing_file_count != 6 || second_plan.different_files.size() != 1)
+			return fail("a second import wanted to copy files the game already has.");
+		const std::vector<std::wstring> names_b = library::effect_folder_file_names(folders_b);
+		if (!library::contains_file_name(names_b, "BLOOM.FX") || library::contains_file_name(names_b, "Deep.fxh") ||
+			library::contains_file_name(names_b, "Missing.fx"))
+			return fail("the game's effect file names were listed wrongly.");
+
+		// A failed copy leaves nothing behind.
+		const library::import_plan blocked_plan = library::plan_import(shared, files, folders_c);
+		library::copy_result blocked_copy;
+		if (blocked_plan.copies.size() != 6 || !write_test_file(game_c / "Textures" / "lut.png", "appeared meanwhile") ||
+			library::copy_files(blocked_plan, blocked_copy, error) || error.empty() || !blocked_copy.files.empty() ||
+			std::filesystem::exists(game_c / "Shaders" / "Bloom.fx") || std::filesystem::exists(game_c / "Shaders" / "Sub") ||
+			read_test_file(game_c / "Textures" / "lut.png") != "appeared meanwhile" || !std::filesystem::exists(game_c / "Shaders" / "Other.fx"))
+			return fail("a failed import left copied files behind or touched the game's own files.");
+
+		// The preset copy and the record of where it came from.
+		const std::filesystem::path preset_b = game_b / "Presets" / "Dark.ini";
+		if (!library::copy_preset(shared, "Dark", preset_b, false, error) || library::copy_preset(shared, "Dark", preset_b, false, error) ||
+			!library::copy_preset(shared, "Dark", preset_b, true, error) || read_test_file(preset_b) != read_test_file(preset_a))
+			return fail("the preset copy replaced a preset without being told to, or did not copy.");
+		const std::filesystem::path records_file = root / "copies.txt";
+		if (!library::save_record(records_file, { preset_b, "Dark", 2, library::hash_file(preset_b) }) ||
+			!library::save_record(records_file, { preset_a, "Dark", 2, library::hash_file(preset_a) }) ||
+			!library::save_record(records_file, { preset_b, "Dark", 3, library::hash_file(preset_b) }))
+			return fail("the record of an imported preset could not be saved.");
+		const std::vector<library::import_record> records = library::load_records(records_file);
+		if (records.size() != 2 || records[1].version != 3 || records[1].name != "Dark" || records[1].hash != library::hash_file(preset_a) ||
+			!std::filesystem::equivalent(records[1].preset_file, preset_b))
+			return fail("the records of imported presets were not kept one per preset file.");
+
+		// A starred effect, and two versions of one file name side by side.
+		library::manifest starred;
+		problems.clear();
+		if (!library::save_starred_effect(shared, "Bloom.fx", folders_b, problems, error) || !problems.empty() ||
+			!library::load_effect_manifest(shared, "Bloom.fx", starred) || starred.files.size() != 5 ||
+			library::save_starred_effect(shared, "Missing.fx", folders_b, problems, error))
+			return fail("a starred effect was not saved with its files.");
+		const std::string hash_a = library::hash_file(game_a / "Shaders" / "ReShade.fxh");
+		const std::string hash_b = library::hash_file(game_b / "Shaders" / "ReShade.fxh");
+		if (hash_a.size() != 32 || hash_a == hash_b || read_test_file(shared / "Files" / hash_a / "ReShade.fxh") != "// version of game A\n" ||
+			read_test_file(shared / "Files" / hash_b / "ReShade.fxh") != "// version of game B\n")
+			return fail("two versions of one file name overwrote each other in the library.");
+		if (!library::valid_name("Dark Cave") || library::valid_name("bad/name") || library::valid_name("") || !library::same_name("Dark", "dARK"))
+			return fail("global preset names were checked wrongly.");
+		return true;
+	}
+
+	bool global_library_works()
+	{
+		std::error_code error;
+		const std::filesystem::path root = std::filesystem::temp_directory_path(error) /
+			("reshade-vr-ui-library-test-" + std::to_string(GetCurrentProcessId()));
+		std::filesystem::remove_all(root, error);
+		const bool works = global_library_checks(root);
+		std::filesystem::remove_all(root, error);
+		return works;
+	}
+
+	// The Global presets page, the name keyboard for it, the confirmation box and the greyed Starred row.
+	bool global_presets_ui_works(openxr_ui::panel_renderer &renderer, ID3D11RenderTargetView *render_target,
+		const openxr_ui::technique_snapshot &snapshot)
+	{
+		using command = openxr_ui::render_result::command;
+		using page = openxr_ui::panel_renderer::page;
+		using openxr_ui::global_preset_state;
+		const auto fail = [](const char *message) {
+			std::fprintf(stderr, "Global presets: %s\n", message);
+			return false;
+		};
+		openxr_ui::global_library_snapshot base;
+		base.presets = {
+			{ "Bright Day", 3, 4, 1, global_preset_state::update_available, 2, false },
+			{ "Retro CRT", 1, 3, 3, global_preset_state::not_in_game, 0, false },
+			{ "Dark Cave", 3, 5, 0, global_preset_state::in_game, 3, false },
+		};
+		base.missing_starred = { { "CRT.fx::CRT", "CRT", "CRT.fx" } };
+		openxr_ui::render_input input;
+		input.preset_name = "Dark Cave";
+		input.global_library = std::make_shared<openxr_ui::global_library_snapshot>(base);
+		openxr_ui::render_result result;
+		float x = 0.0f;
+		float y = 0.0f;
+
+		renderer.show_page(page::effects);
+		if (!click(renderer, render_target, snapshot, "tab/3/segment", result, input) || result.action != command::refresh_global_library)
+			return fail("opening the page did not ask to read the shared library.");
+		if (!click(renderer, render_target, snapshot, "tab/3/segment", result, input) || result.action != command::none)
+			return fail("the page asked to read the shared library again while already open.");
+		if (!click(renderer, render_target, snapshot, "global/0/action", result, input) || result.action != command::update_global_preset ||
+			result.text != "Bright Day")
+			return fail("Update did not send its command with the preset name.");
+		if (!click(renderer, render_target, snapshot, "global/1/action", result, input) || result.action != command::import_global_preset ||
+			result.text != "Retro CRT")
+			return fail("Import did not send its command with the preset name.");
+		if (!click(renderer, render_target, snapshot, "global/2/action", result, input) || result.action != command::load_global_preset ||
+			result.text != "Dark Cave")
+			return fail("Load did not send its command with the preset name.");
+		if (renderer.find_control("save_back_global", x, y))
+			return fail("Save back was shown for a preset that is not a copy of a global preset.");
+
+		openxr_ui::global_library_snapshot copy_loaded = base;
+		copy_loaded.current_source = "Dark Cave";
+		copy_loaded.current_source_version = 3;
+		copy_loaded.presets[2].current = true;
+		input.global_library = std::make_shared<openxr_ui::global_library_snapshot>(copy_loaded);
+		if (!click(renderer, render_target, snapshot, "save_back_global", result, input) || result.action != command::save_back_global_preset)
+			return fail("Save back did not send its command.");
+		if (!click(renderer, render_target, snapshot, "global/2/action", result, input) || result.action != command::none)
+			return fail("Load stayed active for the preset that is already loaded.");
+
+		// The name starts as the current preset's name, which exists as a global preset, so replacing needs two presses.
+		if (!click(renderer, render_target, snapshot, "save_current_global", result, input) || result.action != command::none ||
+			!click(renderer, render_target, snapshot, "key/create", result, input) || result.action != command::none)
+			return fail("replacing a global preset did not ask first.");
+		if (!click(renderer, render_target, snapshot, "key/create", result, input) || result.action != command::save_global_preset ||
+			result.text != "Dark Cave")
+			return fail("the second press did not save over the existing global preset.");
+		if (!click(renderer, render_target, snapshot, "save_current_global", input) || !click(renderer, render_target, snapshot, "key/clear", input) ||
+			!click(renderer, render_target, snapshot, "key/N", input) ||
+			!click(renderer, render_target, snapshot, "key/create", result, input) || result.action != command::save_global_preset || result.text != "N")
+			return fail("a new global preset name was not saved with one press.");
+
+		// The confirmation box shows counts and hides the different-version line when there is none.
+		openxr_ui::global_library_snapshot confirming = copy_loaded;
+		confirming.confirmation_pending = true;
+		confirming.confirmation = { openxr_ui::global_import_kind::import_preset, "Retro CRT", 1, { "CRT.fx" }, { "mask.png", "noise.png" }, 14, {}, {} };
+		input.global_library = std::make_shared<openxr_ui::global_library_snapshot>(confirming);
+		render_layout(renderer, render_target, snapshot, input);
+		if (!renderer.find_control("import_adds", x, y) || !renderer.find_control("import_existing", x, y) ||
+			renderer.find_control("import_different", x, y) || renderer.find_control("import_replaces", x, y) ||
+			openxr_ui::global_import_adds_text(confirming.confirmation) != "Adds 1 effect file and 2 textures" ||
+			openxr_ui::global_import_existing_text(confirming.confirmation) != "Uses 14 files this game already has")
+			return fail("the confirmation box showed wrong counts or a different-version line with nothing to report.");
+		if (!click(renderer, render_target, snapshot, "confirm_import", result, input) || result.action != command::confirm_global_import ||
+			!click(renderer, render_target, snapshot, "cancel_import", result, input) || result.action != command::cancel_global_import)
+			return fail("the confirmation box buttons did not send their commands.");
+		confirming.confirmation.kind = openxr_ui::global_import_kind::update_preset;
+		confirming.confirmation.different_files = { "ReShade.fxh", "ReShadeUI.fxh" };
+		input.global_library = std::make_shared<openxr_ui::global_library_snapshot>(confirming);
+		render_layout(renderer, render_target, snapshot, input);
+		std::vector<std::string> many_names(15, "File.fx");
+		const std::string name_list = openxr_ui::global_name_list(many_names);
+		if (!renderer.find_control("import_different", x, y) || !renderer.find_control("import_replaces", x, y) ||
+			openxr_ui::global_import_different_text(confirming.confirmation) != "2 of them are a different version in this game" ||
+			name_list.size() < 10 || name_list.compare(name_list.size() - 10, 10, "and 3 more") != 0)
+			return fail("the different-version line, the update warning or the shortened name list was wrong.");
+
+		// A starred effect this game lacks is a greyed row with Add; it turns normal once the game has the effect.
+		input.global_library = std::make_shared<openxr_ui::global_library_snapshot>(copy_loaded);
+		renderer.show_page(page::effects);
+		if (!click(renderer, render_target, snapshot, "filter/1/segment", result, input) || result.action != command::refresh_global_library)
+			return fail("opening the Starred list did not ask to read the shared library.");
+		if (!click(renderer, render_target, snapshot, "effect/0/add", result, input) || result.action != command::add_starred_effect ||
+			result.text != "CRT.fx::CRT")
+			return fail("Add on a starred effect the game lacks did not send its command.");
+		openxr_ui::technique_snapshot installed_snapshot = snapshot;
+		installed_snapshot.techniques.front().persistence_id = "CRT.fx::CRT";
+		installed_snapshot.techniques.front().favourite = true;
+		render_layout(renderer, render_target, installed_snapshot, input);
+		if (renderer.find_control("effect/0/add", x, y) || renderer.find_control("effect/1/add", x, y) || !renderer.find_control("effect/0/star", x, y))
+			return fail("the greyed row stayed after the game got the effect.");
+
+		// Results are shown until dismissed, and nothing can be started while work is running.
+		openxr_ui::global_library_snapshot noticing = copy_loaded;
+		noticing.notice_level = openxr_ui::global_notice_level::error;
+		noticing.notice = "Nothing was changed in this game: could not copy CRT.fx.";
+		input.global_library = std::make_shared<openxr_ui::global_library_snapshot>(noticing);
+		if (!click(renderer, render_target, snapshot, "global_notice_ok", result, input) || result.action != command::dismiss_global_notice)
+			return fail("a failure notice on the effects page could not be dismissed.");
+		openxr_ui::global_library_snapshot working = copy_loaded;
+		working.busy = true;
+		input.global_library = std::make_shared<openxr_ui::global_library_snapshot>(working);
+		renderer.show_page(page::global_presets);
+		if (!click(renderer, render_target, snapshot, "global/1/action", result, input) || result.action != command::none ||
+			!click(renderer, render_target, snapshot, "save_current_global", result, input) || result.action != command::none ||
+			renderer.find_control("global_notice_ok", x, y))
+			return fail("an action could be started while the shared library was busy.");
+		renderer.show_page(page::effects);
+		return true;
 	}
 
 	bool preset_file_detection_works()
@@ -727,6 +1001,8 @@ int main(int argc, char **argv)
 	if (!startup_crash_guard_works() || !startup_crash_guard_survives_real_crash())
 		return 1;
 	if (!preset_file_detection_works() || !preset_gesture_logic_works() || !gamepad_logic_works() || !mouse_logic_works() || !arm_swing_logic_works() || !arm_swing_run_logic_works())
+		return 1;
+	if (!global_library_works())
 		return 1;
 	ComPtr<ID3D11Device> device;
 	ComPtr<ID3D11DeviceContext> context;
@@ -1869,6 +2145,9 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+	if (!global_presets_ui_works(renderer, render_target.Get(), snapshot))
+		return 1;
+
 	texture_desc.Width = openxr_ui::statistics_width;
 	texture_desc.Height = openxr_ui::statistics_height;
 	ComPtr<ID3D11Texture2D> statistics_texture;
@@ -1885,6 +2164,6 @@ int main(int argc, char **argv)
 	statistics_renderer.render_statistics(statistics_target.Get(), statistics);
 	statistics_renderer.render_statistics(statistics_target.Get(), cpu_statistics);
 
-	std::puts("Private ImGui named preset save/delete controls, sorting, shader hiding, global favourites, close control, full-row toggles, drag scrolling, sliders, expansion, parameter controls, and the FPS counter passed.");
+	std::puts("Private ImGui named preset save/delete controls, sorting, shader hiding, global favourites, close control, full-row toggles, drag scrolling, sliders, expansion, parameter controls, global presets, and the FPS counter passed.");
 	return 0;
 }

@@ -88,6 +88,40 @@ namespace openxr_ui
 		std::unique_ptr<state> _state;
 	};
 
+	enum class preset_flush_status
+	{
+		none,
+		ready,
+		failed,
+	};
+
+	struct preset_flush_result
+	{
+		preset_flush_status status = preset_flush_status::none;
+		// The preset file, complete on disk.
+		std::string path;
+	};
+
+	// Saves the current preset and waits until ReShade has written it, so the file can be copied to the shared library.
+	class pending_preset_flush
+	{
+	public:
+		pending_preset_flush();
+		~pending_preset_flush();
+
+		pending_preset_flush(const pending_preset_flush &) = delete;
+		pending_preset_flush &operator=(const pending_preset_flush &) = delete;
+
+		bool begin(reshade::api::effect_runtime *runtime, bool wait_for_source_update);
+		preset_flush_result update(reshade::api::effect_runtime *runtime);
+		void cancel(reshade::api::effect_runtime *runtime);
+		bool is_pending() const;
+
+	private:
+		struct state;
+		std::unique_ptr<state> _state;
+	};
+
 	bool save_current_preset(
 		reshade::api::effect_runtime *runtime,
 		technique_snapshot &snapshot,
@@ -96,4 +130,6 @@ namespace openxr_ui
 	bool switch_to_sibling_preset(reshade::api::effect_runtime *runtime, bool previous);
 	std::vector<std::string> list_preset_names(reshade::api::effect_runtime *runtime);
 	bool switch_to_named_preset(reshade::api::effect_runtime *runtime, const std::string &name);
+	// Makes ReShade load the preset file, also when it is already the current preset (after its content was replaced).
+	bool switch_to_preset_file(reshade::api::effect_runtime *runtime, const std::string &path);
 }

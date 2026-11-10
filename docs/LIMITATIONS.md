@@ -29,6 +29,12 @@
   thumbstick, not in SteamVR (OpenVR) games. **Run** works only in games that
   sprint with a left thumbstick click (`L3`) or a held A, B, X or Y button.
 - **Open when the game starts** takes effect the next time you start the game.
+- **Global presets** and **Add** under **Starred** copy the files an effect
+  names in its own text. An effect that builds a file name another way (for
+  example from a `#define`) can arrive incomplete; the menu says so when you
+  save and before you import.
+- **Global presets** only use effect and texture folders that `ReShade.ini`
+  lists as plain paths, not ones written with `${...}`.
 - **Safe start** remembers games by their `.exe` name. Games with the same
   `.exe` name are switched off together.
 - The FPS counter counts the frames the game sends to the headset.

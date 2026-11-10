@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace
 {
@@ -19,11 +20,14 @@ namespace
 	bool s_favourites_only = false;
 	bool s_open_logged = false;
 	char s_save_as_name[128] = {};
+	char s_global_name[128] = {};
+	bool s_global_section_open = false;
 
 	// Hidden for now because ReShade's own menu already offers all of these controls; set to true to show them again.
 	constexpr bool show_effect_controls = false;
 
 	void draw_effect_controls();
+	void draw_global_presets();
 
 	template <typename T>
 	T *get_openvr_interface(const char *version)
@@ -164,8 +168,132 @@ namespace
 				openxr_ui_set_menu_key(key);
 		}
 
+		draw_global_presets();
 		if constexpr (show_effect_controls)
 			draw_effect_controls();
+	}
+
+	void show_name_tooltip(const std::vector<std::string> &names)
+	{
+		if (!names.empty() && ImGui::IsItemHovered())
+			ImGui::SetTooltip("%s", openxr_ui::global_name_list(names).c_str());
+	}
+
+	// Presets and starred effects shared between games; ReShade's own menu has nothing like it, so it is always shown.
+	void draw_global_presets()
+	{
+		const bool open = ImGui::CollapsingHeader("Global presets");
+		// The shared library is read when the section opens, never while it is merely shown.
+		if (open && !s_global_section_open)
+			openxr_ui_refresh_global_library();
+		s_global_section_open = open;
+		if (!open)
+			return;
+
+		const std::shared_ptr<const openxr_ui::global_library_snapshot> library = openxr_ui_get_global_library();
+		if (library->busy)
+			ImGui::TextUnformatted("Working...");
+		else if (library->notice_level != openxr_ui::global_notice_level::none)
+		{
+			ImGui::TextWrapped("%s", library->notice.c_str());
+			ImGui::SameLine();
+			if (ImGui::SmallButton("OK"))
+				openxr_ui_dismiss_global_notice();
+		}
+
+		if (library->confirmation_pending)
+		{
+			const openxr_ui::global_import_summary &summary = library->confirmation;
+			std::vector<std::string> added = summary.added_effect_files;
+			added.insert(added.end(), summary.added_textures.begin(), summary.added_textures.end());
+			ImGui::TextUnformatted(openxr_ui::global_import_title(summary).c_str());
+			ImGui::BulletText("%s", openxr_ui::global_import_adds_text(summary).c_str());
+			show_name_tooltip(added);
+			if (summary.existing_file_count != 0)
+				ImGui::BulletText("%s", openxr_ui::global_import_existing_text(summary).c_str());
+			if (!summary.different_files.empty())
+			{
+				ImGui::BulletText("%s", openxr_ui::global_import_different_text(summary).c_str());
+				show_name_tooltip(summary.different_files);
+			}
+			if (!summary.incomplete_effects.empty())
+			{
+				ImGui::BulletText("%s", openxr_ui::global_import_incomplete_text(summary).c_str());
+				show_name_tooltip(summary.incomplete_effects);
+			}
+			if (summary.kind == openxr_ui::global_import_kind::update_preset)
+				ImGui::BulletText("Your changes to this preset in this game will be replaced.");
+			ImGui::BulletText(added.empty() ? "ReShade does not need to load anything new." :
+				"Effects switch off for a few seconds while ReShade loads.");
+			if (ImGui::Button(openxr_ui::global_import_action_text(summary.kind)))
+				openxr_ui_confirm_global_import();
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
+				openxr_ui_cancel_global_import();
+			return;
+		}
+
+		const std::string preset_name = openxr_ui_get_preset_name();
+		ImGui::TextWrapped("Current preset: %s", openxr_ui::global_current_text(*library, preset_name, openxr_ui_is_preset_dirty()).c_str());
+		ImGui::BeginDisabled(library->busy);
+		ImGui::SetNextItemWidth(220.0f);
+		ImGui::InputTextWithHint("##global_name", preset_name.c_str(), s_global_name, sizeof(s_global_name));
+		// An empty box saves under the current preset's name.
+		const std::string name = s_global_name[0] != '\0' ? s_global_name : preset_name;
+		const auto replaced = std::find_if(library->presets.begin(), library->presets.end(), [&name](const openxr_ui::global_preset_row &row) {
+			return _stricmp(row.name.c_str(), name.c_str()) == 0;
+		});
+		char save_label[96] = "Save current as global";
+		if (replaced != library->presets.end())
+			std::snprintf(save_label, sizeof(save_label), "Replace global (v%u becomes v%u)", replaced->version, replaced->version + 1);
+		ImGui::SameLine();
+		if (ImGui::Button(save_label) && !name.empty() && openxr_ui_save_global_preset(name))
+			s_global_name[0] = '\0';
+		if (!library->current_source.empty())
+		{
+			char save_back_label[64];
+			std::snprintf(save_back_label, sizeof(save_back_label), "Save back to global (v%u)", library->current_source_version + 1);
+			ImGui::SameLine();
+			if (ImGui::Button(save_back_label))
+				openxr_ui_save_back_global_preset();
+		}
+
+		if (library->presets.empty())
+			ImGui::TextDisabled("No global presets yet.");
+		for (const openxr_ui::global_preset_row &row : library->presets)
+		{
+			ImGui::PushID(row.name.c_str());
+			const bool in_game = row.state == openxr_ui::global_preset_state::in_game;
+			ImGui::BeginDisabled(in_game && row.current);
+			if (ImGui::SmallButton(openxr_ui::global_preset_action_text(row)))
+			{
+				if (in_game)
+					openxr_ui_load_global_preset(row.name);
+				else
+					openxr_ui_plan_global_import(row.name, row.state == openxr_ui::global_preset_state::update_available);
+			}
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			ImGui::Text("%s  v%u  |  Effects: %s  |  %s", row.name.c_str(), row.version, openxr_ui::global_preset_effects_text(row).c_str(),
+				openxr_ui::global_preset_status_text(row).c_str());
+			ImGui::PopID();
+		}
+
+		if (!library->missing_starred.empty())
+		{
+			ImGui::Separator();
+			ImGui::TextUnformatted("Starred effects not in this game");
+			for (const openxr_ui::missing_starred_effect &missing : library->missing_starred)
+			{
+				ImGui::PushID(missing.persistence_id.c_str());
+				if (ImGui::SmallButton("Add"))
+					openxr_ui_plan_starred_effect(missing.persistence_id);
+				ImGui::SameLine();
+				ImGui::Text("%s  [%s]", missing.name.c_str(), missing.effect_name.c_str());
+				ImGui::PopID();
+			}
+		}
+		ImGui::EndDisabled();
 	}
 
 	void draw_effect_controls()
