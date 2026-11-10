@@ -37,3 +37,32 @@ function Restore-InstalledOpenXRLayers([hashtable]$Saved) {
 		[Environment]::SetEnvironmentVariable($switch, $Saved[$switch], 'Process')
 	}
 }
+
+# Vulkan programs get ReShade through a Vulkan layer, not through the OpenXR one. This loads the ReShade DLL under test
+# as that layer and switches off the ReShade installed on this PC, for processes started from this PowerShell session.
+function Enable-TestVulkanReShadeLayer([string]$Directory, [string]$ReShadeDll) {
+	$saved = @{}
+	foreach ($name in @('VK_LAYER_PATH', 'VK_INSTANCE_LAYERS', 'DISABLE_VK_LAYER_reshade_1')) {
+		$saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+	}
+	New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+	[ordered]@{
+		file_format_version = '1.0.0'
+		layer = [ordered]@{
+			name = 'VK_LAYER_reshade_under_test'
+			type = 'GLOBAL'
+			library_path = $ReShadeDll
+			api_version = '1.3.268'
+			implementation_version = '1'
+			description = 'ReShade under test'
+		}
+	} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $Directory 'ReShade-Under-Test-Vulkan-Layer.json') -Encoding ASCII
+	$env:VK_LAYER_PATH = $Directory
+	$env:VK_INSTANCE_LAYERS = 'VK_LAYER_reshade_under_test'
+	$env:DISABLE_VK_LAYER_reshade_1 = '1'
+	return $saved
+}
+
+function Restore-TestVulkanReShadeLayer([hashtable]$Saved) {
+	Restore-InstalledOpenXRLayers $Saved
+}

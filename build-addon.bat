@@ -9,6 +9,12 @@ if not exist "%ROOT%.deps\reshade\include\reshade.hpp" (
     if errorlevel 1 exit /b 1
 )
 
+if not exist "%ROOT%.deps\Vulkan-Headers\include\vulkan\vulkan.h" (
+    echo Vulkan headers are missing. Downloading them now...
+    git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git "%ROOT%.deps\Vulkan-Headers"
+    if errorlevel 1 exit /b 1
+)
+
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%build-openxr-ui.ps1" %*
 if errorlevel 1 exit /b 1
 

@@ -1,4 +1,5 @@
 #include "openxr_ui_renderer.hpp"
+#include "openxr_ui_vulkan.hpp"
 
 #include <d3d11.h>
 #include <d3d12.h>
@@ -6,6 +7,7 @@
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_dx12.h>
 #include <imgui_impl_opengl3.h>
+#include <imgui_impl_vulkan.h>
 
 #include "vr_frame_graph.hpp"
 #include "vr_ui_theme.hpp"
@@ -25,6 +27,11 @@
 namespace
 {
 	std::mutex s_imgui_mutex;
+
+	// Stands in for Vulkan window functions the Dear ImGui backend asks for but the menu never calls.
+	void VKAPI_CALL unused_vulkan_function()
+	{
+	}
 
 	constexpr unsigned int gl_texture_2d = 0x0DE1;
 	constexpr unsigned int gl_scissor_test = 0x0C11;
@@ -1096,6 +1103,7 @@ namespace openxr_ui
 			d3d11,
 			d3d12,
 			opengl,
+			vulkan,
 		};
 
 		enum class drag_target
@@ -1240,6 +1248,8 @@ namespace openxr_ui
 			ImGui_ImplDX11_Shutdown();
 		else if (_implementation->api == implementation::graphics_api::d3d12)
 			ImGui_ImplDX12_Shutdown();
+		else if (_implementation->api == implementation::graphics_api::vulkan)
+			ImGui_ImplVulkan_Shutdown();
 		ImGui::DestroyContext(_implementation->context);
 		if (_implementation->device_context != nullptr)
 			_implementation->device_context->Release();
@@ -1375,6 +1385,47 @@ namespace openxr_ui
 		return renderer.opengl_framebuffer != 0;
 	}
 
+	bool panel_renderer::initialize_vulkan(const vulkan_renderer_setup &setup, uint32_t width, uint32_t height)
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		if (setup.instance == VK_NULL_HANDLE || setup.physical_device == VK_NULL_HANDLE || setup.device == VK_NULL_HANDLE ||
+			setup.queue == VK_NULL_HANDLE || setup.render_pass == VK_NULL_HANDLE || setup.get_instance_proc_addr == nullptr ||
+			!initialize_context(width, height))
+			return false;
+
+		const auto load_function = [](const char *name, void *user_data) -> PFN_vkVoidFunction {
+			const auto &session = *static_cast<const vulkan_renderer_setup *>(user_data);
+			if (const PFN_vkVoidFunction function = session.get_instance_proc_addr(session.instance, name))
+				return function;
+			// The backend also asks for the window swapchain functions of its multi-window mode, which a game that only
+			// draws to the headset may not have switched on. The menu never calls them, so they only must not be null.
+			const size_t length = std::strlen(name);
+			return length > 3 && std::strcmp(name + length - 3, "KHR") == 0 ? &unused_vulkan_function : nullptr;
+		};
+		ImGui_ImplVulkan_InitInfo init_info = {};
+		init_info.ApiVersion = VK_API_VERSION_1_0;
+		init_info.Instance = setup.instance;
+		init_info.PhysicalDevice = setup.physical_device;
+		init_info.Device = setup.device;
+		init_info.QueueFamily = setup.queue_family;
+		init_info.Queue = setup.queue;
+		init_info.DescriptorPoolSize = 16;
+		init_info.MinImageCount = 2;
+		init_info.ImageCount = (std::max)(setup.frame_count, init_info.MinImageCount);
+		init_info.PipelineInfoMain.RenderPass = setup.render_pass;
+		init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+		if (!ImGui_ImplVulkan_LoadFunctions(init_info.ApiVersion, load_function, const_cast<vulkan_renderer_setup *>(&setup)) ||
+			!ImGui_ImplVulkan_Init(&init_info))
+		{
+			ImGui::DestroyContext(_implementation->context);
+			_implementation->context = nullptr;
+			return false;
+		}
+
+		_implementation->api = implementation::graphics_api::vulkan;
+		return true;
+	}
+
 	void panel_renderer::select_theme(uint32_t theme)
 	{
 		vr_theme::select_theme(theme);
@@ -1479,7 +1530,8 @@ namespace openxr_ui
 		}
 		const char *const graphics_api_name = _implementation->api == implementation::graphics_api::d3d11 ? "DX11" :
 			_implementation->api == implementation::graphics_api::d3d12 ? "DX12" :
-			_implementation->api == implementation::graphics_api::opengl ? "OpenGL" : "Unknown";
+			_implementation->api == implementation::graphics_api::opengl ? "OpenGL" :
+			_implementation->api == implementation::graphics_api::vulkan ? "Vulkan" : "Unknown";
 		char graphics_api_label[48];
 		if (input.eye_width != 0 && input.eye_height != 0)
 			std::snprintf(graphics_api_label, sizeof(graphics_api_label), "%s, %ux%u per eye", graphics_api_name, input.eye_width, input.eye_height);
@@ -3257,6 +3309,19 @@ namespace openxr_ui
 		return result;
 	}
 
+	render_result panel_renderer::render_vulkan(VkCommandBuffer_T *command_buffer, const technique_snapshot &snapshot, const render_input &input)
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		if (_implementation->context == nullptr || _implementation->api != implementation::graphics_api::vulkan || command_buffer == nullptr)
+			return {};
+
+		ImGui::SetCurrentContext(_implementation->context);
+		ImGui_ImplVulkan_NewFrame();
+		const render_result result = render_ui(snapshot, input);
+		ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffer);
+		return result;
+	}
+
 	void panel_renderer::render_statistics(ID3D11RenderTargetView *render_target, const frame_statistics &statistics)
 	{
 		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
@@ -3293,6 +3358,18 @@ namespace openxr_ui
 		ImGui_ImplOpenGL3_NewFrame();
 		render_statistics_ui(statistics);
 		submit_opengl(texture);
+	}
+
+	void panel_renderer::render_statistics_vulkan(VkCommandBuffer_T *command_buffer, const frame_statistics &statistics)
+	{
+		const std::lock_guard<std::mutex> lock(s_imgui_mutex);
+		if (_implementation->context == nullptr || _implementation->api != implementation::graphics_api::vulkan || command_buffer == nullptr)
+			return;
+
+		ImGui::SetCurrentContext(_implementation->context);
+		ImGui_ImplVulkan_NewFrame();
+		render_statistics_ui(statistics);
+		ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command_buffer);
 	}
 
 	void panel_renderer::render_statistics_ui(const frame_statistics &statistics)

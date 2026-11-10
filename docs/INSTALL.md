@@ -10,11 +10,11 @@
 
 <details><summary><b>Step by step</b></summary>
 
-For OpenXR games with DirectX 11, DirectX 12 or OpenGL, and for UEVR. 32-bit OpenXR games: only DirectX 11 is tested (BioShock Remastered VR).
+For OpenXR games with DirectX 11, DirectX 12, OpenGL or Vulkan, and for UEVR. 32-bit OpenXR games: only DirectX 11 is tested (BioShock Remastered VR).
 
 1. Download ReShade from [reshade.me](https://reshade.me/). Choose the version **with full add-on support**.
 2. Run ReShade Setup and pick the game's `.exe`. For UEVR games, pick the one ending in `-Win64-Shipping.exe`.
-3. Choose **DirectX 10/11/12** (or **OpenGL**) and **tick** the **OpenXR** layer.
+3. Choose **DirectX 10/11/12** (or **OpenGL** or **Vulkan**) and **tick** the **OpenXR** layer.
 4. Close all games and SteamVR.
 5. Extract the add-on ZIP. Double-click `Install-OpenXR.cmd`. When Windows asks for permission, click **Yes**.
 6. Start the game. For UEVR, set UEVR to **OpenXR** before you inject.

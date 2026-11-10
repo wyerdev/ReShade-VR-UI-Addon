@@ -140,7 +140,7 @@
 ## Clean Code And File Organization
 
 - Keep platform/API ownership (`openxr_ui_layer.cpp`, `openvr_ui_overlay.cpp`, `reshade_openxr_ui_addon.cpp`), rendering (`openxr_ui_renderer.*`, `vr_ui_theme*.hpp`), domain state (`openxr_ui_model.hpp`, `vr_ui_state.hpp`, `openxr_ui_preset.*`), effect fallback (`openxr_effect_fallback.*`) and tests (`openxr_ui_renderer_test.cpp`) in their separate modules. New code goes where its responsibility already lives; add a module only when none fits.
-- Graphics-API specific code stays behind the existing per-API paths (D3D11, D3D12, OpenGL); shared logic must not grow API-specific branches.
+- Graphics-API specific code stays behind the existing per-API paths (D3D11, D3D12, OpenGL, Vulkan); shared logic must not grow API-specific branches.
 - No unrelated rewrites, duplicated logic or dead code.
 - Prefer descriptive names, narrow scopes, early exits, RAII, and immutable data where practical.
 - Comments should explain non-obvious constraints or decisions, not restate code.

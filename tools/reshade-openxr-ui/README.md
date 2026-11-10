@@ -4,7 +4,7 @@ ReShade VR UI Add-on is a controller-driven, headset-native interface for managi
 
 Why two frontends: in SteamVR games ReShade already has its own dashboard menu and adds its SteamVR dashboard icon by itself (it creates `ReShadeVR.ini` on its own), so the SteamVR side only adds small extras. In OpenXR games ReShade has no headset menu at all, so the OpenXR side draws its own panel. An earlier version of these docs claimed the icon needs a `ReShadeVR.ini` next to the game; tests on 2026-10-25 with plain ReShade 6.8.0 (Propagation: Paradise Hotel and Hubris, no add-on, no ini) and ReShade's source show that is wrong. The packaged `ReShadeVR.ini` (now a plain release download) and the SteamVR add-on code are kept; the add-on is not released for now.
 
-This README is for developers. Players: see the [main README](../../README.md). The install guides are [INSTALL.md](../../docs/INSTALL.md) (OpenXR games and UEVR), [INSTALL-SteamVR.md](../../docs/INSTALL-SteamVR.md) (SteamVR games) and [INSTALL-Vulkan.md](../../docs/INSTALL-Vulkan.md) (Vulkan games, ReShade alone).
+This README is for developers. Players: see the [main README](../../README.md). The install guides are [INSTALL.md](../../docs/INSTALL.md) (OpenXR games and UEVR), [INSTALL-SteamVR.md](../../docs/INSTALL-SteamVR.md) (SteamVR games) and [INSTALL-Vulkan.md](../../docs/INSTALL-Vulkan.md) (Vulkan SteamVR games, ReShade alone).
 
 ## Install And Load Model
 
@@ -58,7 +58,7 @@ Data `0` means the layer is enabled. When a 64-bit OpenXR application starts:
 3. The manifest resolves `..\ReShade-OpenXR-UI.addon64` relative to its `openxr-layers` directory.
 4. The loader loads the DLL as an OpenXR API layer.
 5. The DLL checks whether official ReShade with full add-on support is loaded.
-6. If ReShade accepts `reshade::register_addon`, the add-on initializes its controller actions, D3D11, D3D12 or OpenGL UI swapchain, and headset quad.
+6. If ReShade accepts `reshade::register_addon`, the add-on initializes its controller actions, D3D11, D3D12, OpenGL or Vulkan UI swapchain, and headset quad.
 7. Without ReShade, the layer remains inert and forwards OpenXR normally. Pimax Home therefore does not display the UI.
 
 SteamVR (OpenVR) games do not use this install. Players install ReShade alone for each game; the plain `ReShadeVR.ini` release download is only an optional smaller-menu-text file. The SteamVR add-on (`ReShade-SteamVR-UI.addon64`) is still built but not released for now. The optional System-Wide SteamVR Listener that automates the add-on way is a separate program in `tools\steamvr-listener` with its own build, package and installer.
@@ -80,7 +80,7 @@ Run the packaged installer as administrator from the repository root after closi
 
 - Windows x64
 - 64-bit and 32-bit OpenXR applications (32-bit tested with D3D11 in BioShock Remastered VR; see `BIOSHOCK_32BIT.md`), 64-bit OpenVR applications
-- Direct3D 11, Direct3D 12 or OpenGL renderer (OpenGL for OpenXR games)
+- Direct3D 11, Direct3D 12, OpenGL or Vulkan renderer (OpenGL and Vulkan for OpenXR games)
 - UEVR in OpenXR mode (the add-on creates its own effect runtime; no depth effects). With SteamVR's OpenXR runtime only D3D11 games work; D3D12 games crash or freeze while the ReShade layer is on (see `UEVR_RESHADE_RESEARCH.md`)
 - Oculus Touch-compatible controllers
 - Khronos simple-controller profile as a limited fallback
@@ -89,7 +89,7 @@ SteamVR/OpenVR games use ReShade's own SteamVR dashboard menu. The `ReShade-Stea
 
 Vulkan and 32-bit status (checked 2026-10-01):
 
-- Vulkan OpenXR games: ReShade runs the effects, but this add-on does not draw its headset panel yet. The work is planned in `VULKAN_SUPPORT_PLAN.md` and has not started.
+- Vulkan OpenXR games: ReShade runs the effects and this add-on draws its headset panel (added 2026-11-10). Tested in the OpenXR Simulator with both `XR_KHR_vulkan_enable` and `XR_KHR_vulkan_enable2`; not yet in a game. See the Vulkan paragraph below and `VULKAN_SUPPORT_PLAN.md`.
 - Vulkan SteamVR (OpenVR) games: ReShade's own SteamVR dashboard already supports Vulkan, and the SteamVR companion has no graphics code of its own, so 64-bit Vulkan SteamVR games should work. This is untested.
 - 32-bit OpenXR games: `ReShade-OpenXR-UI.addon32` works (see `BIOSHOCK_32BIT.md`).
 - 32-bit SteamVR games: the SteamVR companion has no 32-bit build. 32-bit ReShade only loads `.addon32` files, so neither our page nor the automatic dashboard text-size fix below applies. ReShade's own SteamVR dashboard still works and adds its icon by itself. If its text is too large, users set `FontScale=1` and `FontSize=12` under `[STYLE]` in the game's `ReShadeVR.ini`, as described in `INSTALL-SteamVR.md`.
@@ -103,7 +103,7 @@ The companion disables ReShade's built-in Effect Runtime Sync for OpenVR-only pr
 
 The companion also performs a one-time density migration for ReShade's fixed 500-pixel SteamVR dashboard. When the OpenVR effect runtime still has the default font size and an automatic `1`, `1.5`, or `2` scale, it writes `STYLE/FontSize=12` and `STYLE/FontScale=1` to `ReShadeVR.ini`. A per-runtime marker prevents later user-selected font settings from being overwritten. The portable VR configuration generator uses the same baseline.
 
-For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingVulkanKHR` and Vulkan swapchain images. The current add-on accepts `XrGraphicsBindingD3D11KHR`, `XrGraphicsBindingD3D12KHR` and `XrGraphicsBindingOpenGLWin32KHR`, owns matching graphics resources, and renders Dear ImGui through the corresponding backend. It therefore leaves a Vulkan session running but skips native-quad initialization and logs `native quad skipped: the OpenXR session is not using D3D11, D3D12 or OpenGL.` SteamVR acting as the OpenXR runtime does not translate Vulkan images into a Direct3D graphics binding for API layers, so changing the runtime to SteamVR does not make the UI renderer compatible. Vulkan UI support still requires a Vulkan swapchain-image path and Vulkan ImGui renderer in this add-on.
+For a Vulkan OpenXR application, the layer reads the game's `XrGraphicsBindingVulkanKHR` (one structure for both `XR_KHR_vulkan_enable` and `XR_KHR_vulkan_enable2`) and draws the panel with Dear ImGui's Vulkan backend on the game's own device and queue (`openxr_ui_vulkan.cpp`). Vulkan is reached only through function pointers from the `vulkan-1.dll` the game has already loaded, so the add-on has no `vulkan-1.dll` import (`verify.ps1` checks this) and Direct3D games never load Vulkan because of it. The queue is used only inside `xrEndFrame`, where OpenXR requires the game to keep its other threads off that queue. Each menu drawing uses one of four command buffers with its own fence; when the next one is still in use the menu skips that frame instead of waiting. The render pass keeps the image in `VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL`, the layout OpenXR hands over and expects back. When the game ends the session, the layer waits at most one second for its last drawings and destroys its Vulkan objects, because the game may destroy the device right afterwards; a session the game never ends (process exit) leaves them alone. As with Direct3D 12, Dear ImGui's backend waits for the queue once whenever the font texture changes (normally only at the first frame). The effect fallback stays Direct3D only. See `VULKAN_SUPPORT_PLAN.md` for what is tested and what is still open.
 ## Features
 
 - Technique enable/disable, ordering (`Active on top`), favourites, and hiding, with an All / Starred / Hidden filter
@@ -116,7 +116,7 @@ For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingV
 - **Walk by swinging arms** and **Swing strength** in the **Arm swing walking** card on the **Gestures** tab (OpenXR games, off by default): while the menu is closed, swinging the arms (one hand up while the other goes down) pushes the game's left thumbstick forward; faster swings push further. The push follows the top hand speed of each half-swing, so a steady swing, even a slow one, walks at a steady speed; walking stops about a second after the arms stop.  **Swing strength** (25-300 %, default 100 %) scales the push. The layer finds the game's walking actions from the bindings it suggests for `/user/hand/left/input/thumbstick` (and `.../thumbstick/y`) and adds the push in its `xrGetActionStateVector2f`/`xrGetActionStateFloat` hooks. Games that walk with another input are not affected. Saved as `ArmSwingWalk=0|1` and `ArmSwingStrength=<percent>` in `settings.ini`; the strength is saved when the trigger is released after dragging
 - **Run** (Off, **Click left stick** (default), **Hold A**, **Hold B**, **Hold X**, **Hold Y**) and **Run at** (100-300 %, default 150 %) in the same card: when the swing level (independent of **Swing strength**) reaches **Run at**, the layer presses the game's actions bound to the chosen button (`/user/hand/left/input/thumbstick/click`, `/user/hand/right/input/a/click`, `.../right/input/b/click`, `.../left/input/x/click` or `.../left/input/y/click`) through its `xrGetActionStateBoolean` hook, in addition to the forward push, which continues; it stops running below 80 % of that level. Click mode sends one 0.1 s click when running starts and one when it stops (for games where the click toggles sprint); the Hold choices keep the button down while running. Saved as `ArmSwingRun=<0-5>` (in list order) and `ArmSwingRunAt=<percent>`
 - **Block left stick forward** in the same card (off by default): while arm swing walking is on, forward on the real left thumbstick is ignored, so only the arms move the player forward; backward and sideways still work. Saved as `ArmSwingBlockStick=0|1`
-- Active graphics API indicator for Direct3D 11, Direct3D 12 and OpenGL sessions
+- Active graphics API indicator for Direct3D 11, Direct3D 12, OpenGL and Vulkan sessions
 - Distinct diagnostics for a missing OpenXR effect runtime and an empty technique inventory
 - Compact and expanded panel layouts
 - **Effects on** switch in the header: temporarily turns all techniques off and back on
@@ -130,10 +130,11 @@ For a Vulkan OpenXR application, the application supplies an `XrGraphicsBindingV
 The project has these main implementation boundaries:
 
 - `openxr_ui_layer.cpp` owns OpenXR negotiation, sessions, controller actions, D3D11/D3D12/OpenGL swapchain resources, and quad submission.
+- `openxr_ui_vulkan.cpp` owns the Vulkan objects the menu creates on the game's device (render pass, image views, command buffers, fences).
 - `openvr_ui_overlay.cpp` owns the focused page rendered by ReShade's existing SteamVR dashboard.
 - `reshade_openxr_ui_addon.cpp` owns ReShade callbacks, runtime handles, and technique and uniform adaptation.
 - `openxr_ui_preset.cpp` owns preset state comparison, navigation, saving, copying, and deletion.
-- `openxr_ui_renderer.cpp` owns the private Dear ImGui context, interaction model, and D3D11/D3D12/OpenGL rendering backends.
+- `openxr_ui_renderer.cpp` owns the private Dear ImGui context, interaction model, and D3D11/D3D12/OpenGL/Vulkan rendering backends.
 
 ReShade is the source of truth for live technique order, enabled state, parameters, and the current preset. The add-on publishes immutable snapshots for the renderer and reconciles them from ReShade's public API after relevant events and presents.
 

@@ -17,7 +17,7 @@ Makes the add-on's headset panel look like one designed product: one committed l
 ## Hard Constraints
 
 - **Drawing must not cost frame rate:** no per-frame font rebuilds, no extra render passes, no blur or shader effects, no continuous animation that forces the panel to redraw when nothing changed. Fonts load once at start-up.
-- Changes must work identically in D3D11, D3D12 and OpenGL (they share the ImGui draw lists; only use ImDrawList primitives).
+- Changes must work identically in D3D11, D3D12, OpenGL and Vulkan (they share the ImGui draw lists; only use ImDrawList primitives).
 - Fonts must be embedded in the add-on binary (no files read from game folders) and must have a license that allows redistribution (SIL OFL or Apache 2.0). Record the license in `THIRD-PARTY-NOTICES.txt`.
 - Keep every existing control, label meaning, and the IDs used by tests and `capture_simulator_ui.ps1`. Restyling must not change behavior.
 

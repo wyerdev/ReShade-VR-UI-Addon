@@ -3,10 +3,12 @@
 #define XR_USE_GRAPHICS_API_D3D11
 #define XR_USE_GRAPHICS_API_D3D12
 #define XR_USE_GRAPHICS_API_OPENGL
+#define XR_USE_GRAPHICS_API_VULKAN
 
 #include <Windows.h>
 #include <d3d11.h>
 #include <d3d12.h>
+#include "openxr_ui_vulkan.hpp"
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include <openxr/openxr_loader_negotiation.h>
@@ -85,10 +87,22 @@ namespace
 		d3d11,
 		d3d12,
 		opengl,
+		vulkan,
 	};
 
 	constexpr int64_t gl_rgba8 = 0x8058;
 	constexpr int64_t gl_srgb8_alpha8 = 0x8C43;
+
+	// The menu's preferred swapchain format: 8-bit RGBA that the GPU converts to sRGB.
+	constexpr int64_t srgb_quad_format(graphics_api api)
+	{
+		return api == graphics_api::opengl ? gl_srgb8_alpha8 : api == graphics_api::vulkan ? VK_FORMAT_R8G8B8A8_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	}
+
+	constexpr int64_t linear_quad_format(graphics_api api)
+	{
+		return api == graphics_api::opengl ? gl_rgba8 : api == graphics_api::vulkan ? VK_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
+	}
 
 	// Never inside a game's own ReShade: a second effect runtime on top of it crashed D2R-PCVR.
 	bool effect_fallback_supported(graphics_api api)
@@ -182,6 +196,7 @@ namespace
 		ComPtr<ID3D12DescriptorHeap> render_target_heap12;
 		std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> render_target_views12;
 		std::vector<uint32_t> textures_gl;
+		openxr_ui::vulkan_quad_images images_vk;
 		std::unique_ptr<openxr_ui::panel_renderer> renderer;
 	};
 
@@ -210,6 +225,7 @@ namespace
 		ComPtr<ID3D12Fence> completion_fence12;
 		uint64_t completion_value12 = 0;
 		HGLRC context_gl = nullptr;
+		std::unique_ptr<openxr_ui::vulkan_quad_device> vulkan;
 		XrSpace view_space = XR_NULL_HANDLE;
 		XrSpace local_space = XR_NULL_HANDLE;
 		bool head_valid = false;
@@ -303,6 +319,17 @@ namespace
 		uint32_t frames_without_vr_runtime = 0;
 		std::chrono::steady_clock::time_point effect_runtime_wait_started{};
 		bool effects_decided = false;
+
+		// A session still alive here was never ended by the game, which happens only when the game exits. Its Vulkan
+		// device may already be gone by then, so the menu's Vulkan objects are left alone instead of destroyed on it.
+		~session_state()
+		{
+			if (vulkan == nullptr)
+				return;
+			panel.renderer.release();
+			statistics.renderer.release();
+			vulkan.release();
+		}
 	};
 
 	struct swapchain_state
@@ -427,6 +454,15 @@ namespace
 		for (const XrBaseInStructure *entry = reinterpret_cast<const XrBaseInStructure *>(create_info->next); entry != nullptr; entry = entry->next)
 			if (entry->type == XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR)
 				return reinterpret_cast<const XrGraphicsBindingOpenGLWin32KHR *>(entry);
+		return nullptr;
+	}
+
+	// Covers XR_KHR_vulkan_enable and XR_KHR_vulkan_enable2, which share this structure.
+	const XrGraphicsBindingVulkanKHR *find_vulkan_binding(const XrSessionCreateInfo *create_info)
+	{
+		for (const XrBaseInStructure *entry = reinterpret_cast<const XrBaseInStructure *>(create_info->next); entry != nullptr; entry = entry->next)
+			if (entry->type == XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR)
+				return reinterpret_cast<const XrGraphicsBindingVulkanKHR *>(entry);
 		return nullptr;
 	}
 
@@ -748,6 +784,19 @@ namespace
 				target.textures_gl.push_back(image.image);
 			}
 		}
+		else if (state.api == graphics_api::vulkan)
+		{
+			std::vector<XrSwapchainImageVulkanKHR> images(image_count, { XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR });
+			if (XR_FAILED(state.dispatch->EnumerateSwapchainImages(target.swapchain, image_count, &image_count,
+				reinterpret_cast<XrSwapchainImageBaseHeader *>(images.data()))))
+				return false;
+			std::vector<VkImage> handles;
+			handles.reserve(image_count);
+			for (const XrSwapchainImageVulkanKHR &image : images)
+				handles.push_back(image.image);
+			if (!state.vulkan->create_images(handles, static_cast<VkFormat>(state.quad_format), width, height, target.images_vk))
+				return false;
+		}
 		else
 		{
 			std::vector<XrSwapchainImageD3D12KHR> images(image_count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR });
@@ -779,13 +828,13 @@ namespace
 		const bool renderer_initialized = state.api == graphics_api::d3d11 ?
 			target.renderer->initialize(state.device.Get(), state.context.Get(), width, height) :
 			state.api == graphics_api::opengl ? target.renderer->initialize_opengl(width, height) :
+			state.api == graphics_api::vulkan ? target.renderer->initialize_vulkan(state.vulkan->renderer_setup(image_count), width, height) :
 			target.renderer->initialize(state.device12.Get(), state.command_queue12.Get(), (std::max)(image_count, d3d12_frame_slot_count),
 				state.quad_format, width, height);
 		if (!renderer_initialized)
 			target.renderer.reset();
 		else
-			target.renderer->set_srgb_target(state.api == graphics_api::opengl ? state.quad_format == gl_srgb8_alpha8 :
-				state.quad_format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB);
+			target.renderer->set_srgb_target(state.quad_format == srgb_quad_format(state.api));
 		return renderer_initialized;
 	}
 
@@ -822,9 +871,20 @@ namespace
 			state.api = graphics_api::opengl;
 			state.context_gl = binding_gl->hGLRC;
 		}
+		else if (const XrGraphicsBindingVulkanKHR *const binding_vk = find_vulkan_binding(create_info); binding_vk != nullptr)
+		{
+			state.vulkan = openxr_ui::vulkan_quad_device::create(binding_vk->instance, binding_vk->physicalDevice, binding_vk->device,
+				binding_vk->queueFamilyIndex, binding_vk->queueIndex);
+			if (state.vulkan == nullptr)
+			{
+				openxr_ui_log_message("native quad initialization failed: the game's Vulkan device could not be used.", true);
+				return false;
+			}
+			state.api = graphics_api::vulkan;
+		}
 		else
 		{
-			openxr_ui_log_message("native quad skipped: the OpenXR session is not using D3D11, D3D12 or OpenGL.", true);
+			openxr_ui_log_message("native quad skipped: the OpenXR session is not using D3D11, D3D12, OpenGL or Vulkan.", true);
 			return false;
 		}
 
@@ -845,9 +905,7 @@ namespace
 		if (XR_FAILED(state.dispatch->EnumerateSwapchainFormats(state.session, format_count, &format_count, formats.data())))
 			return false;
 		for (const int64_t format : formats)
-			if (state.api == graphics_api::opengl ?
-				format == gl_srgb8_alpha8 || (state.quad_format == 0 && format == gl_rgba8) :
-				format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || (state.quad_format == 0 && format == DXGI_FORMAT_R8G8B8A8_UNORM))
+			if (format == srgb_quad_format(state.api) || (state.quad_format == 0 && format == linear_quad_format(state.api)))
 				state.quad_format = format;
 		if (state.quad_format == 0)
 		{
@@ -855,6 +913,8 @@ namespace
 			return false;
 		}
 
+		if (state.api == graphics_api::vulkan && !state.vulkan->create_render_pass(static_cast<VkFormat>(state.quad_format)))
+			return false;
 		if (state.api == graphics_api::d3d12)
 		{
 			for (d3d12_frame_slot &slot : state.frame_slots12)
@@ -892,7 +952,8 @@ namespace
 		}
 		openxr_ui_log_message("native VIEW-space quad initialized with private ImGui technique renderer.");
 		openxr_ui_log_message(state.api == graphics_api::d3d11 ? "native quad graphics backend: D3D11." :
-			state.api == graphics_api::opengl ? "native quad graphics backend: OpenGL." : "native quad graphics backend: D3D12.");
+			state.api == graphics_api::opengl ? "native quad graphics backend: OpenGL." :
+			state.api == graphics_api::vulkan ? "native quad graphics backend: Vulkan." : "native quad graphics backend: D3D12.");
 		return true;
 	}
 
@@ -920,6 +981,12 @@ namespace
 		return SUCCEEDED(state.command_queue12->Signal(state.completion_fence12.Get(), slot.fence_value));
 	}
 
+	// True when the next menu drawing can start without waiting for the GPU.
+	bool frame_slot_free(const session_state &state)
+	{
+		return state.api == graphics_api::d3d12 ? d3d12_slot_free(state) : state.api != graphics_api::vulkan || state.vulkan->slot_free();
+	}
+
 	// Reads the controls the add-on saved, shared by all games unless this game keeps its own.
 	void load_control_settings(session_state &state)
 	{
@@ -943,7 +1010,7 @@ namespace
 		quad_target &target = state.panel;
 		if (target.swapchain == XR_NULL_HANDLE)
 			return false;
-		if (state.api == graphics_api::d3d12 && !d3d12_slot_free(state))
+		if (!frame_slot_free(state))
 			return state.panel_image_ready;
 
 		uint32_t image_index = 0;
@@ -957,6 +1024,7 @@ namespace
 
 		bool rendered = state.api == graphics_api::d3d11 ? image_index < target.render_target_views.size() :
 			state.api == graphics_api::opengl ? image_index < target.textures_gl.size() && current_opengl_context() == state.context_gl :
+			state.api == graphics_api::vulkan ? image_index < target.images_vk.framebuffers.size() :
 			state.api == graphics_api::d3d12 && image_index < target.render_target_views12.size();
 		if (rendered)
 		{
@@ -1026,6 +1094,13 @@ namespace
 			else if (state.api == graphics_api::opengl)
 			{
 				render_result = target.renderer->render_opengl(target.textures_gl[image_index], *snapshot, input);
+			}
+			else if (state.api == graphics_api::vulkan)
+			{
+				const VkCommandBuffer commands = state.vulkan->begin_commands(target.images_vk, image_index);
+				if (commands != VK_NULL_HANDLE)
+					render_result = target.renderer->render_vulkan(commands, *snapshot, input);
+				rendered = commands != VK_NULL_HANDLE && state.vulkan->submit_commands();
 			}
 			else if (!begin_d3d12_commands(state))
 			{
@@ -1227,7 +1302,7 @@ namespace
 		const openxr_ui::frame_statistics &statistics = state.frame_timing.statistics();
 		if (state.statistics_image_ready && state.statistics_image_revision == statistics.revision)
 			return true;
-		if (state.api == graphics_api::d3d12 && !d3d12_slot_free(state))
+		if (!frame_slot_free(state))
 			return state.statistics_image_ready;
 
 		uint32_t image_index = 0;
@@ -1249,6 +1324,13 @@ namespace
 		{
 			target.renderer->render_statistics_opengl(target.textures_gl[image_index], statistics);
 			rendered = true;
+		}
+		else if (state.api == graphics_api::vulkan)
+		{
+			const VkCommandBuffer commands = state.vulkan->begin_commands(target.images_vk, image_index);
+			if (commands != VK_NULL_HANDLE)
+				target.renderer->render_statistics_vulkan(commands, statistics);
+			rendered = commands != VK_NULL_HANDLE && state.vulkan->submit_commands();
 		}
 		else if (state.api == graphics_api::d3d12 && image_index < target.render_target_views12.size() && begin_d3d12_commands(state))
 		{
@@ -2011,6 +2093,8 @@ namespace
 		target.render_target_views.clear();
 		target.render_target_views12.clear();
 		target.render_target_heap12.Reset();
+		if (state.vulkan != nullptr)
+			state.vulkan->destroy_images(target.images_vk);
 		if (target.swapchain != XR_NULL_HANDLE)
 			state.dispatch->DestroySwapchain(target.swapchain);
 		target.swapchain = XR_NULL_HANDLE;
@@ -2036,8 +2120,12 @@ namespace
 			s_retired_d3d12.push_back(std::move(retired));
 		}
 		release_finished_d3d12_objects();
+		// The game may destroy its Vulkan device right after the session, so the menu's Vulkan objects cannot outlive it.
+		if (state.vulkan != nullptr)
+			state.vulkan->wait_for_submitted_commands();
 		destroy_quad_target(state, state.panel);
 		destroy_quad_target(state, state.statistics);
+		state.vulkan.reset();
 		if (state.aim_space != XR_NULL_HANDLE)
 			state.dispatch->DestroySpace(state.aim_space);
 		if (state.left_hand_space != XR_NULL_HANDLE)

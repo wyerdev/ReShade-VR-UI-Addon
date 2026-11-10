@@ -55,6 +55,16 @@ function Test-Artifact([string]$Path, [string]$Machine, [string[]]$RequiredExpor
 			throw "$Path has unexpected export: $forbiddenExport"
 		}
 	}
+	# OpenGL and Vulkan are found at run time in the game, so games that use neither never load them because of the add-on.
+	$dependents = & $dumpbin /nologo /dependents $Path | Out-String
+	if ($LASTEXITCODE -ne 0) {
+		throw "dumpbin failed with exit code $LASTEXITCODE."
+	}
+	foreach ($forbiddenImport in @('vulkan-1.dll', 'opengl32.dll')) {
+		if ($dependents -match "(?im)^\s*$([regex]::Escape($forbiddenImport))\s*$") {
+			throw "$Path must not depend on $forbiddenImport."
+		}
+	}
 	$artifact = Get-Item -LiteralPath $Path
 	$hash = Get-FileHash -LiteralPath $Path -Algorithm SHA256
 	Write-Host "ARTIFACT:$Path"

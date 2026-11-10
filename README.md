@@ -12,7 +12,7 @@ Adds a menu inside your VR headset for ReShade effects. Turn effects on and off,
 | --- | --- |
 | OpenXR VR game or UEVR | [OpenXR and UEVR](docs/INSTALL.md) |
 | SteamVR game | [SteamVR](docs/INSTALL-SteamVR.md) |
-| Vulkan VR game | [Vulkan](docs/INSTALL-Vulkan.md) |
+| Vulkan SteamVR game | [Vulkan](docs/INSTALL-Vulkan.md) |
 
 Not sure? See [Which type is my game?](#which-type-is-my-game)
 
@@ -88,8 +88,8 @@ Building, testing and releases: [DEVELOPERS.md](docs/DEVELOPERS.md).
 - [ReShade](https://reshade.me/) by crosire
 - [UEVR](https://uevr.io/) by praydog
 - [Dear ImGui](https://github.com/ocornut/imgui) by Omar Cornut (the headset menu)
-- OpenXR by Khronos, OpenVR by Valve
+- OpenXR and Vulkan by Khronos, OpenVR by Valve
 
 ## License
 
-MIT License, see [LICENSE](LICENSE). ReShade, Dear ImGui, the OpenXR SDK and OpenVR keep their own licenses, see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
+MIT License, see [LICENSE](LICENSE). ReShade, Dear ImGui, the OpenXR SDK, the Vulkan headers and OpenVR keep their own licenses, see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).

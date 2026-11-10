@@ -5,9 +5,9 @@ in LICENSE. The following third-party terms apply to external components used
 to build or run the add-on. They are not replaced by the project license.
 
 The ReShade source checkout and its dependency tree are obtained separately by
-setup-reshade.ps1 and are not copied into this repository. The release package
-contains the add-on binaries, which are built using the components described
-below.
+setup-reshade.ps1, and the Vulkan headers by build-addon.bat. Neither is copied
+into this repository. The release package contains the add-on binaries, which
+are built using the components described below.
 
 ======================================================================
 ReShade public API
@@ -25,11 +25,12 @@ are permitted provided that the following conditions are met:
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ======================================================================
-Dear ImGui and DirectX renderer backends
+Dear ImGui and its renderer backends
 ======================================================================
 
-The add-on statically compiles Dear ImGui and its DirectX 11 and DirectX 12
-renderer backends. The following MIT terms apply to those components.
+The add-on statically compiles Dear ImGui and its DirectX 11, DirectX 12,
+OpenGL 3 and Vulkan renderer backends. The following MIT terms apply to those
+components.
 
 The MIT License (MIT)
 
@@ -52,6 +53,28 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+======================================================================
+Vulkan headers
+======================================================================
+
+The add-on is compiled with the Khronos Vulkan headers
+(https://github.com/KhronosGroup/Vulkan-Headers) to draw its menu in Vulkan
+games. The header files are licensed "Apache-2.0 OR MIT"; they are used here
+under the MIT terms below. The header files carry these notices:
+
+Copyright 2015-2026 The Khronos Group Inc.
+Copyright 2014-2026 The Khronos Group Inc.
+
+MIT License
+
+Copyright (c) 2015-2023 The Khronos Group Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ======================================================================
 Atkinson Hyperlegible font

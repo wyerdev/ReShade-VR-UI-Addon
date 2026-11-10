@@ -26,7 +26,9 @@ add-ons and the System-Wide SteamVR Listener, and creates the installable
 packages. The setup script requires Git and
 initializes ReShade's required submodules. The ReShade checkout must contain
 its public headers plus the Dear ImGui, OpenXR SDK, and OpenVR dependency
-trees.
+trees. `build-addon.bat` also downloads the Khronos Vulkan headers into the
+ignored `.deps\Vulkan-Headers` folder when they are missing; they are needed
+only to compile.
 
 For a clean rebuild and package, run `clean.bat`. It assumes the ReShade
 dependency checkout has already been set up.
@@ -92,6 +94,11 @@ PowerShell after `build.bat`:
 .\tools\reshade-openxr-ui\smoke.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test -Frames 30
 .\tools\reshade-openxr-ui\capture_simulator_ui.ps1 -TestRoot C:\path\to\OpenXR-Simulator-test
 ```
+
+Both run Direct3D 11 and Direct3D 12. Add `-GraphicsApi Vulkan` to test the
+Vulkan menu instead; that needs the OpenXR Simulator source checkout next to
+this repository (or `-SimulatorSource`), because its Vulkan test program is
+built from there.
 
 Inspect every captured simulator state. Synthetic renderer output, logs, hit
 tests, and screenshot existence do not prove the headset UI is visually
@@ -222,7 +229,8 @@ repository, because they are also read inside the ZIP.
 
 Project-owned source in this repository is licensed under the MIT License in
 [LICENSE](../LICENSE). The add-on is built against a separately obtained ReShade
-checkout and compiles Dear ImGui's DirectX backends into the add-on binaries.
-ReShade, Dear ImGui, the OpenXR SDK, and OpenVR remain under their upstream
+checkout and compiles Dear ImGui's DirectX, OpenGL and Vulkan backends into the
+add-on binaries. ReShade, Dear ImGui, the OpenXR SDK, the Vulkan headers, and
+OpenVR remain under their upstream
 licenses; see [THIRD-PARTY-NOTICES.txt](../THIRD-PARTY-NOTICES.txt) for the terms
 included with the release package.

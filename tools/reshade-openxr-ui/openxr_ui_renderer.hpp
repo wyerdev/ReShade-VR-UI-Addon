@@ -21,9 +21,13 @@ struct ID3D12CommandQueue;
 struct ID3D12Device;
 struct ID3D12GraphicsCommandList;
 struct D3D12_CPU_DESCRIPTOR_HANDLE;
+struct VkCommandBuffer_T;
 
 namespace openxr_ui
 {
+	// Defined in openxr_ui_vulkan.hpp.
+	struct vulkan_renderer_setup;
+
 	inline constexpr uint32_t panel_width = 1024;
 	inline constexpr uint32_t compact_panel_height = 650;
 	inline constexpr uint32_t expanded_panel_height = 906;
@@ -169,18 +173,22 @@ namespace openxr_ui
 		bool initialize(ID3D12Device *device, ID3D12CommandQueue *queue, uint32_t frame_count, int64_t format, uint32_t width, uint32_t height);
 		// OpenGL calls use the calling thread's current context, which must be the same context for every call and for destruction.
 		bool initialize_opengl(uint32_t width, uint32_t height);
+		bool initialize_vulkan(const vulkan_renderer_setup &setup, uint32_t width, uint32_t height);
 		render_result render(ID3D11RenderTargetView *render_target, const technique_snapshot &snapshot, const render_input &input);
 		render_result render(ID3D12GraphicsCommandList *command_list, D3D12_CPU_DESCRIPTOR_HANDLE render_target,
 			const technique_snapshot &snapshot, const render_input &input);
 		render_result render_opengl(uint32_t texture, const technique_snapshot &snapshot, const render_input &input);
+		// The Vulkan command buffer must be inside the render pass given to initialize_vulkan, on a target cleared to transparent.
+		render_result render_vulkan(VkCommandBuffer_T *command_buffer, const technique_snapshot &snapshot, const render_input &input);
 		void render_statistics(ID3D11RenderTargetView *render_target, const frame_statistics &statistics);
 		void render_statistics(ID3D12GraphicsCommandList *command_list, D3D12_CPU_DESCRIPTOR_HANDLE render_target, const frame_statistics &statistics);
 		void render_statistics_opengl(uint32_t texture, const frame_statistics &statistics);
+		void render_statistics_vulkan(VkCommandBuffer_T *command_buffer, const frame_statistics &statistics);
 		void notify_save_result(bool succeeded);
 		void notify_save_as_started(bool started);
 		void notify_save_as_result(bool succeeded);
-		// True when the render target converts written colors to sRGB, as the usual R8G8B8A8_UNORM_SRGB or
-		// GL_SRGB8_ALPHA8 swapchains do; the renderer then compensates so theme colors appear exactly.
+		// True when the render target converts written colors to sRGB, as the usual R8G8B8A8_UNORM_SRGB,
+		// GL_SRGB8_ALPHA8 or VK_FORMAT_R8G8B8A8_SRGB swapchains do; the renderer then compensates so theme colors appear exactly.
 		void set_srgb_target(bool srgb);
 		// Selects the theme for every panel in the process, including the FPS counter.
 		static void select_theme(uint32_t theme);

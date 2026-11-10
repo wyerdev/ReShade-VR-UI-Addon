@@ -30,6 +30,13 @@ foreach ($requiredPath in @(
 	}
 }
 
+# Khronos Vulkan headers, needed only to compile; the add-on finds the game's Vulkan at run time.
+$vulkanInclude = Join-Path $repo '.deps\Vulkan-Headers\include'
+if (-not (Test-Path -LiteralPath (Join-Path $vulkanInclude 'vulkan\vulkan.h') -PathType Leaf)) {
+	throw "Vulkan headers not found: $vulkanInclude. Run build.bat, which downloads them, or download https://github.com/KhronosGroup/Vulkan-Headers into .deps\Vulkan-Headers."
+}
+$vulkanOptions = ' /DVK_NO_PROTOTYPES /I"' + $vulkanInclude + '"'
+
 $vsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path $vsWhere)) {
 	throw 'Visual Studio Installer vswhere.exe was not found.'
@@ -48,6 +55,7 @@ $openvrOverlaySource = Join-Path $PSScriptRoot 'openvr_ui_overlay.cpp'
 $presetSource = Join-Path $PSScriptRoot 'openxr_ui_preset.cpp'
 $globalLibrarySource = Join-Path $PSScriptRoot 'openxr_ui_global_library.cpp'
 $layerSource = Join-Path $PSScriptRoot 'openxr_ui_layer.cpp'
+$vulkanSource = Join-Path $PSScriptRoot 'openxr_ui_vulkan.cpp'
 $effectFallbackSource = Join-Path $PSScriptRoot 'openxr_effect_fallback.cpp'
 $rendererSource = Join-Path $PSScriptRoot 'openxr_ui_renderer.cpp'
 $rendererTestSource = Join-Path $PSScriptRoot 'openxr_ui_renderer_test.cpp'
@@ -90,7 +98,7 @@ $releaseDefine = '/DRESHADE_VR_UI_RELEASE_NUMBER=' + (Get-ReleaseNumber)
 $generatedInclude = Join-Path $OutputDirectory 'generated'
 & (Join-Path $PSScriptRoot 'embed_fonts.ps1') -OutputFile (Join-Path $generatedInclude 'vr_ui_fonts.inc')
 
-$compileCommand = 'call "' + $developerCommand + '" -arch=x64 -host_arch=x64 >nul & cl.exe /nologo /LD /std:c++17 /EHsc /W4 /O2 /MD ' + $releaseDefine + ' /I"' + $include + '" /I"' + $openxrInclude + '" /I"' + $imgui + '" /I"' + $generatedInclude + '" /I"' + $imguiBackend + '" /Fo:"' + $OutputDirectory + '\\" "' + $versionResource + '" "' + $source + '" "' + $presetSource + '" "' + $globalLibrarySource + '" "' + $layerSource + '" "' + $effectFallbackSource + '" "' + $rendererSource + '" "' + (Join-Path $imgui 'imgui.cpp') + '" "' + (Join-Path $imgui 'imgui_draw.cpp') + '" "' + (Join-Path $imgui 'imgui_tables.cpp') + '" "' + (Join-Path $imgui 'imgui_widgets.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx11.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx12.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_opengl3.cpp') + '" /link d3d11.lib d3d12.lib dxgi.lib /OUT:"' + $output + '" /IMPLIB:"' + $importLibrary + '" /PDB:"' + $programDatabase + '"'
+$compileCommand = 'call "' + $developerCommand + '" -arch=x64 -host_arch=x64 >nul & cl.exe /nologo /LD /std:c++17 /EHsc /W4 /O2 /MD ' + $releaseDefine + ' /I"' + $include + '" /I"' + $openxrInclude + '" /I"' + $imgui + '" /I"' + $generatedInclude + '" /I"' + $imguiBackend + '"' + $vulkanOptions + ' /Fo:"' + $OutputDirectory + '\\" "' + $versionResource + '" "' + $source + '" "' + $presetSource + '" "' + $globalLibrarySource + '" "' + $layerSource + '" "' + $vulkanSource + '" "' + $effectFallbackSource + '" "' + $rendererSource + '" "' + (Join-Path $imgui 'imgui.cpp') + '" "' + (Join-Path $imgui 'imgui_draw.cpp') + '" "' + (Join-Path $imgui 'imgui_tables.cpp') + '" "' + (Join-Path $imgui 'imgui_widgets.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx11.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx12.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_opengl3.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_vulkan.cpp') + '" /link d3d11.lib d3d12.lib dxgi.lib /OUT:"' + $output + '" /IMPLIB:"' + $importLibrary + '" /PDB:"' + $programDatabase + '"'
 & cmd.exe /d /c $compileCommand
 if ($LASTEXITCODE -ne 0) {
 	throw "ReShade VR UI Add-on build failed with exit code $LASTEXITCODE."
@@ -103,7 +111,7 @@ if (-not (Test-Path $output)) {
 # Same sources for 32-bit OpenXR games, which load only 32-bit layers.
 New-Item -ItemType Directory -Path $x86OutputDirectory -Force | Out-Null
 $versionResource32 = New-VersionResource -DeveloperCommand $developerCommand -OutputDirectory $x86OutputDirectory -FileName 'ReShade-OpenXR-UI.addon32' -Description 'ReShade VR UI Add-on for 32-bit OpenXR games'
-$compileCommand32 = 'call "' + $developerCommand + '" -arch=x86 -host_arch=x64 >nul & cl.exe /nologo /LD /std:c++17 /EHsc /W4 /O2 /Oy- /MD ' + $releaseDefine + ' /I"' + $include + '" /I"' + $openxrInclude + '" /I"' + $imgui + '" /I"' + $generatedInclude + '" /I"' + $imguiBackend + '" /Fo:"' + $x86OutputDirectory + '\\" "' + $versionResource32 + '" "' + $source + '" "' + $presetSource + '" "' + $globalLibrarySource + '" "' + $layerSource + '" "' + $effectFallbackSource + '" "' + $rendererSource + '" "' + (Join-Path $imgui 'imgui.cpp') + '" "' + (Join-Path $imgui 'imgui_draw.cpp') + '" "' + (Join-Path $imgui 'imgui_tables.cpp') + '" "' + (Join-Path $imgui 'imgui_widgets.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx11.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx12.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_opengl3.cpp') + '" /link d3d11.lib d3d12.lib dxgi.lib /OUT:"' + $output32 + '" /IMPLIB:"' + $importLibrary32 + '" /PDB:"' + $programDatabase32 + '"'
+$compileCommand32 = 'call "' + $developerCommand + '" -arch=x86 -host_arch=x64 >nul & cl.exe /nologo /LD /std:c++17 /EHsc /W4 /O2 /Oy- /MD ' + $releaseDefine + ' /I"' + $include + '" /I"' + $openxrInclude + '" /I"' + $imgui + '" /I"' + $generatedInclude + '" /I"' + $imguiBackend + '"' + $vulkanOptions + ' /Fo:"' + $x86OutputDirectory + '\\" "' + $versionResource32 + '" "' + $source + '" "' + $presetSource + '" "' + $globalLibrarySource + '" "' + $layerSource + '" "' + $vulkanSource + '" "' + $effectFallbackSource + '" "' + $rendererSource + '" "' + (Join-Path $imgui 'imgui.cpp') + '" "' + (Join-Path $imgui 'imgui_draw.cpp') + '" "' + (Join-Path $imgui 'imgui_tables.cpp') + '" "' + (Join-Path $imgui 'imgui_widgets.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx11.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx12.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_opengl3.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_vulkan.cpp') + '" /link d3d11.lib d3d12.lib dxgi.lib /OUT:"' + $output32 + '" /IMPLIB:"' + $importLibrary32 + '" /PDB:"' + $programDatabase32 + '"'
 & cmd.exe /d /c $compileCommand32
 if ($LASTEXITCODE -ne 0) {
 	throw "ReShade VR UI Add-on 32-bit build failed with exit code $LASTEXITCODE."
@@ -131,7 +139,7 @@ if ($LASTEXITCODE -ne 0) {
 	throw "OpenVR overlay probe build failed with exit code $LASTEXITCODE."
 }
 
-$rendererTestCommand = 'call "' + $developerCommand + '" -arch=x64 -host_arch=x64 >nul & cl.exe /nologo /std:c++17 /EHsc /W4 /O2 /MD /I"' + $imgui + '" /I"' + $imguiBackend + '" /I"' + $generatedInclude + '" /Fo:"' + $OutputDirectory + '\\" "' + $rendererTestSource + '" "' + $rendererSource + '" "' + $globalLibrarySource + '" "' + (Join-Path $imgui 'imgui.cpp') + '" "' + (Join-Path $imgui 'imgui_draw.cpp') + '" "' + (Join-Path $imgui 'imgui_tables.cpp') + '" "' + (Join-Path $imgui 'imgui_widgets.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx11.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx12.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_opengl3.cpp') + '" /link d3d11.lib d3d12.lib dxgi.lib /OUT:"' + $rendererTest + '" /PDB:"' + $rendererTestProgramDatabase + '"'
+$rendererTestCommand = 'call "' + $developerCommand + '" -arch=x64 -host_arch=x64 >nul & cl.exe /nologo /std:c++17 /EHsc /W4 /O2 /MD /I"' + $imgui + '" /I"' + $imguiBackend + '" /I"' + $generatedInclude + '"' + $vulkanOptions + ' /Fo:"' + $OutputDirectory + '\\" "' + $rendererTestSource + '" "' + $rendererSource + '" "' + $globalLibrarySource + '" "' + (Join-Path $imgui 'imgui.cpp') + '" "' + (Join-Path $imgui 'imgui_draw.cpp') + '" "' + (Join-Path $imgui 'imgui_tables.cpp') + '" "' + (Join-Path $imgui 'imgui_widgets.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx11.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_dx12.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_opengl3.cpp') + '" "' + (Join-Path $imguiBackend 'imgui_impl_vulkan.cpp') + '" /link d3d11.lib d3d12.lib dxgi.lib /OUT:"' + $rendererTest + '" /PDB:"' + $rendererTestProgramDatabase + '"'
 & cmd.exe /d /c $rendererTestCommand
 if ($LASTEXITCODE -ne 0) {
 	throw "Renderer test build failed with exit code $LASTEXITCODE."

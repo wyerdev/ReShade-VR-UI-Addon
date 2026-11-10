@@ -1,8 +1,10 @@
 param(
 	[string]$TestRoot = '.deps\openxr-simulator-test',
 	[int]$Frames = 30,
-	[ValidateSet('Both', 'D3D11', 'D3D12')]
+	[ValidateSet('Both', 'D3D11', 'D3D12', 'Vulkan')]
 	[string]$GraphicsApi = 'Both',
+	# The OpenXR Simulator checkout whose Vulkan test program is built for the Vulkan run; the folder next to this repository by default.
+	[string]$SimulatorSource,
 	[string]$OutputDirectory = 'build\reshade-openxr-ui',
 	[switch]$LoaderDebug
 )
@@ -10,6 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'openxr_test_isolation.ps1')
 $installedLayers = $null
+$vulkanLayer = $null
 
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 if (-not [System.IO.Path]::IsPathRooted($TestRoot)) {
@@ -34,8 +37,9 @@ $sourceManifest = Join-Path $buildDirectory 'layers\ReShade-OpenXR-UI-Layer.json
 $layerDirectory = Join-Path $TestRoot 'layers'
 $testReshadeManifest = Join-Path $layerDirectory 'ReShade64_XR_UI_Smoke.json'
 $existingReshadeManifest = Join-Path $layerDirectory 'ReShade64_XR.json'
-$probeName = if ($GraphicsApi -eq 'D3D11') { 'xr_probe_d3d11.exe' } else { 'xr_probe.exe' }
-$probe = Join-Path $TestRoot $probeName
+$probeName = if ($GraphicsApi -eq 'D3D11') { 'xr_probe_d3d11.exe' } elseif ($GraphicsApi -eq 'Vulkan') { 'xr_probe_vk.exe' } else { 'xr_probe.exe' }
+# The simulator bundle has no Vulkan test program, so it is built into this repository's build folder and run with the bundle as ReShade's folder.
+$probe = if ($GraphicsApi -eq 'Vulkan') { & (Join-Path $PSScriptRoot 'build_vulkan_probe.ps1') -TestRoot $TestRoot -SimulatorSource $SimulatorSource } else { Join-Path $TestRoot $probeName }
 $loader = Join-Path $TestRoot 'openxr_loader.dll'
 $runtimeDll = Join-Path $TestRoot 'openxr_simulator.dll'
 $runtimeManifest = Join-Path $TestRoot 'openxr_simulator.json'
@@ -70,6 +74,7 @@ $savedProjectionOnly = $env:XR_PROBE_PROJECTION_ONLY
 $savedLoaderDebug = $env:XR_LOADER_DEBUG
 $savedDisableCentralReshade = $env:DISABLE_XR_APILAYER_reshade_1
 $savedDisableGlobalVrUi = $env:DISABLE_ReShade_VR_UI_Addon
+$savedReshadeBasePath = $env:RESHADE_BASE_PATH_OVERRIDE
 $previousLogHash = if (Test-Path -LiteralPath $reshadeLog) { (Get-FileHash -LiteralPath $reshadeLog -Algorithm SHA256).Hash } else { $null }
 $exitCode = -1
 
@@ -95,6 +100,10 @@ try {
 	$env:XR_PROBE_FRAMES = $Frames.ToString()
 	$env:XR_PROBE_PROJECTION_ONLY = '1'
 	$env:XR_LOADER_DEBUG = if ($LoaderDebug) { 'all' } else { $null }
+	if ($GraphicsApi -eq 'Vulkan') {
+		$env:RESHADE_BASE_PATH_OVERRIDE = $TestRoot
+		$vulkanLayer = Enable-TestVulkanReShadeLayer (Join-Path $testLocalAppData 'vulkan-layers') ([System.IO.Path]::GetFullPath((Join-Path $layerDirectory $localReshadeLayer.api_layer.library_path)))
+	}
 
 	Push-Location $TestRoot
 	try {
@@ -115,7 +124,9 @@ finally {
 	$env:XR_LOADER_DEBUG = $savedLoaderDebug
 	$env:DISABLE_XR_APILAYER_reshade_1 = $savedDisableCentralReshade
 	$env:DISABLE_ReShade_VR_UI_Addon = $savedDisableGlobalVrUi
+	$env:RESHADE_BASE_PATH_OVERRIDE = $savedReshadeBasePath
 	Restore-InstalledOpenXRLayers $installedLayers
+	Restore-TestVulkanReShadeLayer $vulkanLayer
 	Remove-Item -LiteralPath $testDll, $testManifest, $testReshadeManifest -Force -ErrorAction SilentlyContinue
 	Remove-Item -LiteralPath $testLocalAppData -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -200,6 +211,7 @@ finally {
 	$env:XR_LOADER_DEBUG = $savedLoaderDebug
 	$env:DISABLE_XR_APILAYER_reshade_1 = $savedDisableCentralReshade
 	$env:DISABLE_ReShade_VR_UI_Addon = $savedDisableGlobalVrUi
+	$env:RESHADE_BASE_PATH_OVERRIDE = $savedReshadeBasePath
 	Restore-InstalledOpenXRLayers $installedLayers
 	Remove-Item -LiteralPath $negativeLocalAppData -Recurse -Force -ErrorAction SilentlyContinue
 }
