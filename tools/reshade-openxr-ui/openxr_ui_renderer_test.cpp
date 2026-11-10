@@ -1234,6 +1234,16 @@ int main()
 		std::fputs("Always show FPS checkbox did not produce its persisted command.\n", stderr);
 		return 1;
 	}
+	openxr_ui::render_input own_settings_input;
+	own_settings_input.game_own_settings = true;
+	openxr_ui::render_result own_settings_result;
+	if (!click(renderer, render_target.Get(), snapshot, "game_own_settings", own_settings_result, own_settings_input))
+		return 1;
+	if (own_settings_result.action != openxr_ui::render_result::command::set_game_own_settings || own_settings_result.state)
+	{
+		std::fputs("Use shared settings switch did not turn the game's own settings off.\n", stderr);
+		return 1;
+	}
 	// The theme list is in the Look card; the third item is Slate.
 	openxr_ui::render_result theme_opened;
 	if (!click(renderer, render_target.Get(), snapshot, "theme", theme_opened))

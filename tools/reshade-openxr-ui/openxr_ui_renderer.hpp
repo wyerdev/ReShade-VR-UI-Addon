@@ -78,6 +78,8 @@ namespace openxr_ui
 		uint32_t arm_swing_run = arm_swing_run_click;
 		uint32_t arm_swing_run_at = arm_swing_run_at_default;
 		bool arm_swing_block_stick = false;
+		// This game keeps its own controls instead of the ones shared by all games.
+		bool game_own_settings = false;
 	};
 
 	struct render_result
@@ -122,6 +124,7 @@ namespace openxr_ui
 			// Sent on every change while the slider is dragged.
 			set_arm_swing_run_at,
 			set_arm_swing_block_stick,
+			set_game_own_settings,
 		};
 
 		command action = command::none;

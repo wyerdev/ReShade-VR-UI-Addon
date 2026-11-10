@@ -43,6 +43,15 @@ bool openxr_ui_revert_technique(uint64_t technique_id);
 bool openxr_ui_restore_technique(uint64_t technique_id);
 bool openxr_ui_get_ui_starts_open();
 bool openxr_ui_set_ui_starts_open(bool starts_open);
+// Off: the controls below (menu shortcut, gestures, arm swing, panel pin and size) are shared by all games.
+// On: this game keeps its own copy, starting from the current values. Turning it off loads the shared values again.
+bool openxr_ui_get_game_own_settings();
+bool openxr_ui_set_game_own_settings(bool enabled);
+// Pin direction in radians around the head, relative to the game's forward direction (OpenXR LOCAL space).
+bool openxr_ui_get_panel_pin(float &yaw, float &pitch);
+bool openxr_ui_set_panel_pin(bool pinned, float yaw, float pitch);
+bool openxr_ui_get_panel_tall();
+bool openxr_ui_set_panel_tall(bool tall);
 // Values from vr_menu_shortcut.hpp. Setting both to Off is refused so the menu can always be reopened.
 uint32_t openxr_ui_get_menu_button();
 bool openxr_ui_set_menu_button(uint32_t button);
@@ -55,7 +64,7 @@ uint32_t openxr_ui_get_preset_gesture();
 bool openxr_ui_set_preset_gesture(uint32_t gesture);
 // Next preset; with only one preset, turns effects off, and on again on the next call.
 bool openxr_ui_gesture_switch_preset();
-// Walking by swinging the arms; saved per game, off by default. Strength in percent, see vr_arm_swing.hpp.
+// Walking by swinging the arms; off by default. Strength in percent, see vr_arm_swing.hpp.
 bool openxr_ui_get_arm_swing_walk();
 bool openxr_ui_set_arm_swing_walk(bool enabled);
 uint32_t openxr_ui_get_arm_swing_strength();

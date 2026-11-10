@@ -16,6 +16,7 @@ Problem with a specific game (UEVR, Deus Ex: Human Revolution VR, Half-Life 2 VR
 - **Walk by swinging your arms:** swing your arms to walk, and swing faster to run. For games that walk with the left thumbstick.
 - **Pin the menu:** keep it to one side, out of your way.
 - **Pin the FPS counter:** always see your FPS, even with the menu closed.
+- **Settings for all games:** set menu buttons, gestures and pin once. Switch off **Use shared settings** where one game needs different ones.
 
 ![The headset menu: Gestures page, with Next preset and Walk by swinging arms ringed](https://github.com/{{REPOSITORY}}/raw/{{TAG}}/docs/images/menu-gestures.png)
 

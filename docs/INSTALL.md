@@ -54,15 +54,19 @@ Swing your arms in turn, as when walking, to move forward. For games that walk w
 - **Run:** swing faster than **Run at** to run. You keep moving forward, and the add-on also presses the game's run button: **Click left stick** clicks the left thumbstick in (`L3`) once when you start and once when you stop running, for games where a click turns sprint on and off. **Hold A**, **Hold B**, **Hold X** or **Hold Y** holds that button while you run. **Off** presses nothing.
 - **Block left stick forward:** pushing the left thumbstick forward does nothing, so only your arms move you forward. Backward and sideways still work.
 
-These settings are saved per game.
-
 ### Pin The Menu
 
-Turn your head to the side and click the pin button at the top right of the menu. The menu stays there until the game closes.
+Turn your head to the side and click the pin button at the top right of the menu. The menu stays in that direction, also in your next games, until you click the pin again.
 
 ### Pin The FPS Counter
 
 On **Settings**, switch on **Show when menu is closed**, then pin the menu. Your FPS now always shows in that spot.
+
+### Settings For All Games
+
+Menu buttons, gestures, arm swing, pin and menu size are shared by all your games. Change them once.
+
+For different settings in one game: in that game, on **Settings**, switch off **Use shared settings**.
 
 ## Update Or Uninstall
 

@@ -25,6 +25,7 @@ Problem with a specific game? See [Fixes for specific games](docs/GAME-FIXES.md)
 - **Walk by swinging your arms (OpenXR games):** swing your arms to walk, and swing faster to run.
 - **Pin the menu (OpenXR games):** keep it to one side, out of your way.
 - **Pin the FPS counter (OpenXR games):** always see your FPS, even with the menu closed.
+- **Settings for all games (OpenXR games):** set menu buttons, gestures and pin once. Switch off **Use shared settings** where one game needs different ones.
 
 **SteamVR games** don't get this menu. You use ReShade's own menu from the ReShade icon in the SteamVR dashboard. See the [SteamVR steps](docs/INSTALL-SteamVR.md).
 

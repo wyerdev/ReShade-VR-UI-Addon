@@ -2164,6 +2164,18 @@ namespace openxr_ui
 			const dropdown_interaction theme_choice = dropdown_row(left_x, row_top(card_top, 0), "Colour theme", "theme",
 				vr_theme::theme_names, vr_theme::theme_count, input.theme);
 
+			// Left column: whether this game shares the controls with all other games.
+			title_y = card_top + card_height(1) + group_gap;
+			card_top = begin_card(left_x, title_y, card_height(1));
+			draw_group_title("This game", { left_x, title_y });
+			const bool own_settings_hovered = switch_row(left_x, row_top(card_top, 0), "game_own_settings", "Use shared settings",
+				!input.game_own_settings);
+			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Use shared settings",
+				"On: the menu shortcut, gestures, arm swing walking, pin and panel size are shared by all games. "
+				"A change here applies to every game.\n\n"
+				"Off: this game keeps its own copy, starting from the current choices, so changes here leave other games alone.\n\n"
+				"Theme, FPS counter and Open when the game starts are always shared.");
+
 			// Right column: FPS counter.
 			title_y = 80.0f;
 			card_top = begin_card(right_x, title_y, card_height(2));
@@ -2245,6 +2257,11 @@ namespace openxr_ui
 				result.action = render_result::command::set_depth_detection_disabled;
 				result.state = !input.depth_detection_disabled;
 			}
+			else if (input.select_clicked && own_settings_hovered && _implementation->dragging == implementation::drag_target::none)
+			{
+				result.action = render_result::command::set_game_own_settings;
+				result.state = !input.game_own_settings;
+			}
 			}
 			else
 			{
@@ -2289,7 +2306,7 @@ namespace openxr_ui
 			const char *const walk_details =
 				"Swing your arms up and down in turn, left up while right goes down, to walk forward. Faster swings walk faster.\n\n"
 				"It pushes the game's left thumbstick forward for you, so it works in games that walk with the left thumbstick. "
-				"Works only while this menu is closed. Saved for this game only.";
+				"Works only while this menu is closed.";
 			float row_y = row_top(rows_top, 0);
 			const bool walk_hovered = switch_row(right_x, row_y, "arm_swing_walk", "Walk by swinging arms", input.arm_swing_walk);
 			draw_hover_details(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), "Walk by swinging arms", walk_details);

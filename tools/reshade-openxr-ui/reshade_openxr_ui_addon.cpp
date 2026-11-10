@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -53,6 +54,11 @@ namespace
 	uint32_t s_arm_swing_run = openxr_ui::arm_swing_run_click;
 	uint32_t s_arm_swing_run_at = openxr_ui::arm_swing_run_at_default;
 	bool s_arm_swing_block_stick = false;
+	bool s_panel_pinned = false;
+	float s_panel_pin_yaw = 0.0f;
+	float s_panel_pin_pitch = 0.0f;
+	bool s_panel_tall = false;
+	bool s_game_own_settings = false;
 	bool s_ui_settings_loaded = false;
 	bool s_performance_mode = false;
 	bool s_performance_mode_at_start = false;
@@ -302,8 +308,11 @@ namespace
 		return configuration_directory() / L"settings.ini";
 	}
 
-	// Menu shortcut and preset gesture are saved per game, in a section named after the game's executable path.
-	// Games without their own value use the default; shared [UI] values written by earlier versions are ignored.
+	// Controls (menu shortcut, gestures, arm swing, panel pin and size) are shared by all games in [Controls].
+	// A game with OwnSettings=1 in its own [Controls:<executable path>] section uses that section instead.
+	// Values written by earlier versions ([UI] and [Game:<executable path>]) are ignored.
+	constexpr wchar_t shared_controls_section[] = L"Controls";
+
 	const std::wstring &game_settings_section()
 	{
 		static const std::wstring section = [] {
@@ -314,14 +323,82 @@ namespace
 			executable.resize(length);
 			for (wchar_t &character : executable)
 				character = character == L'[' || character == L']' ? L'_' : static_cast<wchar_t>(towlower(character));
-			return L"Game:" + executable;
+			return L"Controls:" + executable;
 		}();
 		return section;
 	}
 
-	UINT read_game_setting(const wchar_t *name, UINT default_value, const std::filesystem::path &path)
+	const wchar_t *controls_section()
 	{
-		return GetPrivateProfileIntW(game_settings_section().c_str(), name, default_value, path.c_str());
+		return s_game_own_settings ? game_settings_section().c_str() : shared_controls_section;
+	}
+
+	UINT read_control_setting(const wchar_t *name, UINT default_value, const std::filesystem::path &path)
+	{
+		return GetPrivateProfileIntW(controls_section(), name, default_value, path.c_str());
+	}
+
+	// Angles in degrees, which GetPrivateProfileIntW cannot read when negative.
+	float read_control_angle(const wchar_t *name, const std::filesystem::path &path)
+	{
+		wchar_t text[32] = L"";
+		GetPrivateProfileStringW(controls_section(), name, L"0", text, static_cast<DWORD>(std::size(text)), path.c_str());
+		const float degrees = std::wcstof(text, nullptr);
+		return std::isfinite(degrees) ? std::clamp(degrees, -180.0f, 180.0f) * (3.14159265f / 180.0f) : 0.0f;
+	}
+
+	std::wstring format_angle(float radians)
+	{
+		wchar_t text[32];
+		std::swprintf(text, std::size(text), L"%.1f", radians * (180.0f / 3.14159265f));
+		return text;
+	}
+
+	void load_control_settings(const std::filesystem::path &path)
+	{
+		const UINT button = read_control_setting(L"MenuButton", openxr_ui::menu_button_both_sticks, path);
+		s_menu_button = button < openxr_ui::menu_button_count ? button : openxr_ui::menu_button_both_sticks;
+		const UINT key = read_control_setting(L"MenuKey", openxr_ui::menu_key_insert, path);
+		s_menu_key = key < openxr_ui::menu_key_count ? key : openxr_ui::menu_key_insert;
+		if (s_menu_button == openxr_ui::menu_button_off && s_menu_key == openxr_ui::menu_key_off)
+			s_menu_key = openxr_ui::menu_key_insert;
+		const UINT gesture = read_control_setting(L"PresetGesture", openxr_ui::preset_gesture_left_trigger, path);
+		s_preset_gesture = gesture < openxr_ui::preset_gesture_count ? gesture : openxr_ui::preset_gesture_left_trigger;
+		s_arm_swing_walk = read_control_setting(L"ArmSwingWalk", 0, path) != 0;
+		s_arm_swing_strength = openxr_ui::clamp_arm_swing_strength(
+			read_control_setting(L"ArmSwingStrength", openxr_ui::arm_swing_strength_default, path));
+		const UINT run = read_control_setting(L"ArmSwingRun", openxr_ui::arm_swing_run_click, path);
+		s_arm_swing_run = run < openxr_ui::arm_swing_run_mode_count ? run : openxr_ui::arm_swing_run_click;
+		s_arm_swing_run_at = openxr_ui::clamp_arm_swing_run_at(
+			read_control_setting(L"ArmSwingRunAt", openxr_ui::arm_swing_run_at_default, path));
+		s_arm_swing_block_stick = read_control_setting(L"ArmSwingBlockStick", 0, path) != 0;
+		s_panel_pinned = read_control_setting(L"PanelPinned", 0, path) != 0;
+		s_panel_pin_yaw = read_control_angle(L"PanelPinYaw", path);
+		s_panel_pin_pitch = std::clamp(read_control_angle(L"PanelPinPitch", path), -1.5707963f, 1.5707963f);
+		s_panel_tall = read_control_setting(L"PanelTall", 0, path) != 0;
+	}
+
+	// Copies the current controls into the game's own section, so turning on own settings changes nothing at first.
+	bool write_control_settings(const wchar_t *section, const std::filesystem::path &path)
+	{
+		const std::pair<const wchar_t *, std::wstring> values[] = {
+			{ L"MenuButton", std::to_wstring(s_menu_button) },
+			{ L"MenuKey", std::to_wstring(s_menu_key) },
+			{ L"PresetGesture", std::to_wstring(s_preset_gesture) },
+			{ L"ArmSwingWalk", s_arm_swing_walk ? L"1" : L"0" },
+			{ L"ArmSwingStrength", std::to_wstring(s_arm_swing_strength) },
+			{ L"ArmSwingRun", std::to_wstring(s_arm_swing_run) },
+			{ L"ArmSwingRunAt", std::to_wstring(s_arm_swing_run_at) },
+			{ L"ArmSwingBlockStick", s_arm_swing_block_stick ? L"1" : L"0" },
+			{ L"PanelPinned", s_panel_pinned ? L"1" : L"0" },
+			{ L"PanelPinYaw", format_angle(s_panel_pin_yaw) },
+			{ L"PanelPinPitch", format_angle(s_panel_pin_pitch) },
+			{ L"PanelTall", s_panel_tall ? L"1" : L"0" },
+		};
+		for (const auto &[name, value] : values)
+			if (!WritePrivateProfileStringW(section, name, value.c_str(), path.c_str()))
+				return false;
+		return true;
 	}
 
 	void load_ui_settings()
@@ -336,22 +413,8 @@ namespace
 			s_always_show_statistics = GetPrivateProfileIntW(L"UI", L"AlwaysShowFPS", 0, path.c_str()) != 0;
 			const UINT divisor = GetPrivateProfileIntW(L"UI", L"FrameRateDivisor", 1, path.c_str());
 			s_frame_rate_divisor = divisor >= 1 && divisor <= openxr_ui::max_frame_rate_divisor ? divisor : 1;
-			const UINT button = read_game_setting(L"MenuButton", openxr_ui::menu_button_both_sticks, path);
-			s_menu_button = button < openxr_ui::menu_button_count ? button : openxr_ui::menu_button_both_sticks;
-			const UINT key = read_game_setting(L"MenuKey", openxr_ui::menu_key_insert, path);
-			s_menu_key = key < openxr_ui::menu_key_count ? key : openxr_ui::menu_key_insert;
-			if (s_menu_button == openxr_ui::menu_button_off && s_menu_key == openxr_ui::menu_key_off)
-				s_menu_key = openxr_ui::menu_key_insert;
-			const UINT gesture = read_game_setting(L"PresetGesture", openxr_ui::preset_gesture_left_trigger, path);
-			s_preset_gesture = gesture < openxr_ui::preset_gesture_count ? gesture : openxr_ui::preset_gesture_left_trigger;
-			s_arm_swing_walk = read_game_setting(L"ArmSwingWalk", 0, path) != 0;
-			s_arm_swing_strength = openxr_ui::clamp_arm_swing_strength(
-				read_game_setting(L"ArmSwingStrength", openxr_ui::arm_swing_strength_default, path));
-			const UINT run = read_game_setting(L"ArmSwingRun", openxr_ui::arm_swing_run_click, path);
-			s_arm_swing_run = run < openxr_ui::arm_swing_run_mode_count ? run : openxr_ui::arm_swing_run_click;
-			s_arm_swing_run_at = openxr_ui::clamp_arm_swing_run_at(
-				read_game_setting(L"ArmSwingRunAt", openxr_ui::arm_swing_run_at_default, path));
-			s_arm_swing_block_stick = read_game_setting(L"ArmSwingBlockStick", 0, path) != 0;
+			s_game_own_settings = GetPrivateProfileIntW(game_settings_section().c_str(), L"OwnSettings", 0, path.c_str()) != 0;
+			load_control_settings(path);
 			wchar_t theme_name[64] = L"";
 			GetPrivateProfileStringW(L"UI", L"Theme", L"", theme_name, static_cast<DWORD>(std::size(theme_name)), path.c_str());
 			char theme_name_utf8[192] = "";
@@ -1646,20 +1709,101 @@ bool openxr_ui_set_ui_starts_open(bool starts_open)
 
 namespace
 {
-	bool save_menu_shortcut(const wchar_t *name, uint32_t value, const char *error_message)
+	bool save_menu_shortcut(const wchar_t *name, const std::wstring &value, const char *error_message)
 	{
 		const std::filesystem::path path = ui_settings_path();
 		if (path.empty())
 			return false;
 		std::error_code error;
 		std::filesystem::create_directories(path.parent_path(), error);
-		if (error || !WritePrivateProfileStringW(game_settings_section().c_str(), name, std::to_wstring(value).c_str(), path.c_str()))
+		if (error || !WritePrivateProfileStringW(controls_section(), name, value.c_str(), path.c_str()))
 		{
 			log_runtime_message(reshade::log::level::error, error_message);
 			return false;
 		}
 		return true;
 	}
+
+	bool save_menu_shortcut(const wchar_t *name, uint32_t value, const char *error_message)
+	{
+		return save_menu_shortcut(name, std::to_wstring(value), error_message);
+	}
+}
+
+bool openxr_ui_get_game_own_settings()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_game_own_settings;
+}
+
+bool openxr_ui_set_game_own_settings(bool enabled)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	if (enabled == s_game_own_settings)
+		return true;
+	const std::filesystem::path path = ui_settings_path();
+	if (path.empty())
+		return false;
+	std::error_code error;
+	std::filesystem::create_directories(path.parent_path(), error);
+	const wchar_t *const section = game_settings_section().c_str();
+	if (error || (enabled && !write_control_settings(section, path)) ||
+		!WritePrivateProfileStringW(section, L"OwnSettings", enabled ? L"1" : L"0", path.c_str()))
+	{
+		log_runtime_message(reshade::log::level::error, "failed to save the own settings switch for this game.");
+		return false;
+	}
+	s_game_own_settings = enabled;
+	// Turning own settings off goes back to the shared values; this game's values stay saved for next time.
+	if (!enabled)
+		load_control_settings(path);
+	log_runtime_message(reshade::log::level::info, enabled ? "this game now keeps its own controls." : "this game now uses the shared controls.");
+	return true;
+}
+
+bool openxr_ui_get_panel_pin(float &yaw, float &pitch)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	yaw = s_panel_pin_yaw;
+	pitch = s_panel_pin_pitch;
+	return s_panel_pinned;
+}
+
+bool openxr_ui_set_panel_pin(bool pinned, float yaw, float pitch)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	if (!save_menu_shortcut(L"PanelPinned", pinned ? 1 : 0, "failed to save the panel pin.") ||
+		(pinned && (!save_menu_shortcut(L"PanelPinYaw", format_angle(yaw), "failed to save the panel pin direction.") ||
+			!save_menu_shortcut(L"PanelPinPitch", format_angle(pitch), "failed to save the panel pin direction."))))
+		return false;
+	s_panel_pinned = pinned;
+	if (pinned)
+	{
+		s_panel_pin_yaw = yaw;
+		s_panel_pin_pitch = pitch;
+	}
+	return true;
+}
+
+bool openxr_ui_get_panel_tall()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	return s_panel_tall;
+}
+
+bool openxr_ui_set_panel_tall(bool tall)
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	load_ui_settings();
+	if (!save_menu_shortcut(L"PanelTall", tall ? 1 : 0, "failed to save the panel size."))
+		return false;
+	s_panel_tall = tall;
+	return true;
 }
 
 uint32_t openxr_ui_get_menu_button()

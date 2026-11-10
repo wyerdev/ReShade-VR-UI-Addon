@@ -6,7 +6,7 @@
 
 namespace openxr_ui
 {
-	// Swing strength in percent; saved per game.
+	// Swing strength in percent.
 	inline constexpr uint32_t arm_swing_strength_min = 25;
 	inline constexpr uint32_t arm_swing_strength_max = 300;
 	inline constexpr uint32_t arm_swing_strength_default = 100;
@@ -17,7 +17,7 @@ namespace openxr_ui
 		return std::clamp(percent, arm_swing_strength_min, arm_swing_strength_max);
 	}
 
-	// The button fast swings press to make the game run, on top of the forward push; saved per game. Click presses the left
+	// The button fast swings press to make the game run, on top of the forward push. Click presses the left
 	// thumbstick once to start running and once to stop, for games that toggle running; the Hold choices keep their button
 	// pressed while running.
 	inline constexpr uint32_t arm_swing_run_off = 0;

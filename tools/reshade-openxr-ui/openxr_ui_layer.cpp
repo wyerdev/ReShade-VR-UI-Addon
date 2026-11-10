@@ -245,6 +245,7 @@ namespace
 		uint32_t arm_swing_run_at = openxr_ui::arm_swing_run_at_default;
 		bool arm_swing_run_at_unsaved = false;
 		bool arm_swing_block_stick = false;
+		bool game_own_settings = false;
 		openxr_ui::arm_swing_run_button arm_swing_run_button;
 		// Read by the game's input calls, which may run on another thread.
 		std::atomic<float> arm_swing_forward = 0.0f;
@@ -916,6 +917,24 @@ namespace
 		return SUCCEEDED(state.command_queue12->Signal(state.completion_fence12.Get(), slot.fence_value));
 	}
 
+	// Reads the controls the add-on saved, shared by all games unless this game keeps its own.
+	void load_control_settings(session_state &state)
+	{
+		state.game_own_settings = openxr_ui_get_game_own_settings();
+		state.menu_button = openxr_ui_get_menu_button();
+		state.menu_key = openxr_ui_get_menu_key();
+		state.preset_gesture = openxr_ui_get_preset_gesture();
+		state.arm_swing_walk = openxr_ui_get_arm_swing_walk();
+		state.arm_swing_strength = openxr_ui_get_arm_swing_strength();
+		state.arm_swing_run = openxr_ui_get_arm_swing_run();
+		state.arm_swing_run_at = openxr_ui_get_arm_swing_run_at();
+		state.arm_swing_block_stick = openxr_ui_get_arm_swing_block_stick();
+		state.panel_expanded = openxr_ui_get_panel_tall();
+		// The saved direction is relative to the game's forward direction, so it needs no head pose.
+		state.panel_locked = openxr_ui_get_panel_pin(state.anchor_yaw, state.anchor_pitch);
+		state.anchor_ready = state.panel_locked;
+	}
+
 	bool render_quad(session_state &state)
 	{
 		quad_target &target = state.panel;
@@ -992,6 +1011,7 @@ namespace
 				state.arm_swing_run,
 				state.arm_swing_run_at,
 				state.arm_swing_block_stick,
+				state.game_own_settings,
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)
@@ -1015,6 +1035,7 @@ namespace
 			{
 			case openxr_ui::render_result::command::toggle_panel_size:
 				state.panel_expanded = !state.panel_expanded;
+				openxr_ui_set_panel_tall(state.panel_expanded);
 				break;
 			case openxr_ui::render_result::command::hide_panel:
 				state.panel_visible = false;
@@ -1141,6 +1162,13 @@ namespace
 			case openxr_ui::render_result::command::toggle_panel_lock:
 				state.panel_locked = !state.panel_locked;
 				state.anchor_ready = false;
+				// Pinning saves its direction once xrEndFrame has captured it.
+				if (!state.panel_locked)
+					openxr_ui_set_panel_pin(false, state.anchor_yaw, state.anchor_pitch);
+				break;
+			case openxr_ui::render_result::command::set_game_own_settings:
+				if (openxr_ui_set_game_own_settings(render_result.state))
+					load_control_settings(state);
 				break;
 			case openxr_ui::render_result::command::none:
 				break;
@@ -2166,14 +2194,7 @@ extern "C" XrResult XRAPI_CALL xrCreateSession(XrInstance instance, const XrSess
 	state->performance_mode = openxr_ui_get_performance_mode();
 	state->always_show_statistics = openxr_ui_get_always_show_statistics();
 	state->frame_timing.set_frame_rate_divisor(openxr_ui_get_frame_rate_divisor());
-	state->menu_button = openxr_ui_get_menu_button();
-	state->menu_key = openxr_ui_get_menu_key();
-	state->preset_gesture = openxr_ui_get_preset_gesture();
-	state->arm_swing_walk = openxr_ui_get_arm_swing_walk();
-	state->arm_swing_strength = openxr_ui_get_arm_swing_strength();
-	state->arm_swing_run = openxr_ui_get_arm_swing_run();
-	state->arm_swing_run_at = openxr_ui_get_arm_swing_run_at();
-	state->arm_swing_block_stick = openxr_ui_get_arm_swing_block_stick();
+	load_control_settings(*state);
 	openxr_ui::panel_renderer::select_theme(openxr_ui_get_theme());
 	state->panel_visible = state->ui_starts_open;
 	if (create_info != nullptr)
@@ -2476,7 +2497,11 @@ extern "C" XrResult XRAPI_CALL xrEndFrame(XrSession session, const XrFrameEndInf
 	XrCompositionLayerQuad quad = { XR_TYPE_COMPOSITION_LAYER_QUAD };
 	const bool panel_rendered = state->panel_visible && render_quad(*state);
 	if (state->panel_locked && !state->anchor_ready)
+	{
 		capture_panel_anchor(*state);
+		if (state->anchor_ready)
+			openxr_ui_set_panel_pin(true, state->anchor_yaw, state->anchor_pitch);
+	}
 	const bool anchored = panel_anchored(*state);
 	if (panel_rendered)
 	{
