@@ -1121,6 +1121,8 @@ namespace openxr_ui
 		bool save_as_uppercase = true;
 		std::string save_as_name;
 		dropdown_state dropdown;
+		// Presets found when the preset list was last opened.
+		std::vector<std::string> preset_names;
 		control_recorder recorder;
 		bool control_recording = false;
 		uint32_t applied_theme = no_theme_applied;
@@ -1699,23 +1701,42 @@ namespace openxr_ui
 				const float dirty_text_y = std::floor(preset_y + (control_height - ImGui::GetFontSize()) * 0.5f);
 				ImGui::PopFont();
 				const float reserved = control_height + space_sm + (input.preset_dirty ? space_md + dirty_width : 0.0f) + space_md;
-				std::vector<std::string> choices = input.preset_names;
-				size_t selected_preset = std::find(choices.begin(), choices.end(), preset_name) - choices.begin();
-				if (selected_preset == choices.size())
-					choices.push_back(preset_name);
+				const std::vector<std::string> &preset_names = _implementation->preset_names;
+				std::vector<std::string> choices;
 				std::vector<const char *> choice_texts;
-				choice_texts.reserve(choices.size());
-				for (const std::string &choice : choices)
-					choice_texts.push_back(choice.c_str());
+				size_t selected_preset = 0;
+				float box_width = 0.0f;
 				const float box_limit = (std::max)(96.0f, preset_group_x - reserved - name_x);
-				const float box_width = (std::min)((std::max)(220.0f, dropdown_width("", choice_texts.data(), choice_texts.size(), control_height)), box_limit);
+				const auto build_choices = [&]() {
+					choices = preset_names;
+					selected_preset = std::find(choices.begin(), choices.end(), preset_name) - choices.begin();
+					if (selected_preset == choices.size())
+						choices.push_back(preset_name);
+					choice_texts.clear();
+					for (const std::string &choice : choices)
+						choice_texts.push_back(choice.c_str());
+					box_width = (std::min)((std::max)(220.0f, dropdown_width("", choice_texts.data(), choice_texts.size(), control_height)), box_limit);
+				};
+				build_choices();
 				ImGui::SetCursorScreenPos({ name_x, preset_y });
-				const dropdown_interaction preset_choice = draw_dropdown(_implementation->dropdown, "preset", "", control_height,
+				dropdown_state &dropdown = _implementation->dropdown;
+				const ImGuiID preset_list_id = ImGui::GetID("preset");
+				const bool preset_list_was_open = dropdown.open_id == preset_list_id;
+				const dropdown_interaction preset_choice = draw_dropdown(dropdown, "preset", "", control_height,
 					choice_texts.data(), choice_texts.size(), selected_preset, can_click && !input.shaders_temporarily_disabled, nullptr, box_width);
-				if (preset_choice.chosen && preset_choice.option != selected_preset && preset_choice.option < input.preset_names.size())
+				if (!preset_list_was_open && dropdown.open_id == preset_list_id && input.list_preset_names)
+				{
+					_implementation->preset_names = input.list_preset_names();
+					build_choices();
+					dropdown.options = choices;
+					dropdown.disabled.assign(choices.size(), false);
+					dropdown.selected = selected_preset;
+					dropdown.box_max.x = name_x + box_width;
+				}
+				if (preset_choice.chosen && preset_choice.option != selected_preset && preset_choice.option < preset_names.size())
 				{
 					result.action = render_result::command::select_preset;
-					result.text = input.preset_names[preset_choice.option];
+					result.text = preset_names[preset_choice.option];
 				}
 				draw_hover_details({ name_x, preset_y }, { name_x + box_width, preset_y + control_height }, preset_name);
 				const float next_x = name_x + box_width + space_sm;

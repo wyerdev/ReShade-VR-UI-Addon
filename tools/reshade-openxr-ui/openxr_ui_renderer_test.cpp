@@ -2,6 +2,7 @@
 #include "startup_crash_guard.hpp"
 #include "vr_gamepad.hpp"
 #include "vr_mouse.hpp"
+#include "vr_preset_file.hpp"
 
 #include <d3d11.h>
 #include <wrl/client.h>
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -154,6 +156,26 @@ namespace
 		openxr_ui::render_result::command expected_action, uint64_t expected_id)
 	{
 		return expect_result(click_at(renderer, render_target, snapshot, x, y), expected_action, expected_id);
+	}
+
+	bool preset_file_detection_works()
+	{
+		const auto is_preset = [](const char *text) {
+			std::istringstream stream(text);
+			return openxr_ui::text_is_reshade_preset(stream);
+		};
+		const bool works =
+			is_preset("PreprocessorDefinitions=\r\nTechniques=SMAA@SMAA.fx,Clarity@Clarity.fx\r\n\r\n[SMAA.fx]\r\nEdgeDetectionType=1\r\n") &&
+			is_preset("\xEF\xBB\xBF  Techniques =\n") &&
+			is_preset("[Clarity.fx]\nStrength=1\n[]\nTechniques=Clarity@Clarity.fx\n") &&
+			!is_preset("[GENERAL]\nEffectSearchPaths=.\\reshade-shaders\\Shaders\\**\nTechniques=x\n") &&
+			!is_preset("[Display]\nResolution=1920x1080\nFullscreen=1\n") &&
+			!is_preset("; Techniques=SMAA@SMAA.fx\n# Techniques=\n") &&
+			!is_preset("TechniqueSorting=SMAA@SMAA.fx\nTechniques\n") &&
+			!is_preset("");
+		if (!works)
+			std::fputs("Preset file detection did not match how ReShade recognizes preset files.\n", stderr);
+		return works;
 	}
 
 	bool preset_gesture_logic_works()
@@ -704,7 +726,7 @@ int main(int argc, char **argv)
 		return run_crash_guard_child(argv[2]);
 	if (!startup_crash_guard_works() || !startup_crash_guard_survives_real_crash())
 		return 1;
-	if (!preset_gesture_logic_works() || !gamepad_logic_works() || !mouse_logic_works() || !arm_swing_logic_works() || !arm_swing_run_logic_works())
+	if (!preset_file_detection_works() || !preset_gesture_logic_works() || !gamepad_logic_works() || !mouse_logic_works() || !arm_swing_logic_works() || !arm_swing_run_logic_works())
 		return 1;
 	ComPtr<ID3D11Device> device;
 	ComPtr<ID3D11DeviceContext> context;
@@ -1550,6 +1572,29 @@ int main(int argc, char **argv)
 	if (!expect_command(renderer, render_target.Get(), snapshot, "delete_preset",
 		openxr_ui::render_result::command::delete_preset, 0))
 		return 1;
+	int preset_list_reads = 0;
+	openxr_ui::render_input preset_list_input;
+	preset_list_input.preset_name = "Current";
+	preset_list_input.list_preset_names = [&preset_list_reads]() {
+		++preset_list_reads;
+		return std::vector<std::string>{ "Bright", "Current", "Dark" };
+	};
+	render_layout(renderer, render_target.Get(), snapshot, preset_list_input);
+	render_layout(renderer, render_target.Get(), snapshot, preset_list_input);
+	if (preset_list_reads != 0)
+	{
+		std::fputs("Drawing the menu read the preset folder; it must be read only when the list is opened.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_result preset_chosen;
+	if (!click(renderer, render_target.Get(), snapshot, "preset", preset_list_input) ||
+		!click(renderer, render_target.Get(), snapshot, dropdown_item("preset", 2), preset_chosen, preset_list_input))
+		return 1;
+	if (preset_list_reads != 1 || preset_chosen.action != openxr_ui::render_result::command::select_preset || preset_chosen.text != "Dark")
+	{
+		std::fputs("Opening the preset list did not read the folder once and offer its presets.\n", stderr);
+		return 1;
+	}
 	openxr_ui::render_input open_save_as;
 	open_save_as.preset_name = "Hubris Super Resolution Tuned Copy 12";
 	openxr_ui::render_result open_save_as_result;

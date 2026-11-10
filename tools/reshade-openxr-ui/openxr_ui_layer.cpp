@@ -1015,7 +1015,7 @@ namespace
 				state.arm_swing_run_at,
 				state.arm_swing_block_stick,
 				state.game_own_settings,
-				openxr_ui_get_preset_names(),
+				openxr_ui_get_preset_names,
 			};
 			openxr_ui::render_result render_result;
 			if (state.api == graphics_api::d3d11)

@@ -2463,17 +2463,8 @@ bool openxr_ui_switch_preset(bool previous)
 
 std::vector<std::string> openxr_ui_get_preset_names()
 {
-	using clock = std::chrono::steady_clock;
-	static std::vector<std::string> s_names;
-	static clock::time_point s_refreshed;
 	const std::lock_guard<std::mutex> lock(s_mutex);
-	const clock::time_point now = clock::now();
-	if (s_names.empty() || now - s_refreshed >= std::chrono::seconds(1))
-	{
-		s_names = openxr_ui::list_preset_names(s_effect_runtime);
-		s_refreshed = now;
-	}
-	return s_names;
+	return openxr_ui::list_preset_names(s_effect_runtime);
 }
 
 bool openxr_ui_switch_to_preset(const std::string &name)

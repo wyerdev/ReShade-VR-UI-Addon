@@ -107,7 +107,7 @@ bool openxr_ui_reset_all_parameters(uint64_t technique_id);
 bool openxr_ui_save_preset();
 std::string openxr_ui_get_preset_name();
 bool openxr_ui_switch_preset(bool previous);
-// Cached and refreshed about once a second, so calling it every frame costs no disk access.
+// Reads the preset folder; call it only when the player opens the preset list, never per frame.
 std::vector<std::string> openxr_ui_get_preset_names();
 bool openxr_ui_switch_to_preset(const std::string &name);
 bool openxr_ui_save_preset_as(const std::string &preset_name);

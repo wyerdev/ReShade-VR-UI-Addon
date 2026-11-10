@@ -8,6 +8,7 @@
 #include "vr_ui_themes.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -80,8 +81,9 @@ namespace openxr_ui
 		bool arm_swing_block_stick = false;
 		// This game keeps its own controls instead of the ones shared by all games.
 		bool game_own_settings = false;
-		// Names of the presets in the current preset's folder, for the preset drop-down.
-		std::vector<std::string> preset_names;
+		// Reads the preset folder for the preset drop-down. Called only on the click that opens the list, never
+		// per frame, so drawing the menu never touches the disk.
+		std::function<std::vector<std::string>()> list_preset_names;
 	};
 
 	struct render_result

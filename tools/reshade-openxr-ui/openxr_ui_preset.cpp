@@ -1,6 +1,7 @@
 #include "openxr_ui_preset.hpp"
 
 #include "openxr_ui_model.hpp"
+#include "vr_preset_file.hpp"
 
 #include <Windows.h>
 
@@ -8,6 +9,7 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 
 namespace
 {
@@ -284,6 +286,12 @@ std::string openxr_ui::current_preset_name(reshade::api::effect_runtime *runtime
 
 namespace
 {
+	bool file_is_reshade_preset(const std::filesystem::path &path)
+	{
+		std::ifstream file(path, std::ios::binary);
+		return file.is_open() && openxr_ui::text_is_reshade_preset(file);
+	}
+
 	std::vector<std::filesystem::path> sibling_preset_paths(const std::filesystem::path &current_path)
 	{
 		std::error_code error;
@@ -292,7 +300,8 @@ namespace
 			current_path.parent_path(), std::filesystem::directory_options::skip_permission_denied, error))
 		{
 			const std::filesystem::path extension = entry.path().extension();
-			if (entry.is_regular_file(error) && (extension == L".ini" || extension == L".txt"))
+			if (entry.is_regular_file(error) && (extension == L".ini" || extension == L".txt") &&
+				(paths_refer_to_same_file(entry.path(), current_path) || file_is_reshade_preset(entry.path())))
 				preset_paths.push_back(entry.path());
 		}
 		return preset_paths;
