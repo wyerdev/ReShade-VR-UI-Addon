@@ -127,6 +127,14 @@ namespace
 	std::atomic<uint64_t> s_present_frame = 0;
 	std::atomic<bool> s_reshade_overlay_open = false;
 	thread_local uint32_t t_panel_write_depth = 0;
+	// A preset without effect file names (old ReShade format) makes ReShade reload all effects inside the switch call,
+	// and it reports that reload synchronously, while this thread still holds s_mutex.
+	thread_local bool t_preset_switch_holds_mutex = false;
+	struct preset_switch_scope
+	{
+		preset_switch_scope() { t_preset_switch_holds_mutex = true; }
+		~preset_switch_scope() { t_preset_switch_holds_mutex = false; }
+	};
 	struct panel_write_scope
 	{
 		panel_write_scope() { ++t_panel_write_depth; }
@@ -1438,7 +1446,9 @@ namespace
 
 	void on_reshade_reloaded_effects(effect_runtime *runtime)
 	{
-		const std::lock_guard<std::mutex> lock(s_mutex);
+		std::unique_lock<std::mutex> lock(s_mutex, std::defer_lock);
+		if (!t_preset_switch_holds_mutex)
+			lock.lock();
 		if (s_vr_runtimes.find(runtime) == s_vr_runtimes.end())
 			return;
 		load_hidden_techniques();
@@ -2127,6 +2137,7 @@ bool openxr_ui_gesture_switch_preset()
 	// Effects switched off by the gesture or by Disable all come back first, so the gesture never strands them off.
 	if (s_shaders_temporarily_disabled)
 		return toggle_all_techniques_locked();
+	const preset_switch_scope switch_scope;
 	if (openxr_ui::switch_to_sibling_preset(s_effect_runtime, false))
 	{
 		log_runtime_message(reshade::log::level::info, "preset gesture switched to the next ReShade preset.");
@@ -2978,6 +2989,7 @@ std::string openxr_ui_get_preset_name()
 bool openxr_ui_switch_preset(bool previous)
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);
+	const preset_switch_scope switch_scope;
 	if (s_shaders_temporarily_disabled || s_inherited_preset_copy.is_pending() || s_pending_preset_delete.is_pending() ||
 		!openxr_ui::switch_to_sibling_preset(s_effect_runtime, previous))
 		return false;
@@ -2996,6 +3008,7 @@ std::vector<std::string> openxr_ui_get_preset_names()
 bool openxr_ui_switch_to_preset(const std::string &name)
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);
+	const preset_switch_scope switch_scope;
 	if (s_shaders_temporarily_disabled || s_inherited_preset_copy.is_pending() || s_pending_preset_delete.is_pending() ||
 		!openxr_ui::switch_to_named_preset(s_effect_runtime, name))
 		return false;
@@ -3016,6 +3029,7 @@ bool openxr_ui_save_preset_as(const std::string &preset_name)
 bool openxr_ui_delete_preset()
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);
+	const preset_switch_scope switch_scope;
 	if (s_shaders_temporarily_disabled || s_inherited_preset_copy.is_pending() ||
 		!s_pending_preset_delete.begin(s_effect_runtime))
 		return false;
@@ -3026,6 +3040,7 @@ bool openxr_ui_delete_preset()
 int openxr_ui_update_preset_operations()
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);
+	const preset_switch_scope switch_scope;
 	update_global_operations_locked();
 	switch (s_pending_preset_delete.update(s_effect_runtime))
 	{
@@ -3168,6 +3183,7 @@ void openxr_ui_cancel_global_import()
 bool openxr_ui_load_global_preset(const std::string &name)
 {
 	const std::lock_guard<std::mutex> lock(s_mutex);
+	const preset_switch_scope switch_scope;
 	const auto copy = s_global_copies.find(name);
 	if (!can_start_global_action_locked() || copy == s_global_copies.end() ||
 		!openxr_ui::switch_to_preset_file(s_effect_runtime, copy->second))

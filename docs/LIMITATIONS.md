@@ -35,6 +35,10 @@
   save and before you import.
 - **Global presets** only use effect and texture folders that `ReShade.ini`
   lists as plain paths, not ones written with `${...}`.
+- Old presets list effects without their file name. If the game's shader
+  folder holds the same effect file twice (for example in a subfolder too),
+  ReShade turns on both copies and saves the preset that way. Delete the
+  extra copy before loading such a preset.
 - **Safe start** remembers games by their `.exe` name. Games with the same
   `.exe` name are switched off together.
 - The FPS counter counts the frames the game sends to the headset.
