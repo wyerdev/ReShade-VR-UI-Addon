@@ -101,6 +101,12 @@ openxr_ui::effect_subfolder_status openxr_ui_get_effect_subfolder_status();
 bool openxr_ui_include_effect_subfolders();
 // Hides the notice until the game starts again.
 void openxr_ui_dismiss_effect_subfolder_notice();
+// Effect files the game has in more than one effect folder.
+openxr_ui::duplicate_effect_status openxr_ui_get_duplicate_effect_status();
+// Moves all but the newest copy into a backup folder; ReShade's thread moves them and reloads all effects.
+bool openxr_ui_move_duplicate_effects();
+// Hides the notice until the game starts again.
+void openxr_ui_dismiss_duplicate_effect_notice();
 bool openxr_ui_set_parameter(uint64_t parameter_id, uint32_t component, double value);
 bool openxr_ui_reset_parameter(uint64_t parameter_id);
 bool openxr_ui_reset_all_parameters(uint64_t technique_id);

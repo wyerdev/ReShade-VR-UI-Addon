@@ -128,6 +128,20 @@ namespace openxr_ui::global_library
 	std::vector<std::wstring> effect_folder_file_names(const game_folders &folders);
 	bool contains_file_name(const std::vector<std::wstring> &sorted_names, const std::string &file_name);
 
+	// An effect file name found in more than one of the game's effect folders. ReShade loads every copy, and a preset that
+	// names effects without their file turns all of them on.
+	struct duplicate_effect
+	{
+		// The copy changed most recently stays.
+		std::filesystem::path kept;
+		std::vector<std::filesystem::path> extra;
+	};
+	std::vector<duplicate_effect> find_duplicate_effects(const game_folders &folders);
+	// Moves every extra copy below `backup_folder`, keeping its path below `base_folder` and adding ".bak" so ReShade never
+	// loads it. Returns how many were moved; `error` names the first file that could not be moved.
+	uint32_t move_duplicate_effects(const std::vector<duplicate_effect> &duplicates, const std::filesystem::path &base_folder,
+		const std::filesystem::path &backup_folder, std::string &error);
+
 	// Saves the preset and every file its effects need; `version` receives the old version plus one.
 	bool save_preset(const std::filesystem::path &library, const std::string &name, const std::filesystem::path &preset_file,
 		const game_folders &folders, uint32_t &version, std::vector<std::string> &problems, std::string &error);

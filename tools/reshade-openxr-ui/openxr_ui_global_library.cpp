@@ -579,6 +579,75 @@ std::vector<std::wstring> openxr_ui::global_library::effect_folder_file_names(co
 	return names;
 }
 
+std::vector<duplicate_effect> openxr_ui::global_library::find_duplicate_effects(const game_folders &folders)
+{
+	std::unordered_map<std::wstring, std::vector<std::filesystem::path>> by_name;
+	// Two search entries can cover the same folder; one file found twice is not a duplicate.
+	std::unordered_set<std::wstring> seen;
+	size_t file_count = 0;
+	for (const std::filesystem::path &folder : expand_folders(folders.effects))
+	{
+		std::error_code error;
+		for (std::filesystem::directory_iterator it(folder, std::filesystem::directory_options::skip_permission_denied, error), end;
+			!error && it != end && file_count < maximum_indexed_files; it.increment(error), ++file_count)
+		{
+			std::error_code type_error;
+			const std::wstring extension = lower(it->path().extension().native());
+			if ((extension != L".fx" && extension != L".addonfx") || !it->is_regular_file(type_error) || !seen.insert(path_key(it->path())).second)
+				continue;
+			by_name[lower(it->path().filename().native())].push_back(it->path());
+		}
+	}
+
+	std::vector<duplicate_effect> result;
+	for (const auto &[name, paths] : by_name)
+	{
+		if (paths.size() < 2)
+			continue;
+		const auto write_time = [](const std::filesystem::path &path) {
+			std::error_code error;
+			const std::filesystem::file_time_type time = std::filesystem::last_write_time(path, error);
+			return error ? (std::filesystem::file_time_type::min)() : time;
+		};
+		const auto newest = std::max_element(paths.begin(), paths.end(), [&write_time](const std::filesystem::path &left, const std::filesystem::path &right) {
+			return write_time(left) < write_time(right);
+		});
+		duplicate_effect entry;
+		entry.kept = *newest;
+		for (auto it = paths.begin(); it != paths.end(); ++it)
+			if (it != newest)
+				entry.extra.push_back(*it);
+		result.push_back(std::move(entry));
+	}
+	std::sort(result.begin(), result.end(), [](const duplicate_effect &left, const duplicate_effect &right) {
+		return path_key(left.kept.filename()) < path_key(right.kept.filename());
+	});
+	return result;
+}
+
+uint32_t openxr_ui::global_library::move_duplicate_effects(const std::vector<duplicate_effect> &duplicates, const std::filesystem::path &base_folder,
+	const std::filesystem::path &backup_folder, std::string &error)
+{
+	uint32_t moved = 0;
+	for (const duplicate_effect &entry : duplicates)
+	{
+		for (const std::filesystem::path &source : entry.extra)
+		{
+			std::filesystem::path relative = source.lexically_relative(base_folder);
+			if (relative.empty() || *relative.begin() == L"..")
+				relative = std::filesystem::path(L"Other folders") / source.relative_path();
+			const std::filesystem::path destination = (backup_folder / relative).native() + L".bak";
+			std::error_code folder_error;
+			std::filesystem::create_directories(destination.parent_path(), folder_error);
+			if (!folder_error && MoveFileExW(source.c_str(), destination.c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING) != FALSE)
+				++moved;
+			else if (error.empty())
+				error = "could not move " + source.u8string();
+		}
+	}
+	return moved;
+}
+
 bool openxr_ui::global_library::contains_file_name(const std::vector<std::wstring> &sorted_names, const std::string &file_name)
 {
 	return std::binary_search(sorted_names.begin(), sorted_names.end(), lower(std::filesystem::u8path(file_name).native()));

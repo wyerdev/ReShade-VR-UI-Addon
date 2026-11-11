@@ -28,6 +28,7 @@ Problem with a specific game? See [Fixes for specific games](docs/GAME-FIXES.md)
 - **Pin the FPS counter (OpenXR games):** always see your FPS, even with the menu closed.
 - **Settings for all games (OpenXR games):** set menu buttons, gestures and pin once. Switch off **Use shared settings** where one game needs different ones.
 - **Safe start (OpenXR games):** if a game crashes while starting, the add-on switches itself off for that game. `Re-enable-Games.cmd` turns it back on.
+- **Fix effects that show up twice (OpenXR games):** if the game has the same effect file twice, **Move duplicates** keeps the newest copy and moves the others to a backup folder.
 
 **SteamVR games** don't get this menu. You use ReShade's own menu from the ReShade icon in the SteamVR dashboard. See the [SteamVR steps](docs/INSTALL-SteamVR.md).
 
@@ -67,7 +68,7 @@ OpenXR games find add-ons like this one through two lists in the Windows registr
 - copies four files to `C:\Program Files\ReShade VR UI Add-on`,
 - adds its entry to both lists, set to `0` (on), so your OpenXR games load it. If you had set an entry to `1` (off), it stays off.
 
-While you play, it saves its own settings in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Uninstalling deletes both entries and the four files, and keeps your settings. Nothing else changes: not your game folders, not ReShade. Full details, and how to switch entries on and off: [What the OpenXR add-on changes on your PC](docs/OPENXR-LAYERS.md).
+While you play, it saves its own settings in `%LOCALAPPDATA%\ReShade VR UI Add-on`. Uninstalling deletes both entries and the four files, and keeps your settings. Nothing else changes: not your game folders (unless you press a menu button that says so, such as **Move duplicates**), not ReShade. Full details, and how to switch entries on and off: [What the OpenXR add-on changes on your PC](docs/OPENXR-LAYERS.md).
 
 ## Something Not Working?
 

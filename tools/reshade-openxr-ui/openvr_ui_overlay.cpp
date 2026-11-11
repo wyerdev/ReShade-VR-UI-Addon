@@ -405,6 +405,52 @@ namespace
 		default:
 			break;
 		}
+		const openxr_ui::duplicate_effect_status duplicates = openxr_ui_get_duplicate_effect_status();
+		switch (duplicates.state)
+		{
+		case openxr_ui::duplicate_effect_state::offered:
+		{
+			const bool preset_dirty = openxr_ui_is_preset_dirty();
+			const bool shaders_disabled = openxr_ui_are_shaders_temporarily_disabled();
+			ImGui::TextColored({ 1.0f, 0.8f, 0.28f, 1.0f }, "%u %s in the game twice or more.", duplicates.effect_count,
+				duplicates.effect_count == 1 ? "effect is" : "effects are");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("ReShade loads every copy, and older presets turn on all of them.\n"
+					"Move duplicates keeps the newest copy of each file, moves the others to the folder\n"
+					"\"ReShade VR UI duplicate effects\" next to ReShade.ini and reloads all effects.");
+			ImGui::BeginDisabled(shaders_disabled);
+			if (ImGui::Button(preset_dirty ? "Move anyway" : "Move duplicates"))
+				openxr_ui_move_duplicate_effects();
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			if (ImGui::Button("Not now##duplicates"))
+				openxr_ui_dismiss_duplicate_effect_notice();
+			if (shaders_disabled || preset_dirty)
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled(shaders_disabled ? "Turn shaders back on first." : "Moving drops unsaved shader changes.");
+			}
+			ImGui::Separator();
+			break;
+		}
+		case openxr_ui::duplicate_effect_state::moving:
+			ImGui::Text("Moving extra effect copies...");
+			ImGui::Separator();
+			break;
+		case openxr_ui::duplicate_effect_state::moved:
+		case openxr_ui::duplicate_effect_state::failed:
+			if (duplicates.state == openxr_ui::duplicate_effect_state::moved)
+				ImGui::TextColored({ 0.3f, 0.85f, 0.45f, 1.0f }, "Moved %u extra effect copies. Effects are reloading.", duplicates.moved_count);
+			else
+				ImGui::TextColored({ 1.0f, 0.4f, 0.4f, 1.0f }, "Moved %u extra effect copies; some could not be moved. See ReShade.log.", duplicates.moved_count);
+			ImGui::SameLine();
+			if (ImGui::Button("OK##duplicates"))
+				openxr_ui_dismiss_duplicate_effect_notice();
+			ImGui::Separator();
+			break;
+		default:
+			break;
+		}
 		if (snapshot->techniques.empty() && (subfolders.state == openxr_ui::effect_subfolder_state::saving ||
 			subfolders.state == openxr_ui::effect_subfolder_state::loading))
 		{

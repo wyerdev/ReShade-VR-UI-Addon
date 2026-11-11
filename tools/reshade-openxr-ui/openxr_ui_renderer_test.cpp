@@ -224,6 +224,23 @@ namespace
 		if (preset_effects.size() != 2 || preset_effects[0] != "Bloom.fx" || preset_effects[1] != "Macro.fx")
 			return fail("the effects a preset turns on were read wrongly.");
 
+		// The same effect file in two folders; a folder listed twice is not a duplicate.
+		const std::filesystem::path game_d = root / "D";
+		const library::game_folders folders_d = { { { game_d / "Shaders", true }, { game_d / "Shaders", false } }, {} };
+		if (!write_test_file(game_d / "Shaders" / "Glow.fx", "// old\n") || !write_test_file(game_d / "Shaders" / "Single.fx", "// one\n") ||
+			!write_test_file(game_d / "Shaders" / "Pack" / "glow.fx", "// new\n"))
+			return fail("could not write the duplicate test files.");
+		std::error_code time_error;
+		std::filesystem::last_write_time(game_d / "Shaders" / "Glow.fx", std::filesystem::file_time_type::clock::now() - std::chrono::hours(48), time_error);
+		const std::vector<library::duplicate_effect> duplicates = library::find_duplicate_effects(folders_d);
+		if (time_error || duplicates.size() != 1 || duplicates[0].kept != game_d / "Shaders" / "Pack" / "glow.fx" || duplicates[0].extra.size() != 1)
+			return fail("duplicate effect files were not found, or the newest copy was not kept.");
+		std::string move_error;
+		if (library::move_duplicate_effects(duplicates, game_d, game_d / "Backup", move_error) != 1 || !move_error.empty() ||
+			std::filesystem::exists(game_d / "Shaders" / "Glow.fx") || read_test_file(game_d / "Backup" / "Shaders" / "Glow.fx.bak") != "// old\n" ||
+			!library::find_duplicate_effects(folders_d).empty())
+			return fail("the extra copy of a duplicate effect was not moved to the backup folder.");
+
 		// Versions.
 		uint32_t version = 0;
 		std::vector<std::string> problems;
@@ -1800,6 +1817,37 @@ int main(int argc, char **argv)
 	if (!renderer.find_control("subfolders_ok", notice_button_x, notice_button_y))
 	{
 		std::fputs("Control \"subfolders_ok\" was not drawn.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input duplicates_input;
+	duplicates_input.duplicate_effects = { openxr_ui::duplicate_effect_state::offered, 3, 3, 0 };
+	openxr_ui::render_result duplicates_result;
+	if (!click(renderer, render_target.Get(), snapshot, "duplicates_move", duplicates_result, duplicates_input) ||
+		duplicates_result.action != openxr_ui::render_result::command::move_duplicate_effects)
+	{
+		std::fputs("Move duplicates button did not produce its command.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input duplicates_disabled = duplicates_input;
+	duplicates_disabled.shaders_temporarily_disabled = true;
+	if (!click(renderer, render_target.Get(), snapshot, "duplicates_move", duplicates_result, duplicates_disabled) ||
+		duplicates_result.action != openxr_ui::render_result::command::none)
+	{
+		std::fputs("Move duplicates button worked while all shaders were temporarily disabled.\n", stderr);
+		return 1;
+	}
+	if (!click(renderer, render_target.Get(), snapshot, "duplicates_not_now", duplicates_result, duplicates_input) ||
+		duplicates_result.action != openxr_ui::render_result::command::dismiss_duplicate_effect_notice)
+	{
+		std::fputs("Not now button did not dismiss the duplicate effect notice.\n", stderr);
+		return 1;
+	}
+	openxr_ui::render_input duplicates_moved = duplicates_input;
+	duplicates_moved.duplicate_effects.state = openxr_ui::duplicate_effect_state::moved;
+	if (!click(renderer, render_target.Get(), snapshot, "duplicates_ok", duplicates_result, duplicates_moved) ||
+		duplicates_result.action != openxr_ui::render_result::command::dismiss_duplicate_effect_notice)
+	{
+		std::fputs("OK button did not close the duplicate effect result notice.\n", stderr);
 		return 1;
 	}
 	openxr_ui::render_input subfolders_loading = subfolders_ok;

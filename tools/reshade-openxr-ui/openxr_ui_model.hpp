@@ -47,6 +47,25 @@ namespace openxr_ui
 		uint32_t loading_seconds = 0;
 	};
 
+	// Effect files with the same name in more than one effect folder; ReShade loads every copy.
+	enum class duplicate_effect_state
+	{
+		none,
+		offered,
+		// The user chose to move the extra copies; ReShade's own thread moves them.
+		moving,
+		moved,
+		failed,
+	};
+
+	struct duplicate_effect_status
+	{
+		duplicate_effect_state state = duplicate_effect_state::none;
+		uint32_t effect_count = 0;
+		uint32_t extra_count = 0;
+		uint32_t moved_count = 0;
+	};
+
 	enum class parameter_type
 	{
 		boolean,

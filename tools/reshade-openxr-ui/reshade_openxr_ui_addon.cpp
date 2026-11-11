@@ -103,6 +103,10 @@ namespace
 	uint32_t s_effect_subfolder_wait_frames = 0;
 	std::chrono::steady_clock::time_point s_effect_subfolder_requested_at;
 	std::atomic<bool> s_effect_subfolder_scan_pending = false;
+	openxr_ui::duplicate_effect_state s_duplicate_effect_state = openxr_ui::duplicate_effect_state::none;
+	std::vector<openxr_ui::global_library::duplicate_effect> s_duplicate_effects;
+	uint32_t s_duplicate_effects_moved = 0;
+	bool s_duplicate_effect_notice_dismissed = false;
 	// ReShade writes a saved or just-left preset about a second later; replacing that file sooner could be undone by it.
 	std::chrono::steady_clock::time_point s_preset_file_quiet_after;
 	bool s_global_refresh_wanted = false;
@@ -841,6 +845,9 @@ namespace
 				});
 			});
 			s_effect_subfolder_state = loaded ? openxr_ui::effect_subfolder_state::loaded : openxr_ui::effect_subfolder_state::restart_needed;
+			// The new subfolders can hold copies of effects the game already had.
+			if (loaded)
+				s_effect_subfolder_scan_pending.store(true, std::memory_order_release);
 			char message[192];
 			std::snprintf(message, sizeof(message), loaded ?
 				"effects from the subfolders are loaded after %lld s." :
@@ -963,6 +970,50 @@ namespace
 			folders.push_back(std::move(folder));
 		}
 		return folders;
+	}
+
+	// Runs on ReShade's thread, outside s_mutex, like the subfolder scan.
+	void refresh_duplicate_effect_scan(effect_runtime *runtime)
+	{
+		library::game_folders folders;
+		folders.effects = read_search_folders(runtime, "EffectSearchPaths", reshade_base_path());
+		std::vector<library::duplicate_effect> duplicates = library::find_duplicate_effects(folders);
+		const std::lock_guard<std::mutex> lock(s_mutex);
+		if (runtime != s_effect_runtime || s_duplicate_effect_notice_dismissed ||
+			s_duplicate_effect_state != openxr_ui::duplicate_effect_state::none || duplicates.empty())
+			return;
+		for (const library::duplicate_effect &entry : duplicates)
+		{
+			const std::string message = "effect file " + entry.kept.u8string() + " also exists in " + std::to_string(entry.extra.size()) + " other place(s).";
+			log_runtime_message(reshade::log::level::info, message.c_str());
+		}
+		s_duplicate_effects = std::move(duplicates);
+		s_duplicate_effect_state = openxr_ui::duplicate_effect_state::offered;
+	}
+
+	// Runs on ReShade's thread, because the reload it asks for must start there.
+	void apply_duplicate_effect_move(effect_runtime *runtime)
+	{
+		std::vector<library::duplicate_effect> duplicates;
+		{
+			const std::lock_guard<std::mutex> lock(s_mutex);
+			if (runtime != s_effect_runtime || s_duplicate_effect_state != openxr_ui::duplicate_effect_state::moving)
+				return;
+			duplicates = s_duplicate_effects;
+		}
+		const std::filesystem::path base_path = reshade_base_path();
+		std::string error = base_path.empty() ? "ReShade did not report its folder" : std::string();
+		const uint32_t moved = base_path.empty() ? 0 :
+			library::move_duplicate_effects(duplicates, base_path, base_path / L"ReShade VR UI duplicate effects", error);
+		if (moved != 0)
+			runtime->reload_effect_next_frame(nullptr);
+
+		const std::lock_guard<std::mutex> lock(s_mutex);
+		s_duplicate_effects_moved = moved;
+		s_duplicate_effect_state = error.empty() ? openxr_ui::duplicate_effect_state::moved : openxr_ui::duplicate_effect_state::failed;
+		const std::string message = "moved " + std::to_string(moved) + " extra effect copies to the backup folder" +
+			(error.empty() ? std::string("; ReShade is reloading all effects.") : "; " + error + ".");
+		log_runtime_message(error.empty() ? reshade::log::level::info : reshade::log::level::error, message.c_str());
 	}
 
 	// Reads the game's folders from ReShade's settings; the game's own ReShade is asked the same way.
@@ -1775,6 +1826,7 @@ namespace
 		bool retry_inventory = false;
 		bool scan_effect_subfolders_now = false;
 		bool apply_effect_subfolders_now = false;
+		bool move_duplicate_effects_now = false;
 		global_activation activation;
 		// ReShade does not repeat init_effect_runtime for an add-on that registers late, and the
 		// game's own ReShade usually runs before the OpenXR loader loads this add-on.
@@ -1793,6 +1845,7 @@ namespace
 					retry_inventory = ++s_empty_inventory_retry_frame % 10 == 0;
 				scan_effect_subfolders_now = s_effect_subfolder_scan_pending.exchange(false, std::memory_order_acq_rel);
 				apply_effect_subfolders_now = s_effect_subfolder_state == openxr_ui::effect_subfolder_state::saving;
+				move_duplicate_effects_now = s_duplicate_effect_state == openxr_ui::duplicate_effect_state::moving;
 #ifdef RESHADE_OPENVR_FRONTEND
 				// The OpenXR layer drives this from xrEndFrame; SteamVR games have no such call.
 				update_global_operations_locked();
@@ -1813,9 +1866,14 @@ namespace
 		else if (synchronize_model && !synchronize_runtime_model(runtime, preset_path))
 			s_runtime_state_dirty.store(true, std::memory_order_release);
 		if (scan_effect_subfolders_now)
+		{
 			refresh_effect_subfolder_scan(runtime);
+			refresh_duplicate_effect_scan(runtime);
+		}
 		if (apply_effect_subfolders_now)
 			apply_effect_subfolder_fix(runtime);
+		if (move_duplicate_effects_now)
+			apply_duplicate_effect_move(runtime);
 		if (activation.pending)
 			apply_global_activation(runtime, activation);
 
@@ -2772,6 +2830,34 @@ void openxr_ui_dismiss_effect_subfolder_notice()
 		return;
 	s_effect_subfolder_state = openxr_ui::effect_subfolder_state::none;
 	s_effect_subfolder_notice_dismissed = true;
+}
+
+openxr_ui::duplicate_effect_status openxr_ui_get_duplicate_effect_status()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	uint32_t extra_count = 0;
+	for (const library::duplicate_effect &entry : s_duplicate_effects)
+		extra_count += static_cast<uint32_t>(entry.extra.size());
+	return { s_duplicate_effect_state, static_cast<uint32_t>(s_duplicate_effects.size()), extra_count, s_duplicate_effects_moved };
+}
+
+bool openxr_ui_move_duplicate_effects()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	if (s_effect_runtime == nullptr || s_duplicate_effect_state != openxr_ui::duplicate_effect_state::offered || s_shaders_temporarily_disabled)
+		return false;
+	s_duplicate_effect_state = openxr_ui::duplicate_effect_state::moving;
+	log_runtime_message(reshade::log::level::info, "controller asked to move the extra copies of duplicate effect files.");
+	return true;
+}
+
+void openxr_ui_dismiss_duplicate_effect_notice()
+{
+	const std::lock_guard<std::mutex> lock(s_mutex);
+	if (s_duplicate_effect_state == openxr_ui::duplicate_effect_state::moving)
+		return;
+	s_duplicate_effect_state = openxr_ui::duplicate_effect_state::none;
+	s_duplicate_effect_notice_dismissed = true;
 }
 
 bool openxr_ui_set_parameter(uint64_t parameter_id, uint32_t component, double value)

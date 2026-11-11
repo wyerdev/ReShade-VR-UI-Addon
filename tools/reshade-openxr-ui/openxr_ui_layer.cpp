@@ -1070,6 +1070,7 @@ namespace
 				openxr_ui_depth_detection_restart_pending(),
 				openxr_ui_performance_mode_restart_pending(),
 				openxr_ui_get_effect_subfolder_status(),
+				openxr_ui_get_duplicate_effect_status(),
 				openxr_ui_is_reshade_loaded(),
 				effect_runtime_wait_seconds,
 				openxr_ui_performance_mode_active(),
@@ -1233,6 +1234,12 @@ namespace
 				break;
 			case openxr_ui::render_result::command::dismiss_effect_subfolder_notice:
 				openxr_ui_dismiss_effect_subfolder_notice();
+				break;
+			case openxr_ui::render_result::command::move_duplicate_effects:
+				openxr_ui_move_duplicate_effects();
+				break;
+			case openxr_ui::render_result::command::dismiss_duplicate_effect_notice:
+				openxr_ui_dismiss_duplicate_effect_notice();
 				break;
 			case openxr_ui::render_result::command::set_theme:
 				if (openxr_ui_set_theme(static_cast<uint32_t>(render_result.value)))

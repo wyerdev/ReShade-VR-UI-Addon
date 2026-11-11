@@ -37,8 +37,9 @@
   lists as plain paths, not ones written with `${...}`.
 - Old presets list effects without their file name. If the game's shader
   folder holds the same effect file twice (for example in a subfolder too),
-  ReShade turns on both copies and saves the preset that way. Delete the
-  extra copy before loading such a preset.
+  ReShade turns on both copies and saves the preset that way. The menu
+  then offers **Move duplicates**, which keeps the newest copy and moves the
+  others to `ReShade VR UI duplicate effects` next to `ReShade.ini`.
 - **Safe start** remembers games by their `.exe` name. Games with the same
   `.exe` name are switched off together.
 - The FPS counter counts the frames the game sends to the headset.

@@ -2329,6 +2329,84 @@ namespace openxr_ui
 					result.action = render_result::command::dismiss_effect_subfolder_notice;
 				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + space_sm });
 			}
+			if (effects_tab && input.duplicate_effects.state != duplicate_effect_state::none)
+			{
+				const duplicate_effect_status &duplicates = input.duplicate_effects;
+				const bool offered = duplicates.state == duplicate_effect_state::offered;
+				const bool busy = duplicates.state == duplicate_effect_state::moving;
+				const char *blocked_reason = offered && input.shaders_temporarily_disabled ? "Turn shaders back on first." : nullptr;
+				const bool drops_unsaved_changes = offered && blocked_reason == nullptr && input.preset_dirty;
+				char message[160];
+				ImU32 accent = colors().warning;
+				const char *details = nullptr;
+				switch (duplicates.state)
+				{
+				case duplicate_effect_state::offered:
+					if (drops_unsaved_changes)
+						std::snprintf(message, sizeof(message), "Moving extra effect copies drops unsaved changes.");
+					else
+						std::snprintf(message, sizeof(message), "%u %s in the game twice or more.%s%s", duplicates.effect_count,
+							duplicates.effect_count == 1 ? "effect is" : "effects are",
+							blocked_reason != nullptr ? " " : "", blocked_reason != nullptr ? blocked_reason : "");
+					details = "The same effect file is in more than one effect folder, for example after unpacking a shader pack "
+						"over an existing one. ReShade loads every copy, and older presets turn on all of them.\n\n"
+						"Move duplicates keeps the newest copy of each file and moves the others to the folder "
+						"\"ReShade VR UI duplicate effects\" next to ReShade.ini, then reloads all effects. "
+						"To undo, move a file back and remove .bak from its name.\n\n"
+						"Reloading re-reads the preset from disk, so unsaved shader changes are lost. Press Save first to keep them.";
+					break;
+				case duplicate_effect_state::moving:
+					std::snprintf(message, sizeof(message), "Moving extra effect copies...");
+					accent = colors().accent;
+					break;
+				case duplicate_effect_state::moved:
+					std::snprintf(message, sizeof(message), "Moved %u extra effect %s. Effects are reloading.", duplicates.moved_count,
+						duplicates.moved_count == 1 ? "copy" : "copies");
+					accent = colors().success;
+					details = "The moved files are in the folder \"ReShade VR UI duplicate effects\" next to ReShade.ini.";
+					break;
+				default:
+					std::snprintf(message, sizeof(message), "Moved %u extra effect %s; some could not be moved.", duplicates.moved_count,
+						duplicates.moved_count == 1 ? "copy" : "copies");
+					accent = colors().danger;
+					details = "ReShade.log names the file that could not be moved, for example because it is read-only or open in another program.";
+					break;
+				}
+
+				const float notice_height = 40.0f;
+				const ImVec2 notice_min = ImGui::GetCursorScreenPos();
+				const ImVec2 notice_max = { ImGui::GetWindowWidth() - outer_padding, notice_min.y + notice_height };
+				const float buttons_width = offered ? 110.0f + 196.0f : busy ? 0.0f : 80.0f;
+				float buttons_x = notice_max.x - 5.0f - buttons_width;
+				draw_notice(notice_min, notice_max, buttons_x - 10.0f, accent, busy, message, details);
+
+				const float button_y = notice_min.y + 5.0f;
+				const float button_height = notice_height - 10.0f;
+				bool primary_hovered = false;
+				bool dismiss_hovered = false;
+				if (offered)
+				{
+					ImGui::SetCursorScreenPos({ buttons_x, button_y });
+					primary_hovered = draw_text_button("duplicates_move", drops_unsaved_changes ? "Move anyway" : "Move duplicates",
+						{ 188.0f, button_height }, blocked_reason == nullptr,
+						drops_unsaved_changes ? button_tone::warning : button_tone::primary);
+					buttons_x += 196.0f;
+					ImGui::SetCursorScreenPos({ buttons_x, button_y });
+					dismiss_hovered = draw_text_button("duplicates_not_now", "Not now", { 110.0f, button_height });
+				}
+				else if (!busy)
+				{
+					ImGui::SetCursorScreenPos({ buttons_x, button_y });
+					dismiss_hovered = draw_text_button("duplicates_ok", "OK", { 80.0f, button_height });
+				}
+
+				const bool notice_can_click = input.select_clicked && _implementation->dragging == implementation::drag_target::none;
+				if (notice_can_click && primary_hovered)
+					result.action = render_result::command::move_duplicate_effects;
+				else if (notice_can_click && dismiss_hovered)
+					result.action = render_result::command::dismiss_duplicate_effect_notice;
+				ImGui::SetCursorScreenPos({ notice_min.x, notice_max.y + space_sm });
+			}
 			if (effects_tab)
 			{
 			const ImVec2 notice_cursor = ImGui::GetCursorScreenPos();
