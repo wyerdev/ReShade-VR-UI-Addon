@@ -22,6 +22,7 @@
 #include <cstring>
 #include <mutex>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 namespace
@@ -719,6 +720,40 @@ namespace
 		return fitted + "...";
 	}
 
+	// Splits text into lines that fit `maximum_width` in the current font, breaking at line ends and spaces.
+	// Blank lines are left out because each line takes a full list row.
+	std::vector<std::string> wrap_text(const std::string &text, float maximum_width)
+	{
+		std::vector<std::string> lines;
+		size_t paragraph_start = 0;
+		while (paragraph_start <= text.size())
+		{
+			const size_t paragraph_end = (std::min)(text.find('\n', paragraph_start), text.size());
+			std::string line;
+			size_t word_start = paragraph_start;
+			while (word_start < paragraph_end)
+			{
+				const size_t word_end = (std::min)(text.find(' ', word_start), paragraph_end);
+				const std::string word = text.substr(word_start, word_end - word_start);
+				const std::string candidate = line.empty() ? word : line + ' ' + word;
+				if (!line.empty() && ImGui::CalcTextSize(candidate.c_str()).x > maximum_width)
+				{
+					lines.push_back(fit_text(line.c_str(), maximum_width));
+					line = word;
+				}
+				else
+				{
+					line = candidate;
+				}
+				word_start = word_end + 1;
+			}
+			if (line.find_first_not_of(" \t\r") != std::string::npos)
+				lines.push_back(fit_text(line.c_str(), maximum_width));
+			paragraph_start = paragraph_end + 1;
+		}
+		return lines;
+	}
+
 	// Bottom line of the effect page: `left_text`, then "<graphics> 0xB7 <version>" on the right. The version is always
 	// complete; only the resolution part of the graphics label gives way when room runs out.
 	void draw_api_version_line(ImDrawList *draw_list, const char *left_text, const char *graphics_api_label, float display_height, float right_edge)
@@ -1157,6 +1192,10 @@ namespace openxr_ui
 		uint32_t dragged_component = 0;
 		float drag_start_pointer = 0.0f;
 		float drag_start_fraction = 0.0f;
+		// Current slider end for each setting without a highest value; it doubles when a drag is released at the end.
+		std::unordered_map<uint64_t, double> slider_view_maximum;
+		uint64_t grow_parameter = 0;
+		double grow_minimum = 0.0;
 		uint32_t release_frame_count = 0;
 		int joystick_scroll_direction = 0;
 		uint32_t joystick_scroll_frame_count = 0;
@@ -1556,6 +1595,12 @@ namespace openxr_ui
 				{
 					_implementation->dragging = implementation::drag_target::none;
 					_implementation->release_frame_count = 0;
+					if (_implementation->grow_parameter != 0)
+					{
+						double &view_maximum = _implementation->slider_view_maximum[_implementation->grow_parameter];
+						view_maximum = openxr_ui::grown_slider_maximum(_implementation->grow_minimum, view_maximum);
+						_implementation->grow_parameter = 0;
+					}
 				}
 			}
 		}
@@ -3020,17 +3065,6 @@ namespace openxr_ui
 			const bool reset_all_hovered = draw_text_button("reset_all", reset_armed ? "Press again to reset" : "Reset this effect",
 				{ reset_width, control_height }, true, reset_armed ? button_tone::danger : button_tone::neutral);
 			draw_hover_help("Reset this effect", "Set every value of this effect to its default. Press twice to confirm.");
-			if (!selected.tooltip.empty())
-			{
-				ImGui::PushFont(nullptr, vr_theme::font_small);
-				const float description_width = restore_x - space_md - detail_header.x;
-				const std::string fitted_description = fit_text(selected.tooltip.c_str(), description_width);
-				ImGui::GetWindowDrawList()->AddText({ detail_header.x, std::floor(detail_header.y + (control_height - ImGui::GetFontSize()) * 0.5f) },
-					colors().text_secondary, fitted_description.c_str());
-				ImGui::PopFont();
-				draw_hover_details({ detail_header.x, detail_header.y }, { detail_header.x + description_width, detail_header.y + control_height },
-					selected.tooltip.c_str());
-			}
 			if (input.select_clicked && reset_all_hovered && _implementation->dragging == implementation::drag_target::none)
 			{
 				if (!_implementation->reset_armed)
@@ -3073,14 +3107,50 @@ namespace openxr_ui
 			{
 				const parameter *entry;
 				uint32_t component;
+				// Non-empty for a row that shows one line of text instead of a control.
+				std::string text;
+				// The text is a group heading from the effect rather than help text.
+				bool heading = false;
 			};
-			std::vector<component_reference> components;
-			for (const parameter &entry : snapshot.parameters)
-				if (entry.effect_name == selected.effect_name)
-					for (uint32_t component = 0; component < entry.values.size(); ++component)
-						components.push_back({ &entry, component });
-
 			const ImVec2 list_min = ImGui::GetCursorScreenPos();
+			// Text is wrapped as if the scroll bar were shown, so the line count does not depend on itself.
+			const float text_wrap_width = right_edge - list_min.x - scrollbar_width - space_sm - 2.0f * space_md;
+			std::vector<component_reference> components;
+			ImGui::PushFont(nullptr, vr_theme::font_small);
+			// The effect's full description comes first, scrolling with the settings below it.
+			for (const std::string &line : wrap_text(selected.tooltip, text_wrap_width))
+				components.push_back({ nullptr, 0, line });
+			const std::string *previous_category = nullptr;
+			for (const parameter &entry : snapshot.parameters)
+			{
+				if (entry.effect_name != selected.effect_name)
+					continue;
+				if (!entry.category.empty() && (previous_category == nullptr || *previous_category != entry.category))
+				{
+					ImGui::PopFont();
+					components.push_back({ nullptr, 0, fit_text(entry.category.c_str(), text_wrap_width), true });
+					ImGui::PushFont(nullptr, vr_theme::font_small);
+				}
+				previous_category = &entry.category;
+				for (const std::string &line : wrap_text(entry.text, text_wrap_width))
+					components.push_back({ &entry, 0, line });
+				if (!entry.text_only)
+					for (uint32_t component = 0; component < entry.values.size(); ++component)
+						components.push_back({ &entry, component, {} });
+			}
+			ImGui::PopFont();
+			// The value column fits the longest choice name or value with unit on this page, so every row lines up.
+			float page_value_width = 64.0f;
+			for (const component_reference &reference : components)
+			{
+				if (reference.entry == nullptr || !reference.text.empty())
+					continue;
+				for (const std::string &choice : reference.entry->choices)
+					page_value_width = (std::max)(page_value_width, std::ceil(ImGui::CalcTextSize(choice.c_str()).x));
+				page_value_width = (std::max)(page_value_width, std::ceil(ImGui::CalcTextSize(
+					openxr_ui::format_parameter_value(*reference.entry, reference.entry->values[reference.component]).c_str()).x));
+			}
+			page_value_width = (std::min)(page_value_width, 200.0f);
 			// Bottom bar: 48 tall, ending 8 px above the bottom line; the list stops 16 px above it.
 			constexpr float bottom_bar_height = 48.0f;
 			const float bottom_bar_top = display_height - outer_padding - note_height - space_sm - bottom_bar_height;
@@ -3096,12 +3166,28 @@ namespace openxr_ui
 			const float row_width = right_edge - list_min.x - (maximum_scroll > 0 ? scrollbar_width + space_sm : 0.0f);
 			const size_t first = _implementation->parameter_scroll;
 			const size_t last = (std::min)(first + visible_parameters, components.size());
+			// Control names count only visible setting rows, so text rows do not shift them.
+			size_t visible_control = 0;
 			for (size_t index = first; index < last; ++index)
 			{
 				ImGui::PushID(static_cast<int>(index));
-				set_control_row_prefix("param", index - first);
+				set_control_row_prefix("param", components[index].text.empty() ? visible_control++ : index - first);
 				const ImVec2 row_min = ImGui::GetCursorScreenPos();
 				const ImVec2 row_max = { row_min.x + row_width, row_min.y + row_height };
+				if (!components[index].text.empty())
+				{
+					const bool heading = components[index].heading;
+					if (!heading)
+						ImGui::PushFont(nullptr, vr_theme::font_small);
+					ImGui::GetWindowDrawList()->AddText({ row_min.x + space_md, std::floor(row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f) },
+						heading ? colors().text : colors().text_secondary, components[index].text.c_str());
+					if (!heading)
+						ImGui::PopFont();
+					ImGui::SetCursorScreenPos({ row_min.x, row_max.y + parameter_row_gap });
+					ImGui::PopID();
+					clear_control_prefix();
+					continue;
+				}
 				ImGui::GetWindowDrawList()->AddRectFilled(row_min, row_max, colors().surface, vr_theme::radius_md);
 				{
 					const component_reference &reference = components[index];
@@ -3113,7 +3199,7 @@ namespace openxr_ui
 						std::snprintf(label, sizeof(label), "%s [%u]", entry.name.c_str(), reference.component + 1);
 					// One line per value: name, slider, value, step buttons, reset. Columns are fixed so every row lines up.
 					constexpr float label_width = 300.0f;
-					constexpr float value_width = 64.0f;
+					const float value_width = page_value_width;
 					constexpr float steps_width = 44.0f + 36.0f + 36.0f + 44.0f + space_xs * 3.0f;
 					const float control_y = row_min.y + (row_height - control_height) * 0.5f;
 					const float control_size = control_height;
@@ -3133,18 +3219,25 @@ namespace openxr_ui
 					}
 					const std::string fitted_label = fit_text(label, label_width - badge_width);
 
-					char value_text[64];
-					if (entry.type == parameter_type::boolean)
-						std::snprintf(value_text, sizeof(value_text), "%s", entry.values[reference.component] != 0.0 ? "On" : "Off");
-					else if (entry.type == parameter_type::floating_point)
-						std::snprintf(value_text, sizeof(value_text), "%.4g", entry.values[reference.component]);
-					else
-						std::snprintf(value_text, sizeof(value_text), "%.0f", entry.values[reference.component]);
-					const bool has_slider = entry.type != parameter_type::boolean && std::isfinite(entry.minimum) && std::isfinite(entry.maximum) && entry.minimum < entry.maximum;
-					const float slider_fraction = has_slider ? static_cast<float>((entry.values[reference.component] - entry.minimum) / (entry.maximum - entry.minimum)) : 0.0f;
+					const std::string value_text = fit_text(openxr_ui::format_parameter_value(entry, entry.values[reference.component]).c_str(), value_width);
+					const bool adaptive_range = entry.type != parameter_type::boolean && std::isfinite(entry.minimum) && !std::isfinite(entry.maximum);
+					double slider_maximum = entry.maximum;
+					if (adaptive_range)
+					{
+						const double value = entry.values[reference.component];
+						double &view_maximum = _implementation->slider_view_maximum[entry.id];
+						if (!(view_maximum > entry.minimum))
+							view_maximum = openxr_ui::initial_slider_maximum(entry, value);
+						// A value set beyond the end (with the step buttons or a preset) widens the range so the knob stays on the track.
+						if (value > view_maximum)
+							view_maximum = openxr_ui::initial_slider_maximum(entry, value);
+						slider_maximum = view_maximum;
+					}
+					const bool has_slider = entry.type != parameter_type::boolean && std::isfinite(entry.minimum) && std::isfinite(slider_maximum) && entry.minimum < slider_maximum;
+					const float slider_fraction = has_slider ? static_cast<float>((entry.values[reference.component] - entry.minimum) / (slider_maximum - entry.minimum)) : 0.0f;
 					const bool has_default = reference.component < entry.default_values.size();
 					const float default_fraction = has_slider && has_default ?
-						static_cast<float>((entry.default_values[reference.component] - entry.minimum) / (entry.maximum - entry.minimum)) : -1.0f;
+						static_cast<float>((entry.default_values[reference.component] - entry.minimum) / (slider_maximum - entry.minimum)) : -1.0f;
 					const float slider_x = label_max.x + space_md;
 					ImGui::SetCursorScreenPos({ slider_x, control_y });
 					const slider_interaction value_slider = draw_slider("slider", { value_x - space_md - slider_x, control_size }, slider_fraction, has_slider, default_fraction);
@@ -3156,9 +3249,9 @@ namespace openxr_ui
 						_implementation->dragged_component = reference.component;
 					}
 
-					const ImVec2 value_size = ImGui::CalcTextSize(value_text);
+					const ImVec2 value_size = ImGui::CalcTextSize(value_text.c_str());
 					ImGui::GetWindowDrawList()->AddText({ value_x + value_width - value_size.x, std::floor(row_min.y + (row_height - ImGui::GetFontSize()) * 0.5f) },
-						changed_from_default ? colors().changed_value : colors().text_secondary, value_text);
+						changed_from_default ? colors().changed_value : colors().text_secondary, value_text.c_str());
 
 					bool coarse_decrease_hovered = false;
 					bool decrease_hovered = false;
@@ -3186,17 +3279,11 @@ namespace openxr_ui
 					const bool reset_hovered = draw_reset_button("reset", { control_height, control_size }, can_reset);
 					if (reset_hovered && ImGui::BeginTooltip())
 					{
-						char default_text[64] = "";
-						if (has_default && entry.type == parameter_type::boolean)
-							std::snprintf(default_text, sizeof(default_text), "%s", entry.default_values[reference.component] != 0.0 ? "On" : "Off");
-						else if (has_default && entry.type == parameter_type::floating_point)
-							std::snprintf(default_text, sizeof(default_text), "%.4g", entry.default_values[reference.component]);
-						else if (has_default)
-							std::snprintf(default_text, sizeof(default_text), "%.0f", entry.default_values[reference.component]);
+						const std::string default_text = has_default ? openxr_ui::format_parameter_value(entry, entry.default_values[reference.component]) : std::string();
 						if (!entry.resettable || !has_default)
 							ImGui::TextUnformatted("This setting cannot be reset");
 						else
-							ImGui::Text(changed_from_default ? "Reset to default: %s" : "Already at default: %s", default_text);
+							ImGui::Text(changed_from_default ? "Reset to default: %s" : "Already at default: %s", default_text.c_str());
 						ImGui::EndTooltip();
 					}
 					const bool dragging_value = _implementation->dragging == implementation::drag_target::value_slider &&
@@ -3207,9 +3294,17 @@ namespace openxr_ui
 					{
 						if (value_slider.hovered || dragging_value)
 						{
-							double value = entry.minimum + (entry.maximum - entry.minimum) * value_slider.fraction;
+							double value = entry.minimum + (slider_maximum - entry.minimum) * value_slider.fraction;
 							if (entry.type != parameter_type::floating_point)
 								value = std::round(value);
+							// Releasing the knob at the end of an adaptive range doubles the range, so larger values stay reachable.
+							if (adaptive_range && value_slider.fraction >= 1.0f)
+							{
+								_implementation->grow_parameter = entry.id;
+								_implementation->grow_minimum = entry.minimum;
+							}
+							else if (_implementation->grow_parameter == entry.id)
+								_implementation->grow_parameter = 0;
 							result.action = render_result::command::set_parameter;
 							result.target_id = entry.id;
 							result.component = reference.component;

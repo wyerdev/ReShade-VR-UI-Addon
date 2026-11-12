@@ -13,9 +13,12 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
 
 namespace
 {
+	// Current slider end for each setting without a highest value.
+	std::unordered_map<uint64_t, double> s_slider_view_maximum;
 	bool s_show_hidden = false;
 	bool s_favourites_only = false;
 	bool s_open_logged = false;
@@ -44,14 +47,38 @@ namespace
 		return error == vr::VRInitError_None ? result : nullptr;
 	}
 
+	// The slider text as the effect wants it: the choice name, or the number with its unit. Percent signs are escaped for ImGui.
+	std::string slider_format(const openxr_ui::parameter &parameter, double value)
+	{
+		const double choice = std::round(value);
+		const bool shows_choice = parameter.type != openxr_ui::parameter_type::floating_point && choice >= 0.0 &&
+			choice < static_cast<double>(parameter.choices.size());
+		const std::string &suffix = shows_choice ? parameter.choices[static_cast<size_t>(choice)] : parameter.units;
+		std::string format = shows_choice ? "" : (parameter.type == openxr_ui::parameter_type::floating_point ? "%.4g" : "%.0f");
+		for (const char character : suffix)
+			format += character == '%' ? std::string("%%") : std::string(1, character);
+		return format;
+	}
+
 	void draw_parameter_controls(const openxr_ui::technique_snapshot &snapshot, const openxr_ui::technique &technique)
 	{
+		const std::string *previous_category = nullptr;
 		for (const openxr_ui::parameter &parameter : snapshot.parameters)
 		{
 			if (parameter.effect_name != technique.effect_name)
 				continue;
 
+			if (!parameter.category.empty() && (previous_category == nullptr || *previous_category != parameter.category))
+				ImGui::SeparatorText(parameter.category.c_str());
+			previous_category = &parameter.category;
 			ImGui::PushID(reinterpret_cast<const void *>(static_cast<uintptr_t>(parameter.id)));
+			if (!parameter.text.empty())
+				ImGui::TextWrapped("%s", parameter.text.c_str());
+			if (parameter.text_only)
+			{
+				ImGui::PopID();
+				continue;
+			}
 			for (uint32_t component = 0; component < parameter.values.size(); ++component)
 			{
 				ImGui::PushID(static_cast<int>(component));
@@ -74,8 +101,17 @@ namespace
 				}
 				else if (std::isfinite(parameter.minimum) && std::isfinite(parameter.maximum) && parameter.minimum < parameter.maximum)
 				{
-					const char *const format = parameter.type == openxr_ui::parameter_type::floating_point ? "%.4g" : "%.0f";
-					changed = ImGui::SliderScalar(label, ImGuiDataType_Double, &value, &parameter.minimum, &parameter.maximum, format);
+					changed = ImGui::SliderScalar(label, ImGuiDataType_Double, &value, &parameter.minimum, &parameter.maximum, slider_format(parameter, value).c_str());
+				}
+				else if (std::isfinite(parameter.minimum))
+				{
+					// No highest value from the effect: the slider range starts at twice the value and doubles when released at the end.
+					double &view_maximum = s_slider_view_maximum[parameter.id];
+					if (!(view_maximum > parameter.minimum) || value > view_maximum)
+						view_maximum = openxr_ui::initial_slider_maximum(parameter, value);
+					changed = ImGui::SliderScalar(label, ImGuiDataType_Double, &value, &parameter.minimum, &view_maximum, slider_format(parameter, value).c_str());
+					if (ImGui::IsItemDeactivated() && value >= view_maximum)
+						view_maximum = openxr_ui::grown_slider_maximum(parameter.minimum, view_maximum);
 				}
 				else
 				{

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 #include <string>
 #include <vector>
@@ -86,12 +87,48 @@ namespace openxr_ui
 		uint32_t component_count = 1;
 		uint32_t array_length = 1;
 		double minimum = std::numeric_limits<double>::lowest();
+		// Infinite when the effect gives no highest value; the menus then show an adaptive slider range.
 		double maximum = (std::numeric_limits<double>::max)();
 		double step = 0.001;
 		bool resettable = true;
 		// Another add-on (for example a VR mod) keeps writing this value, so it does not count as an unsaved change.
 		bool set_by_game = false;
+		// Text the effect shows above the setting (its "ui_text").
+		std::string text;
+		// Names of the choices for a choice setting, in value order (its "ui_items").
+		std::vector<std::string> choices;
+		// Unit shown after the value, for example "°" (its "ui_units").
+		std::string units;
+		// Group heading the effect puts the setting under (its "ui_category").
+		std::string category;
+		// The effect uses this entry only to show text, so it has no control.
+		bool text_only = false;
 	};
+
+	// Settings without a highest value start with a slider up to twice their value; it doubles whenever the user reaches the end.
+	inline double initial_slider_maximum(const parameter &entry, double value)
+	{
+		const double fallback_span = entry.type == parameter_type::floating_point ? 1.0 : 10.0;
+		return entry.minimum + (std::max)(2.0 * (value - entry.minimum), fallback_span);
+	}
+
+	inline double grown_slider_maximum(double minimum, double maximum)
+	{
+		return minimum + 2.0 * (maximum - minimum);
+	}
+
+	// The value as the effect wants it shown: the choice name for a choice setting, otherwise the number and its unit.
+	inline std::string format_parameter_value(const parameter &entry, double value)
+	{
+		if (entry.type == parameter_type::boolean)
+			return value != 0.0 ? "On" : "Off";
+		const double choice = std::round(value);
+		if (entry.type != parameter_type::floating_point && choice >= 0.0 && choice < static_cast<double>(entry.choices.size()))
+			return entry.choices[static_cast<size_t>(choice)];
+		char number[64];
+		std::snprintf(number, sizeof(number), entry.type == parameter_type::floating_point ? "%.4g" : "%.0f", value);
+		return number + entry.units;
+	}
 
 	struct technique_snapshot
 	{

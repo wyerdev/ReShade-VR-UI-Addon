@@ -1405,6 +1405,58 @@ int main(int argc, char **argv)
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
 	renderer.render(render_target.Get(), snapshot, release);
+	// A setting without a highest value starts with a slider up to twice its value (at least 1 for decimals);
+	// releasing the knob at the end doubles the range.
+	openxr_ui::technique_snapshot unlimited_snapshot = snapshot;
+	unlimited_snapshot.parameters.front().minimum = 0.0;
+	unlimited_snapshot.parameters.front().maximum = std::numeric_limits<double>::infinity();
+	if (!expect_result(click_at(renderer, render_target.Get(), unlimited_snapshot, slider_quarter_x, slider_y),
+		openxr_ui::render_result::command::set_parameter, 100, 0, 0.25))
+		return 1;
+	renderer.render(render_target.Get(), unlimited_snapshot, release);
+	renderer.render(render_target.Get(), unlimited_snapshot, release);
+	renderer.render(render_target.Get(), unlimited_snapshot, release);
+	const float slider_end_x = slider_rect.max_x - 8.0f;
+	if (!expect_result(click_at(renderer, render_target.Get(), unlimited_snapshot, slider_end_x, slider_y),
+		openxr_ui::render_result::command::set_parameter, 100, 0, 1.0))
+		return 1;
+	renderer.render(render_target.Get(), unlimited_snapshot, release);
+	renderer.render(render_target.Get(), unlimited_snapshot, release);
+	renderer.render(render_target.Get(), unlimited_snapshot, release);
+	if (!expect_result(click_at(renderer, render_target.Get(), unlimited_snapshot, slider_quarter_x, slider_y),
+		openxr_ui::render_result::command::set_parameter, 100, 0, 0.5))
+	{
+		std::fputs("Releasing the slider at its end did not double the range of a setting without a highest value.\n", stderr);
+		return 1;
+	}
+	renderer.render(render_target.Get(), snapshot, release);
+	renderer.render(render_target.Get(), snapshot, release);
+	renderer.render(render_target.Get(), snapshot, release);
+	// Effect text gets its own row above the setting, so the setting's slider moves down one row.
+	openxr_ui::technique_snapshot text_snapshot = snapshot;
+	text_snapshot.parameters.front().text = "Help text from the effect";
+	render_layout(renderer, render_target.Get(), text_snapshot, {});
+	openxr_ui::panel_renderer::control_rect text_slider_rect;
+	if (!find_rect(renderer, "param/0/slider", text_slider_rect) || text_slider_rect.min_y <= slider_rect.min_y)
+	{
+		std::fputs("Effect text did not get its own row above the setting.\n", stderr);
+		return 1;
+	}
+	render_layout(renderer, render_target.Get(), snapshot, {});
+	// Choice settings show the choice name, and numbers show the effect's unit.
+	openxr_ui::parameter choice_parameter;
+	choice_parameter.type = openxr_ui::parameter_type::signed_integer;
+	choice_parameter.choices = { "Off", "Low", "High" };
+	openxr_ui::parameter unit_parameter;
+	unit_parameter.type = openxr_ui::parameter_type::unsigned_integer;
+	unit_parameter.units = "\xC2\xB0";
+	if (openxr_ui::format_parameter_value(choice_parameter, 2.0) != "High" ||
+		openxr_ui::format_parameter_value(choice_parameter, 5.0) != "5" ||
+		openxr_ui::format_parameter_value(unit_parameter, 90.0) != "90\xC2\xB0")
+	{
+		std::fputs("Setting values did not show the effect's choice names or units.\n", stderr);
+		return 1;
+	}
 	if (!expect_command(renderer, render_target.Get(), snapshot, "param/0/minus10",
 		openxr_ui::render_result::command::set_parameter, 100, 0, -0.5) ||
 		!expect_command(renderer, render_target.Get(), snapshot, "param/0/minus",
@@ -1475,6 +1527,9 @@ int main(int argc, char **argv)
 		return 1;
 
 	renderer.render(render_target.Get(), snapshot, joystick_down);
+	renderer.render(render_target.Get(), snapshot, warm_up);
+	renderer.render(render_target.Get(), snapshot, joystick_down);
+	// The first step scrolls past the effect description row.
 	renderer.render(render_target.Get(), snapshot, warm_up);
 	renderer.render(render_target.Get(), snapshot, joystick_down);
 	if (!expect_command(renderer, render_target.Get(), snapshot, "param/0/plus",

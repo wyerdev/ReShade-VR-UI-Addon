@@ -1577,15 +1577,11 @@ namespace
 			case format::r32_sint:
 				entry.type = openxr_ui::parameter_type::signed_integer;
 				entry.step = 1.0;
-				entry.minimum = std::numeric_limits<int32_t>::lowest();
-				entry.maximum = (std::numeric_limits<int32_t>::max)();
 				break;
 			case format::r16_uint:
 			case format::r32_uint:
 				entry.type = openxr_ui::parameter_type::unsigned_integer;
 				entry.step = 1.0;
-				entry.minimum = 0.0;
-				entry.maximum = (std::numeric_limits<uint32_t>::max)();
 				break;
 			case format::r16_float:
 			case format::r32_float:
@@ -1607,6 +1603,51 @@ namespace
 			uint32_t no_reset = 0;
 			current_runtime->get_annotation_uint_from_uniform_variable(variable, "noreset", &no_reset, 1);
 			entry.resettable = no_reset == 0;
+
+			const auto read_string_annotation = [current_runtime, variable](const char *name) {
+				size_t size = 0;
+				if (!current_runtime->get_annotation_string_from_uniform_variable(variable, name, nullptr, &size) || size <= 1)
+					return std::string();
+				std::string value(size, '\0');
+				current_runtime->get_annotation_string_from_uniform_variable(variable, name, value.data(), &size);
+				value.resize(size);
+				return value;
+			};
+			entry.text = read_string_annotation("ui_text");
+			entry.units = read_string_annotation("ui_units");
+			entry.category = read_string_annotation("ui_category");
+
+			if (entry.type != openxr_ui::parameter_type::boolean)
+			{
+				// Missing limits are filled from what the effect does say: a choice list spans its choices, colors span 0 to 1,
+				// a missing lowest value is 0, and a missing highest value stays infinite so the menus show an adaptive range.
+				const std::string type_name = read_string_annotation("ui_type");
+				const std::string items = read_string_annotation("ui_items");
+				entry.minimum = 0.0;
+				entry.maximum = std::numeric_limits<double>::infinity();
+				if (entry.type != openxr_ui::parameter_type::floating_point && !items.empty())
+				{
+					// Choices are separated by null characters; a trailing separator does not start another choice.
+					size_t choice_start = 0;
+					while (choice_start < items.size())
+					{
+						const size_t choice_end = (std::min)(items.find('\0', choice_start), items.size());
+						entry.choices.push_back(items.substr(choice_start, choice_end - choice_start));
+						choice_start = choice_end + 1;
+					}
+					entry.maximum = static_cast<double>((std::max<size_t>)(entry.choices.size(), 1) - 1);
+				}
+				else if (entry.type != openxr_ui::parameter_type::floating_point && type_name == "radio")
+				{
+					// A radio list without choices is how effects put help text or spacing in the menu; ReShade shows it as text.
+					entry.text_only = true;
+					entry.maximum = 0.0;
+				}
+				else if (entry.type == openxr_ui::parameter_type::floating_point && type_name == "color")
+				{
+					entry.maximum = 1.0;
+				}
+			}
 
 			if (entry.type == openxr_ui::parameter_type::floating_point)
 			{
@@ -2876,6 +2917,10 @@ bool openxr_ui_set_parameter(uint64_t parameter_id, uint32_t component, double v
 	auto updated = std::make_shared<openxr_ui::technique_snapshot>(*s_techniques);
 	openxr_ui::parameter &parameter = updated->parameters[parameter_index];
 	value = std::clamp(value, parameter.minimum, parameter.maximum);
+	if (parameter.type == openxr_ui::parameter_type::signed_integer)
+		value = std::clamp(value, static_cast<double>(std::numeric_limits<int32_t>::lowest()), static_cast<double>((std::numeric_limits<int32_t>::max)()));
+	else if (parameter.type == openxr_ui::parameter_type::unsigned_integer)
+		value = std::clamp(value, 0.0, static_cast<double>((std::numeric_limits<uint32_t>::max)()));
 	parameter.values[component] = value;
 	const uint32_t array_index = component / parameter.component_count;
 	const size_t offset = static_cast<size_t>(array_index) * parameter.component_count;

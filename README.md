@@ -20,7 +20,7 @@ Problem with a specific game? See [Fixes for specific games](docs/GAME-FIXES.md)
 
 ## Features
 
-- **Headset menu (OpenXR games, including UEVR):** turn effects on and off, change their settings, and save or switch presets.
+- **Headset menu (OpenXR games, including UEVR):** turn effects on and off, change their settings, read each effect's own description, help text, setting groups, choice names and units, and save or switch presets.
 - **Head gesture to switch presets (OpenXR games):** raise a hand to the side of your head and press a button to switch to the next preset, for example from a preset for dark scenes to one for bright scenes.
 - **Share presets between games (OpenXR games):** save a preset as global, then import it in another game. Effects that game lacks are copied along. Starred effects can be added the same way.
 - **Walk by swinging your arms (OpenXR games):** swing your arms to walk, and swing faster to run.
