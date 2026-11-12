@@ -20,7 +20,7 @@ For OpenXR games with DirectX 11, DirectX 12, OpenGL or Vulkan, and for UEVR. 32
 6. Start the game. For UEVR, set UEVR to **OpenXR** before you inject.
 7. Press both thumbsticks in (`L3 + R3`) or the `Insert` key to open the menu in the headset. Turn effects on there.
 
-Use the menu with a VR controller, a gamepad or the mouse (move, left click, wheel to scroll).
+Use the menu with a VR controller, a gamepad or the mouse (move, left click, wheel to scroll). With a Touch controller, point the right hand at the menu and press the trigger or **A** to click. While you point at the menu, the game does not see the right trigger or **A**, so clicking does not fire your weapon.
 
 UEVR uses the same buttons for its own menu. To use other buttons, change **Controller buttons** and **Keyboard key** on the menu's **Settings** page.
 

@@ -187,6 +187,8 @@ namespace
 		std::vector<XrAction> walk_float_actions;
 		// The game's own actions on each button arm swing running can press, indexed by arm_swing_run_button_id.
 		std::array<std::vector<XrAction>, static_cast<size_t>(openxr_ui::arm_swing_run_button_id::count)> run_actions;
+		// The game's own actions on the right trigger and A, which the menu uses to click. Guarded by s_layer_mutex.
+		std::vector<XrAction> click_actions;
 	};
 
 	struct quad_target
@@ -276,6 +278,9 @@ namespace
 		std::vector<XrAction> walk_vector_actions;
 		std::vector<XrAction> walk_float_actions;
 		std::array<std::vector<XrAction>, static_cast<size_t>(openxr_ui::arm_swing_run_button_id::count)> run_actions;
+		std::vector<XrAction> click_actions;
+		// True while the right controller points at the menu, so the game does not see the click. Read from the game's input calls.
+		std::atomic<bool> game_clicks_blocked = false;
 		bool actions_attached = false;
 		// The game's last xrSyncActions, which also refreshed the menu's actions; the game may call it from another thread.
 		std::atomic<int64_t> app_synced_at = 0;
@@ -577,6 +582,7 @@ namespace
 		std::vector<XrActionSuggestedBinding> bindings = {
 			{ dispatch.aim_action, dispatch.aim_path },
 			{ dispatch.select_action, dispatch.trigger_path },
+			{ dispatch.select_action, dispatch.right_a_click_path },
 			{ dispatch.right_menu_toggle_action, dispatch.right_thumbstick_click_path },
 			{ dispatch.left_menu_toggle_action, dispatch.left_thumbstick_click_path },
 			{ dispatch.left_menu_button_action, dispatch.left_menu_click_path },
@@ -1579,12 +1585,17 @@ namespace
 
 	void record_walk_actions(instance_dispatch &dispatch, const XrInteractionProfileSuggestedBinding &suggested_bindings)
 	{
-		if (dispatch.left_thumbstick_path == XR_NULL_PATH || suggested_bindings.suggestedBindings == nullptr)
+		if (suggested_bindings.suggestedBindings == nullptr)
 			return;
 		const std::lock_guard<std::mutex> lock(s_layer_mutex);
 		for (uint32_t index = 0; index < suggested_bindings.countSuggestedBindings; ++index)
 		{
 			const XrActionSuggestedBinding &binding = suggested_bindings.suggestedBindings[index];
+			if ((binding.binding == dispatch.trigger_path || binding.binding == dispatch.right_a_click_path) &&
+				std::find(dispatch.click_actions.begin(), dispatch.click_actions.end(), binding.action) == dispatch.click_actions.end())
+				dispatch.click_actions.push_back(binding.action);
+			if (dispatch.left_thumbstick_path == XR_NULL_PATH)
+				continue;
 			const XrPath run_paths[] = { dispatch.left_thumbstick_click_path, dispatch.right_a_click_path, dispatch.right_b_click_path,
 				dispatch.left_x_click_path, dispatch.left_y_click_path };
 			static_assert(std::size(run_paths) == static_cast<size_t>(openxr_ui::arm_swing_run_button_id::count));
@@ -1645,6 +1656,8 @@ namespace
 		state.select_clicked = false;
 		state.select_released = false;
 		state.scroll_y = 0.0f;
+		const bool clicks_were_blocked = state.game_clicks_blocked.load(std::memory_order_relaxed);
+		state.game_clicks_blocked.store(false, std::memory_order_relaxed);
 		if (!state.pointer_visible)
 			state.pointer_filter_ready = false;
 		const bool key_pressed = openxr_ui_menu_key_down(state.menu_key);
@@ -1758,6 +1771,8 @@ namespace
 			}
 			else
 				state.pointer_filter_ready = false;
+			// A click that started on the menu stays hidden from the game until released, even if the pointer drifts off it.
+			state.game_clicks_blocked.store(state.pointer_visible || (clicks_were_blocked && state.select_down), std::memory_order_relaxed);
 		}
 	}
 
@@ -2508,6 +2523,7 @@ extern "C" XrResult XRAPI_CALL xrAttachSessionActionSets(XrSession session, cons
 		state->walk_vector_actions = state->dispatch->walk_vector_actions;
 		state->walk_float_actions = state->dispatch->walk_float_actions;
 		state->run_actions = state->dispatch->run_actions;
+		state->click_actions = state->dispatch->click_actions;
 	}
 	return result;
 }
@@ -2543,6 +2559,14 @@ extern "C" XrResult XRAPI_CALL xrGetActionStateBoolean(XrSession session, const 
 	const XrResult result = state->dispatch->GetActionStateBoolean(session, get_info, action_state);
 	if (XR_FAILED(result) || action_state == nullptr || !action_state->isActive)
 		return result;
+	if (state->game_clicks_blocked.load(std::memory_order_relaxed) &&
+		reads_hand_action(get_info, state->click_actions, state->dispatch->right_hand_path))
+	{
+		if (action_state->currentState)
+			action_state->changedSinceLastSync = XR_TRUE;
+		action_state->currentState = XR_FALSE;
+		return result;
+	}
 	const auto button = static_cast<openxr_ui::arm_swing_run_button_id>(state->arm_swing_run_target.load(std::memory_order_relaxed));
 	const XrPath hand_path = openxr_ui::arm_swing_run_button_on_right_hand(button) ? state->dispatch->right_hand_path : state->dispatch->left_hand_path;
 	if (!reads_hand_action(get_info, state->run_actions[static_cast<size_t>(button)], hand_path))
@@ -2562,7 +2586,17 @@ extern "C" XrResult XRAPI_CALL xrGetActionStateFloat(XrSession session, const Xr
 		return XR_ERROR_HANDLE_INVALID;
 	const XrResult result = state->dispatch->GetActionStateFloat(session, get_info, action_state);
 	if (XR_SUCCEEDED(result) && action_state != nullptr && action_state->isActive)
+	{
+		if (state->game_clicks_blocked.load(std::memory_order_relaxed) &&
+			reads_hand_action(get_info, state->click_actions, state->dispatch->right_hand_path))
+		{
+			if (action_state->currentState != 0.0f)
+				action_state->changedSinceLastSync = XR_TRUE;
+			action_state->currentState = 0.0f;
+			return result;
+		}
 		apply_arm_swing(*state, get_info, state->walk_float_actions, action_state->currentState, action_state->changedSinceLastSync);
+	}
 	return result;
 }
 
